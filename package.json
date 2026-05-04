@@ -1,0 +1,25 @@
+{
+  "name": "quan-ly-tien",
+  "version": "1.0.0",
+  "description": "App quản lý thu chi cá nhân - PWA + APK Android, đa người dùng, đồng bộ Google Drive",
+  "main": "www/index.html",
+  "scripts": {
+    "init-android": "npx cap add android",
+    "sync": "npx cap sync android",
+    "open-android": "npx cap open android",
+    "build-apk": "cd android && gradlew.bat assembleDebug",
+    "build-apk-release": "cd android && gradlew.bat assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/app": "^6.0.1",
+    "@capacitor/camera": "^6.1.0",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/filesystem": "^6.0.1",
+    "@capacitor/local-notifications": "^6.1.0",
+    "@capacitor/preferences": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}

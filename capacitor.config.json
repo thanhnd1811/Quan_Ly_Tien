@@ -1,0 +1,23 @@
+{
+  "appId": "com.thanh.quanlytien",
+  "appName": "Quản Lý Tiền",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_icon",
+      "iconColor": "#2d6a4f",
+      "sound": "default"
+    },
+    "Camera": {
+      "androidScale": 1.0
+    }
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  }
+}

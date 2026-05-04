@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Quản Lý Tiền</title>
+<meta name="theme-color" content="#2d6a4f">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#f2f5f0; --surface:#ffffff; --surface2:#f8faf7; --border:#e0e6dc;
+  --accent:#2d6a4f; --accent-light:#52b788; --acl:#e8f5ee; --accent2:#e76f51;
+  --warn:#f4a261; --danger:#e63946; --pos:#2d8659;
+  --text:#1a2a1f; --text2:#5e6b62; --text3:#9aa39c;
+  --r:14px; --rsm:10px; --sh:0 2px 10px rgba(0,0,0,0.06); --shlg:0 8px 28px rgba(0,0,0,0.12);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{overscroll-behavior:none;touch-action:pan-y}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);max-width:480px;margin:0 auto;min-height:100vh;overflow-x:hidden}
+input,select,textarea,button{font-family:'DM Sans',sans-serif}
+img{max-width:100%}
+button{border:none;background:none;cursor:pointer;color:inherit}
+
+.screen{display:none;flex-direction:column;min-height:100vh;animation:fadeIn .2s ease}
+.screen.active{display:flex}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+.scroll-body{flex:1;overflow-y:auto;padding-bottom:96px}
+
+/* Topbar */
+.topbar{background:var(--accent);color:#fff;padding:46px 16px 18px;position:sticky;top:0;z-index:50}
+.tb-row{display:flex;align-items:center;gap:14px}
+.tb-icon{width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.tb-icon svg{width:24px;height:24px}
+.tb-title{font-size:18px;font-weight:600;flex:1}
+.tb-back{width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.tb-back svg{width:22px;height:22px}
+
+/* Tabs (chi/thu) */
+.seg{display:flex;background:rgba(255,255,255,0.0);margin-top:14px}
+.seg-item{flex:1;text-align:center;padding:10px 0;font-size:13px;font-weight:600;letter-spacing:1px;color:rgba(255,255,255,0.6);cursor:pointer;border-bottom:3px solid transparent}
+.seg-item.on{color:#fff;border-bottom-color:#fff}
+
+/* Bottom nav */
+.bnav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--surface);border-top:1px solid var(--border);display:flex;padding:6px 0 env(safe-area-inset-bottom,10px);z-index:100}
+.ni{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:6px 0;color:var(--text3)}
+.ni svg{width:22px;height:22px}
+.ni-label{font-size:10px;font-weight:500}
+.ni.active{color:var(--accent)}
+.ni.active .ni-label{font-weight:700}
+.ni-fab{width:48px;height:48px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;margin-top:-22px;box-shadow:0 4px 14px rgba(45,106,79,.4)}
+.ni-fab svg{width:24px;height:24px}
+
+/* Drawer */
+.drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.4);opacity:0;visibility:hidden;transition:.2s;z-index:200}
+.drawer{position:fixed;top:0;left:0;height:100vh;width:78%;max-width:320px;background:var(--accent);color:#fff;transform:translateX(-100%);transition:.25s ease;z-index:201;display:flex;flex-direction:column}
+.drawer.open{transform:translateX(0)}
+.drawer.open ~ .drawer-overlay{opacity:1;visibility:visible}
+.dr-header{padding:46px 18px 14px;border-bottom:1px solid rgba(255,255,255,0.12)}
+.dr-avatar{width:50px;height:50px;border-radius:50%;background:#fff;margin-bottom:8px;object-fit:cover}
+.dr-name{font-weight:700;font-size:15px}
+.dr-email{font-size:12px;opacity:.85;margin-top:2px}
+.dr-section{padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.12)}
+.dr-section-label{font-size:10px;font-weight:700;color:rgba(255,255,255,0.55);padding:6px 18px 6px;text-transform:uppercase;letter-spacing:1px}
+.dr-book-row{display:flex;align-items:center;gap:12px;padding:8px 18px;cursor:pointer;font-size:14px}
+.dr-book-row:active{background:rgba(255,255,255,0.08)}
+.dr-book-row.on{background:rgba(255,255,255,0.14)}
+.dr-book-row.on .dr-book-row-name{font-weight:700}
+.dr-book-row-icon{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0}
+.dr-book-row-icon svg{width:16px;height:16px}
+.dr-book-row-name{flex:1;font-weight:500}
+.dr-book-row-check{width:18px;height:18px;flex-shrink:0;opacity:.85;display:flex;align-items:center;justify-content:center}
+.dr-book-row-check svg{width:18px;height:18px}
+.dr-mini-item{display:flex;align-items:center;gap:10px;padding:8px 18px;cursor:pointer;font-size:13px;color:rgba(255,255,255,0.85)}
+.dr-mini-item:active{background:rgba(255,255,255,0.08)}
+.dr-mini-icon{width:24px;height:24px;display:flex;align-items:center;justify-content:center;opacity:.7}
+.dr-mini-icon svg{width:16px;height:16px}
+
+/* Book list inside modal */
+.book-item{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border);cursor:pointer}
+.book-item.on{background:var(--acl)}
+.book-item.on .tx-cat{color:var(--accent)}
+.book-edit-btn{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:50%;color:var(--text2);background:var(--surface2);flex-shrink:0}
+.book-edit-btn:active{background:var(--border)}
+.book-edit-btn svg{width:18px;height:18px}
+.dr-list{flex:1;overflow-y:auto;padding:8px 0}
+.dr-item{display:flex;align-items:center;gap:14px;padding:14px 18px;cursor:pointer;font-size:15px}
+.dr-item:active{background:rgba(255,255,255,.08)}
+.dr-item svg{width:22px;height:22px;opacity:.85}
+
+/* Sections */
+.section{padding:18px 16px 0}
+.sec-label{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.sec-action{font-size:12px;color:var(--accent);font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:10px}
+.empty-msg{text-align:center;padding:40px 20px;color:var(--text3);font-size:13px}
+
+/* Home */
+.balance-hero{background:linear-gradient(135deg,#2d6a4f,#52b788);color:#fff;border-radius:var(--r);padding:18px;margin:16px;box-shadow:var(--sh)}
+.balance-label{font-size:12px;opacity:.9;margin-bottom:4px}
+.balance-amount{font-size:28px;font-weight:700}
+.balance-month{font-size:11px;opacity:.8;margin-top:8px}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.stat-card{background:rgba(255,255,255,.18);border-radius:var(--rsm);padding:10px}
+.stat-lbl{font-size:11px;opacity:.85}
+.stat-val{font-size:17px;font-weight:700;margin-top:3px}
+
+/* Tx item */
+.tx-item{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border);cursor:pointer}
+.tx-item:active{background:var(--surface2)}
+.tx-icon{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.tx-icon svg{width:20px;height:20px}
+.tx-info{flex:1;min-width:0}
+.tx-cat{font-size:14px;font-weight:600}
+.tx-meta{font-size:11px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tx-amount{font-size:14px;font-weight:700;flex-shrink:0}
+.amount-pos{color:var(--pos)}
+.amount-neg{color:var(--danger)}
+
+/* Day header */
+.day-header{padding:12px 16px 6px;font-size:12px;color:var(--text2);font-weight:600;background:var(--bg);display:flex;justify-content:space-between;align-items:center}
+.day-totals{display:flex;gap:10px;font-size:12px;font-weight:700}
+
+/* Filter pills */
+.pill-row{display:flex;gap:8px;padding:14px 16px 4px;overflow-x:auto;scrollbar-width:none}
+.pill-row::-webkit-scrollbar{display:none}
+.pill{padding:7px 14px;background:var(--surface);border:1px solid var(--border);border-radius:20px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;flex-shrink:0}
+.pill.on{background:var(--acl);border-color:var(--accent);color:var(--accent)}
+
+/* Categories grid */
+.cat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:18px 16px}
+.cat-item{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer}
+.cat-circle{width:62px;height:62px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff}
+.cat-circle svg{width:30px;height:30px}
+.cat-name{font-size:12px;color:var(--text);text-align:center;font-weight:500}
+
+/* Account item */
+.acc-item{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border);cursor:pointer}
+
+/* Reminder item */
+.rem-item{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border);cursor:pointer}
+
+/* Chart */
+.chart-wrap{padding:16px;background:var(--surface);margin:14px 16px;border-radius:var(--r);border:1px solid var(--border)}
+.chart-canvas{width:100%;height:200px;display:block}
+.chart-canvas-donut{width:100%;height:240px;display:block}
+.legend-list{padding:8px 16px}
+.legend-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface);border-radius:var(--rsm);margin-bottom:6px;border:1px solid var(--border)}
+.legend-dot{width:10px;height:10px;border-radius:50%}
+.legend-name{flex:1;font-size:13px}
+.legend-val{font-size:13px;font-weight:700}
+
+/* Modal */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:300;display:none;align-items:flex-end;justify-content:center}
+/* Modal lồng nhau (mở từ modal khác) cần z-index cao hơn để hiện đè lên */
+#bookEditModal{z-index:310}
+#addManyModal{z-index:320}
+.modal.open{display:flex;animation:fadeIn .15s}
+.modal-card{background:var(--bg);width:100%;max-width:480px;max-height:92vh;border-radius:18px 18px 0 0;display:flex;flex-direction:column;animation:slideUp .25s ease}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal-head{padding:14px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);background:var(--surface)}
+.modal-head h3{font-size:16px;font-weight:700;flex:1}
+.modal-head button{width:38px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:var(--surface2);color:var(--text)}
+.modal-head button:active{background:var(--border)}
+.modal-head button svg{width:22px;height:22px}
+#txCamera{background:var(--accent);color:#fff}
+#txCamera:active{background:#1f5239}
+.modal-body{flex:1;overflow-y:auto;padding:14px 16px}
+.modal-footer{padding:12px 16px env(safe-area-inset-bottom,16px);background:var(--surface);border-top:1px solid var(--border);display:flex;gap:10px}
+
+/* Form */
+.fg{margin-bottom:16px}
+.fl{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;display:block}
+.fi{width:100%;padding:12px 14px;background:var(--surface);border:1.5px solid var(--border);border-radius:var(--rsm);color:var(--text);font-size:15px;outline:none}
+.fi:focus{border-color:var(--accent)}
+textarea.fi{resize:none;min-height:64px}
+select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="%235e6b62" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');background-repeat:no-repeat;background-position:right 14px center;padding-right:36px}
+.fi-amount{font-size:24px;font-weight:700;text-align:center;color:var(--accent);border:none;border-bottom:2px solid var(--accent)}
+.row-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+/* Picker (account/category in tx form) */
+.picker-list{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;scrollbar-width:none}
+.picker-list::-webkit-scrollbar{display:none}
+.picker-item{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--surface);border:1.5px solid var(--border);border-radius:20px;cursor:pointer;flex-shrink:0;font-size:13px}
+.picker-item.on{background:var(--acl);border-color:var(--accent);color:var(--accent);font-weight:600}
+.picker-icon{width:18px;height:18px;display:flex;align-items:center;justify-content:center}
+.picker-icon svg{width:18px;height:18px}
+
+/* Type pill (chi/thu in tx form) */
+.tx-type-row{display:flex;gap:8px;margin-bottom:14px}
+.tx-type-pill{flex:1;padding:11px;border:1.5px solid var(--border);border-radius:var(--rsm);text-align:center;font-weight:600;font-size:14px;cursor:pointer;background:var(--surface)}
+.tx-type-pill.on[data-type="expense"]{background:#ffeae5;border-color:var(--accent2);color:var(--accent2)}
+.tx-type-pill.on[data-type="income"]{background:var(--acl);border-color:var(--accent);color:var(--accent)}
+.tx-type-pill.on[data-type="transfer"]{background:#e8eef5;border-color:#4f86c6;color:#4f86c6}
+.picker-item.disabled{opacity:.4;cursor:not-allowed}
+
+/* Icon picker */
+.icon-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:8px}
+.icon-pick{width:46px;height:46px;border-radius:50%;background:var(--surface);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text2);justify-self:center}
+.icon-pick svg{width:22px;height:22px}
+.icon-pick.on{background:var(--acl);border-color:var(--accent)}
+
+/* Buttons */
+.btn{padding:13px;border-radius:var(--rsm);font-size:15px;font-weight:600;cursor:pointer;flex:1}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:active{background:#1f5239}
+.btn-secondary{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+.btn-danger{background:#ffeaea;color:var(--danger);border:1px solid #ffc5c5}
+.btn-google{display:flex;align-items:center;justify-content:center;gap:10px;background:#fff;color:#3c4043;border:1px solid #dadce0;padding:12px;border-radius:var(--rsm);font-weight:600;cursor:pointer;width:100%}
+.btn-google svg{width:20px;height:20px}
+.btn-block{width:100%;display:block}
+
+/* Switch */
+.switch-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0}
+.switch{position:relative;width:44px;height:24px}
+.switch input{opacity:0;width:0;height:0}
+.switch .slider{position:absolute;inset:0;background:#ccc;border-radius:24px;transition:.2s;cursor:pointer}
+.switch .slider:before{content:"";position:absolute;left:2px;top:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:.2s}
+.switch input:checked + .slider{background:var(--accent)}
+.switch input:checked + .slider:before{transform:translateX(20px)}
+
+.status-msg{padding:10px;background:var(--acl);color:var(--accent);border-radius:var(--rsm);font-size:13px;text-align:center;margin-bottom:10px}
+
+/* Photo attach */
+.photo-add-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:14px;background:var(--surface);border:1.5px dashed var(--border);border-radius:var(--rsm);color:var(--text2);font-size:14px;font-weight:600;cursor:pointer}
+.photo-add-btn:active{background:var(--acl);border-color:var(--accent);color:var(--accent)}
+.photo-add-btn svg{width:22px;height:22px}
+.photo-thumb{position:relative;display:inline-block;border-radius:var(--rsm);overflow:hidden;border:1px solid var(--border);cursor:pointer}
+.photo-thumb img{display:block;max-width:100%;max-height:200px;width:auto;object-fit:contain}
+.photo-remove{position:absolute;top:6px;right:6px;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.photo-remove svg{width:16px;height:16px}
+.tx-photo-badge{display:inline-flex;width:14px;height:14px;color:var(--accent);vertical-align:middle;margin-left:4px}
+.tx-photo-badge svg{width:14px;height:14px}
+
+/* Members + Settlement */
+.member-row{display:flex;gap:6px;align-items:center;margin-bottom:8px}
+.member-row .fi{padding:9px 10px;font-size:13px}
+.member-row .member-num{width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.member-row .member-name{flex:1.2;min-width:0}
+.member-row .member-amount{flex:1.2;text-align:right;font-weight:600;min-width:0}
+.member-del{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:#ffeaea;color:#e63946;flex-shrink:0;border:none;cursor:pointer}
+.member-del:active{background:#ffd0d0}
+.member-del svg{width:14px;height:14px}
+
+/* Lightbox */
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:400;display:none;align-items:center;justify-content:center;padding:20px}
+.lightbox.open{display:flex;animation:fadeIn .15s}
+.lightbox img{max-width:100%;max-height:100%;object-fit:contain}
+.lightbox-close{position:absolute;top:20px;right:20px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.15);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.lightbox-close svg{width:22px;height:22px}
+
+.setting-row{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border)}
+.setting-label{font-size:14px;color:var(--text)}
+.setting-value{font-size:13px;color:var(--text2)}
+
+.account-summary{padding:24px 16px;text-align:center;background:linear-gradient(135deg,#2d6a4f,#52b788);color:#fff}
+.account-summary-label{font-size:12px;opacity:.9}
+.account-summary-amount{font-size:30px;font-weight:700;margin-top:4px}
+
+/* In-app dialog (thay alert/confirm native) */
+.qlt-dialog{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9000;display:none;align-items:center;justify-content:center;padding:20px;animation:fadeIn .15s}
+.qlt-dialog.open{display:flex}
+.qlt-dialog-card{background:var(--bg);width:100%;max-width:340px;border-radius:16px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.35);animation:dialogPop .18s ease}
+@keyframes dialogPop{from{transform:scale(.92);opacity:0}to{transform:scale(1);opacity:1}}
+.qlt-dialog-body{padding:22px 20px 16px;text-align:center}
+.qlt-dialog-title{font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px}
+.qlt-dialog-msg{font-size:14px;color:var(--text2);line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.qlt-dialog-actions{display:flex;border-top:1px solid var(--border)}
+.qlt-dialog-btn{flex:1;padding:14px;background:var(--surface);border:none;font-size:15px;font-weight:600;color:var(--text);cursor:pointer}
+.qlt-dialog-btn:active{background:var(--surface2)}
+.qlt-dialog-btn + .qlt-dialog-btn{border-left:1px solid var(--border)}
+.qlt-dialog-btn.primary{color:var(--accent)}
+.qlt-dialog-btn.danger{color:var(--danger)}
+
+/* In-app toast (thông báo nhanh không cần bấm) */
+.qlt-toast-wrap{position:fixed;left:0;right:0;bottom:max(24px,env(safe-area-inset-bottom,24px));z-index:9100;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;padding:0 16px}
+.qlt-toast{background:rgba(20,32,26,0.94);color:#fff;padding:12px 18px;border-radius:24px;font-size:14px;max-width:420px;box-shadow:0 6px 20px rgba(0,0,0,0.25);animation:toastIn .2s ease;text-align:center;line-height:1.4;word-break:break-word}
+.qlt-toast.success{background:#1f5239}
+.qlt-toast.error{background:#a8324a}
+.qlt-toast.fade{animation:toastOut .25s ease forwards}
+@keyframes toastIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes toastOut{from{transform:translateY(0);opacity:1}to{transform:translateY(20px);opacity:0}}
+
+</style>
+</head>
+<body>
+
+<!-- ========== HOME ========== -->
+<div id="screen-home" class="screen">
+  <div class="topbar">
+    <div class="tb-row">
+      <div class="tb-icon" id="menuBtn" data-icon="menu"></div>
+      <div class="tb-title">
+        Quản Lý Tiền
+        <div id="topbarBookLabel" style="font-size:11px;font-weight:400;opacity:.85;margin-top:2px"></div>
+      </div>
+    </div>
+  </div>
+  <div class="scroll-body">
+    <div class="balance-hero">
+      <div class="balance-label">Tổng số dư</div>
+      <div class="balance-amount" id="homeBalance">0 đ</div>
+      <div class="balance-month" id="homeMonth">Tháng này</div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-lbl">Thu nhập</div>
+          <div class="stat-val" id="homeIncome">0 đ</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-lbl">Chi tiêu</div>
+          <div class="stat-val" id="homeExpense">0 đ</div>
+        </div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="sec-label">
+        Giao dịch gần đây
+        <span class="sec-action" onclick="QLT_App.switchTab('transactions')">Xem tất cả</span>
+      </div>
+    </div>
+    <div id="homeRecent"></div>
+  </div>
+</div>
+
+<!-- ========== TRANSACTIONS ========== -->
+<div id="screen-transactions" class="screen">
+  <div class="topbar">
+    <div class="tb-row">
+      <div class="tb-back" data-icon="back" onclick="QLT_App.switchTab('home')"></div>
+      <div class="tb-title">Giao dịch</div>
+    </div>
+  </div>
+  <div class="scroll-body">
+    <div class="pill-row">
+      <div class="pill tx-filter-pill on" data-type="all">Tất cả</div>
+      <div class="pill tx-filter-pill" data-type="expense">Chi</div>
+      <div class="pill tx-filter-pill" data-type="income">Thu</div>
+      <div class="pill tx-filter-pill" data-type="transfer">Chuyển</div>
+    </div>
+    <div class="pill-row" id="txAccountFilterRow"></div>
+    <div id="txList"></div>
+  </div>
+</div>
+
+<!-- ========== ACCOUNTS ========== -->
+<div id="screen-accounts" class="screen">
+  <div class="topbar">
+    <div class="tb-row">
+      <div class="tb-back" data-icon="back" onclick="QLT_App.switchTab('home')"></div>
+      <div class="tb-title">Tài khoản</div>
+      <div class="tb-icon" id="accAddBtn" data-icon="add"></div>
+    </div>
+  </div>
+  <div class="account-summary">
+    <div class="account-summary-label">Tổng số dư</div>
+    <div class="account-summary-amount" id="accTotalBalance">0 đ</div>
+  </div>
+  <div class="scroll-body">
+    <div id="accList"></div>
+  </div>
+</div>
+
+<!-- ========== CHARTS ========== -->
+<div id="screen-charts" class="screen">
+  <div class="topbar">
+    <div class="tb-row">
+      <div class="tb-back" data-icon="back" onclick="QLT_App.switchTab('home')"></div>
+      <div class="tb-title">Biểu đồ</div>
+    </div>
+  </div>
+  <div class="scroll-body">
+    <div class="pill-row">
+      <div class="pill period-pill" data-period="day">Ngày</div>
+      <div class="pill period-pill" data-period="week">Tuần</div>
+      <div class="pill period-pill on" data-period="month">Tháng</div>
+      <div class="pill period-pill" data-period="year">Năm</div>
+    </div>
+    <div class="chart-wrap">
+      <div class="sec-label" style="padding:0;margin-bottom:10px">Thu / Chi theo kỳ</div>
+      <canvas id="chartBar" class="chart-canvas"></canvas>
+    </div>
+    <div class="chart-wrap">
+      <div class="sec-label" style="padding:0;margin-bottom:10px">Chi tiêu theo danh mục</div>
+      <canvas id="chartDonut" class="chart-canvas-donut"></canvas>
+    </div>
+    <div id="chartLegend" class="legend-list"></div>
+  </div>
+</div>
+
+<!-- ========== CATEGORIES ========== -->
+<div id="screen-categories" class="screen">
+  <div class="topbar">
+    <div class="tb-row">
+      <div class="tb-back" data-icon="back" onclick="QLT_App.switchTab('home')"></div>
+      <div class="tb-title">Danh mục</div>
+    </div>
+    <div class="seg">
+      <div class="seg-item cat-tab" data-type="expense">CHI PHÍ</div>
+      <div class="seg-item cat-tab on" data-type="income">THU NHẬP</div>
+    </div>
+  </div>
+  <div class="scroll-body">
+    <div id="catGrid" class="cat-grid"></div>
+  </div>
+</div>
+
+<!-- ========== REMINDERS ========== -->
+<div id="screen-reminders" class="screen">
+  <div class="topbar">
+    <div class="tb-row">
+      <div class="tb-back" data-icon="back" onclick="QLT_App.switchTab('home')"></div>
+      <div class="tb-title">Nhắc nhở</div>
+      <div class="tb-icon" id="remAddBtn" data-icon="add"></div>
+    </div>
+  </div>
+  <div class="scroll-body">
+    <div id="remList"></div>
+  </div>
+</div>
+
+<!-- ========== SETTINGS ========== -->
+<div id="screen-settings" class="screen">
+  <div class="topbar">
+    <div class="tb-row">
+      <div class="tb-back" data-icon="back" onclick="QLT_App.switchTab('home')"></div>
+      <div class="tb-title">Cài đặt</div>
+    </div>
+  </div>
+  <div class="scroll-body">
+    <div class="section">
+      <div class="sec-label">Tài khoản Google</div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Email</span>
+      <span class="setting-value" id="setUser">-</span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Đồng bộ gần nhất</span>
+      <span class="setting-value" id="setLastSync">-</span>
+    </div>
+    <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+      <button id="setLogin" class="btn-google"><span data-icon="google"></span><span>Đăng nhập Google</span></button>
+      <button id="setSync" class="btn btn-primary btn-block">Đồng bộ với Google Drive</button>
+      <button id="setLogout" class="btn btn-secondary btn-block">Đăng xuất</button>
+    </div>
+    <div class="section">
+      <div class="sec-label">Sao lưu / khôi phục</div>
+    </div>
+    <div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:10px">
+      <button id="setExport" class="btn btn-secondary btn-block">Xuất ra file JSON</button>
+      <button id="setImport" class="btn btn-secondary btn-block">Nhập từ file JSON</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== DRAWER ========== -->
+<div id="drawer" class="drawer">
+  <div class="dr-header">
+    <img id="drUserAvatar" class="dr-avatar" src="icons/icon-192.png" alt="">
+    <div class="dr-name" id="drUserName">Khách</div>
+    <div class="dr-email" id="drUserEmail">Chưa đăng nhập</div>
+  </div>
+  <div class="dr-section">
+    <div class="dr-section-label">Sổ của bạn</div>
+    <div id="drBooksList"></div>
+    <div class="dr-mini-item" data-action="bookadd">
+      <span class="dr-mini-icon"><span data-icon="add"></span></span>
+      <span>Tạo sổ mới</span>
+    </div>
+    <div class="dr-mini-item" data-action="books">
+      <span class="dr-mini-icon"><span data-icon="settings"></span></span>
+      <span>Quản lý sổ</span>
+    </div>
+  </div>
+  <div class="dr-list">
+    <div class="dr-item" data-action="home"><span data-icon="list"></span> Trang chủ</div>
+    <div class="dr-item" data-action="accounts"><span data-icon="cash"></span> Tài khoản</div>
+    <div class="dr-item" data-action="charts"><span data-icon="chart"></span> Biểu đồ</div>
+    <div class="dr-item" data-action="categories"><span data-icon="list"></span> Danh mục</div>
+    <div class="dr-item" data-action="transactions"><span data-icon="refresh"></span> Giao dịch</div>
+    <div class="dr-item" data-action="reminders"><span data-icon="bell"></span> Nhắc nhở</div>
+    <div class="dr-item" data-action="settings"><span data-icon="settings"></span> Cài đặt</div>
+    <div class="dr-item" id="syncItem" data-action="sync" style="display:none"><span data-icon="cloud"></span> Đồng bộ Drive</div>
+    <div class="dr-item" id="loginItem" data-action="login"><span data-icon="user"></span> Đăng nhập Google</div>
+    <div class="dr-item" id="logoutItem" data-action="logout" style="display:none"><span data-icon="logout"></span> Đăng xuất</div>
+  </div>
+</div>
+<div id="drawerOverlay" class="drawer-overlay"></div>
+
+<!-- ========== BOTTOM NAV ========== -->
+<nav class="bnav">
+  <div class="ni" data-tab="home"><span data-icon="list"></span><div class="ni-label">Trang chủ</div></div>
+  <div class="ni" data-tab="charts"><span data-icon="chart"></span><div class="ni-label">Biểu đồ</div></div>
+  <div class="ni" data-tab="add"><div class="ni-fab"><span data-icon="add"></span></div></div>
+  <div class="ni" data-tab="categories"><span data-icon="grocery"></span><div class="ni-label">Danh mục</div></div>
+  <div class="ni" data-tab="settings"><span data-icon="settings"></span><div class="ni-label">Cài đặt</div></div>
+</nav>
+
+<!-- ========== TX MODAL ========== -->
+<div id="txModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3 id="txTitle">Thêm giao dịch</h3>
+      <button id="txCamera" title="Chụp hoá đơn"><span data-icon="camera"></span></button>
+    </div>
+    <div class="modal-body" id="txForm" data-type="expense">
+      <div id="txOcrStatus" class="status-msg" style="display:none"></div>
+      <div class="tx-type-row">
+        <div class="tx-type-pill on" data-type="expense">Chi</div>
+        <div class="tx-type-pill" data-type="income">Thu</div>
+        <div class="tx-type-pill" data-type="transfer">Chuyển</div>
+      </div>
+      <div class="fg">
+        <label class="fl">Số tiền (VND)</label>
+        <input id="txAmount" class="fi fi-amount qlt-amount" type="text" inputmode="numeric" placeholder="0">
+      </div>
+      <div class="fg">
+        <label class="fl">Ngày</label>
+        <input id="txDate" class="fi" type="date">
+      </div>
+      <div class="fg">
+        <label class="fl" id="txAccountLabel">Tài khoản</label>
+        <div id="txAccountList" class="picker-list"></div>
+      </div>
+      <div class="fg" id="txToAccountSection" style="display:none">
+        <label class="fl">Đến tài khoản</label>
+        <div id="txToAccountList" class="picker-list"></div>
+      </div>
+      <div class="fg" id="txCategorySection">
+        <label class="fl">Danh mục</label>
+        <div id="txCategoryList" class="picker-list"></div>
+      </div>
+      <div class="fg" id="txParticipantsSection" style="display:none">
+        <label class="fl" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Người tham gia (chia tiền)</span>
+          <span style="display:flex;gap:6px">
+            <button type="button" id="txPartAll" style="background:var(--surface);border:1px solid var(--border);padding:4px 10px;border-radius:12px;font-size:11px;cursor:pointer;color:var(--text2)">Tất cả</button>
+            <button type="button" id="txPartNone" style="background:var(--surface);border:1px solid var(--border);padding:4px 10px;border-radius:12px;font-size:11px;cursor:pointer;color:var(--text2)">Bỏ chọn</button>
+          </span>
+        </label>
+        <div id="txParticipantsList" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        <div id="txParticipantsHint" style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.4"></div>
+      </div>
+      <div class="fg">
+        <label class="fl">Ghi chú</label>
+        <textarea id="txNote" class="fi" placeholder="(không bắt buộc)"></textarea>
+      </div>
+      <div class="fg">
+        <label class="fl">Minh chứng (ảnh hoá đơn / chuyển khoản)</label>
+        <div id="txPhotoWrap"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="txDelete" class="btn btn-danger" style="display:none">Xoá</button>
+      <button id="txSave" class="btn btn-primary">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== LIGHTBOX (xem ảnh full) ========== -->
+<div id="lightboxModal" class="lightbox">
+  <button class="lightbox-close" data-close><span data-icon="close"></span></button>
+  <img id="lightboxImg" src="" alt="">
+</div>
+
+<!-- ========== CATEGORY MODAL ========== -->
+<div id="catModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3 id="catTitle">Tạo danh mục</h3>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="fl">Tên</label>
+        <input id="catName" class="fi" type="text">
+      </div>
+      <div class="fg">
+        <label class="fl">Loại</label>
+        <select id="catType" class="fi">
+          <option value="expense">Chi phí</option>
+          <option value="income">Thu nhập</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label class="fl">Màu</label>
+        <input id="catColor" class="fi" type="color" style="height:48px">
+      </div>
+      <div class="fg">
+        <label class="fl">Biểu tượng</label>
+        <div id="catIconGrid" class="icon-grid"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="catDelete" class="btn btn-danger" style="display:none">Xoá</button>
+      <button id="catSave" class="btn btn-primary">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== ACCOUNT MODAL ========== -->
+<div id="accModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3 id="accTitle">Thêm tài khoản</h3>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="fl">Tên</label>
+        <input id="accName" class="fi" type="text" placeholder="Ví dụ: Tiền mặt, Vietcombank...">
+      </div>
+      <div class="fg">
+        <label class="fl">Số dư ban đầu (VND)</label>
+        <input id="accBalance" class="fi qlt-amount" type="text" inputmode="numeric" placeholder="0">
+      </div>
+      <div class="fg">
+        <label class="fl">Biểu tượng</label>
+        <div id="accIconGrid" class="icon-grid"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="accDelete" class="btn btn-danger" style="display:none">Xoá</button>
+      <button id="accSave" class="btn btn-primary">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== REMINDER MODAL ========== -->
+<div id="remModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3 id="remTitle">Tạo lời nhắc</h3>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="fl">Tên lời nhắc</label>
+        <input id="remName" class="fi" type="text">
+      </div>
+      <div class="fg">
+        <label class="fl">Loại</label>
+        <select id="remType" class="fi">
+          <option value="expense">Chi phí</option>
+          <option value="income">Thu nhập</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label class="fl">Tần suất</label>
+        <select id="remFreq" class="fi">
+          <option value="daily">Hàng ngày</option>
+          <option value="weekly">Hàng tuần</option>
+          <option value="monthly" selected>Hàng tháng</option>
+          <option value="yearly">Hàng năm</option>
+        </select>
+      </div>
+      <div class="row-2">
+        <div class="fg">
+          <label class="fl">Ngày bắt đầu</label>
+          <input id="remStart" class="fi" type="date">
+        </div>
+        <div class="fg">
+          <label class="fl">Giờ</label>
+          <input id="remTime" class="fi" type="time">
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Ngày kết thúc (không bắt buộc)</label>
+        <input id="remEnd" class="fi" type="date">
+      </div>
+      <div class="switch-row">
+        <span>Tự động thêm giao dịch khi đến hạn</span>
+        <label class="switch"><input id="remAuto" type="checkbox"><span class="slider"></span></label>
+      </div>
+      <div class="fg">
+        <label class="fl">Tài khoản</label>
+        <div id="remAccountList" class="picker-list"></div>
+      </div>
+      <div class="fg">
+        <label class="fl">Danh mục</label>
+        <div id="remCatList" class="picker-list"></div>
+      </div>
+      <div class="fg">
+        <label class="fl">Số tiền (VND)</label>
+        <input id="remAmount" class="fi qlt-amount" type="text" inputmode="numeric" placeholder="0">
+      </div>
+      <div class="fg">
+        <label class="fl">Ghi chú</label>
+        <textarea id="remNote" class="fi"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="remDelete" class="btn btn-danger" style="display:none">Xoá</button>
+      <button id="remSave" class="btn btn-primary">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== ADD MANY MEMBERS MODAL ========== -->
+<div id="addManyModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3>Thêm nhiều người</h3>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="fl">Số người</label>
+        <input id="addManyCount" class="fi" type="number" inputmode="numeric" min="1" max="50" placeholder="VD: 8" value="8">
+      </div>
+      <div class="fg">
+        <label class="fl">Mỗi người góp (VND) — có thể bỏ trống</label>
+        <input id="addManyAmount" class="fi qlt-amount" type="text" inputmode="numeric" placeholder="0">
+      </div>
+      <div style="font-size:12px;color:var(--text3);line-height:1.5;background:var(--surface2);padding:10px;border-radius:8px">
+        Để trống ô <strong>Mỗi người góp</strong> nếu mỗi người đóng số khác nhau — bạn sẽ điền tay sau cho từng người.<br>
+        Tên người để trống — bạn nhập sau ở từng dòng.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button data-close class="btn btn-secondary">Huỷ</button>
+      <button id="addManyOK" class="btn btn-primary">Tạo</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== BOOK LIST MODAL ========== -->
+<div id="bookModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3>Sổ của bạn</h3>
+      <button id="bookAddBtn" title="Tạo sổ mới"><span data-icon="add"></span></button>
+    </div>
+    <div class="modal-body" style="padding:0">
+      <div id="bookList"></div>
+      <div style="padding:16px;color:var(--text3);font-size:12px;line-height:1.5">
+        Mỗi sổ có giao dịch, tài khoản, danh mục riêng. Dùng để tách bạch tiền cá nhân với tiền tập thể (đi du lịch, quỹ chung…).
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== BOOK EDIT MODAL ========== -->
+<div id="bookEditModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3 id="bookEditTitle">Tạo sổ mới</h3>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="fl">Tên sổ</label>
+        <input id="bookName" class="fi" type="text" placeholder="Ví dụ: Đi Đà Lạt 2026, Quỹ chung văn phòng">
+      </div>
+      <div class="fg">
+        <label class="fl">Màu</label>
+        <input id="bookColor" class="fi" type="color" style="height:48px">
+      </div>
+      <div class="fg">
+        <label class="fl">Biểu tượng</label>
+        <div id="bookIconGrid" class="icon-grid"></div>
+      </div>
+      <div class="fg" id="bookMembersSection" style="display:none">
+        <label class="fl">Quỹ chung (chia tiền cuối chuyến)</label>
+        <div style="background:#fff8e0;border:1px solid #f4d77c;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:#856404;line-height:1.5">
+          Mỗi <strong>dòng = 1 thành viên</strong>. Cột trái nhập <strong>tên</strong>, cột phải nhập <strong>số tiền người đó góp</strong>. Có 8 người → tạo 8 dòng.
+        </div>
+        <div id="bookMembersTotal" style="display:none;background:var(--acl);color:var(--accent);padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between"></div>
+        <div id="bookMembersList"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button id="bookAddMemberBtn" type="button" class="btn btn-secondary" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px">
+            <span data-icon="add" style="display:inline-flex;width:18px;height:18px"></span>
+            <span>Thêm 1 người</span>
+          </button>
+          <button id="bookAddManyBtn" type="button" class="btn btn-secondary" style="flex:1">Thêm nhiều</button>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">
+          Khi <strong>Lưu</strong>, app tự thêm giao dịch <strong>Thu / Đóng quỹ</strong> cho mỗi người vào ví đầu tiên — số dư ví sẽ phản ánh đúng tổng quỹ. Phần chia tiền sẽ nằm trong <strong>Báo cáo kết thúc</strong> ở dưới.
+        </div>
+      </div>
+      <div class="fg" id="bookExportSection" style="display:none">
+        <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="bookExportPhotos" style="width:18px;height:18px;accent-color:var(--accent)">
+          <span>Kèm ảnh hoá đơn / minh chứng vào báo cáo</span>
+        </label>
+        <label class="fl">Báo cáo trong đợt (chưa chốt chia tiền)</label>
+        <div style="display:flex;gap:8px">
+          <button id="bookExportHTML" class="btn btn-secondary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1">
+            <span data-icon="download" style="display:inline-flex;width:18px;height:18px"></span>
+            <span>HTML</span>
+          </button>
+          <button id="bookExportCSV" class="btn btn-secondary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1">
+            <span data-icon="download" style="display:inline-flex;width:18px;height:18px"></span>
+            <span>CSV (Excel)</span>
+          </button>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">
+          Xem ai chi gì, tổng quỹ — KHÔNG có quyết toán. Dùng share trong lúc chuyến đang diễn ra.
+        </div>
+
+        <label class="fl" style="margin-top:18px;color:#856404">Báo cáo kết thúc (có chia tiền cuối chuyến)</label>
+        <div style="display:flex;gap:8px">
+          <button id="bookFinalHTML" class="btn btn-primary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1">
+            <span data-icon="download" style="display:inline-flex;width:18px;height:18px"></span>
+            <span>HTML</span>
+          </button>
+          <button id="bookFinalCSV" class="btn btn-primary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1">
+            <span data-icon="download" style="display:inline-flex;width:18px;height:18px"></span>
+            <span>CSV (Excel)</span>
+          </button>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">
+          Có đủ <strong>quyết toán chia tiền</strong>: ai trả lại / đóng thêm bao nhiêu. Bấm khi chuyến đã kết thúc.<br>
+          Bỏ tích <strong>"Kèm ảnh hoá đơn"</strong> ở trên để file gọn nhẹ khi gửi Zalo. CSV không có ảnh.<br>
+          Muốn lưu PDF: mở file HTML trên trình duyệt → <strong>Ctrl+P</strong> → "Lưu dưới dạng PDF".
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="bookDelete" class="btn btn-danger" style="display:none">Xoá sổ + dữ liệu</button>
+      <button id="bookSave" class="btn btn-primary">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- In-app dialog + toast container (thay alert/confirm native) -->
+<div id="qltDialog" class="qlt-dialog" role="dialog" aria-modal="true">
+  <div class="qlt-dialog-card">
+    <div class="qlt-dialog-body">
+      <div class="qlt-dialog-title" id="qltDialogTitle"></div>
+      <div class="qlt-dialog-msg" id="qltDialogMsg"></div>
+    </div>
+    <div class="qlt-dialog-actions" id="qltDialogActions"></div>
+  </div>
+</div>
+<div id="qltToastWrap" class="qlt-toast-wrap" aria-live="polite"></div>
+
+<script src="js/config.js"></script>
+<script src="js/icons.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/sync.js"></script>
+<script src="js/ocr.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+<script>
+// Inject SVG icons cho mọi element có data-icon
+window.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[data-icon]').forEach(el => {
+    const name = el.getAttribute('data-icon');
+    if (name && window.QLT_ICONS[name]) {
+      el.innerHTML = window.QLT_ICONS[name];
+    }
+  });
+});
+</script>
+</body>
+</html>

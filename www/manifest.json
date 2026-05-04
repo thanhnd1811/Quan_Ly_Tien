@@ -1,0 +1,15 @@
+{
+  "name": "Quản Lý Tiền",
+  "short_name": "QLTien",
+  "description": "Quản lý thu chi cá nhân, đồng bộ Google Drive",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f2f5f0",
+  "theme_color": "#2d6a4f",
+  "lang": "vi",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
