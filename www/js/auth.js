@@ -13,19 +13,43 @@
     _emit() { this.listeners.forEach(f => f(this.user)); },
 
     async init() {
+      // Luôn load cached user trước để app render được ngay
+      this.loadCached();
+
       const cfg = window.QLT_CONFIG;
       if (!cfg || !cfg.GOOGLE_CLIENT_ID) {
         console.warn('Chưa cấu hình GOOGLE_CLIENT_ID — chế độ ngoại tuyến');
-        this.loadCached();
         return;
       }
-      await this.loadGsi();
-      this.tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: cfg.GOOGLE_CLIENT_ID,
-        scope: cfg.DRIVE_SCOPE,
-        callback: () => {}
+
+      // Tải Google Sign-In script trong nền — KHÔNG await để không chặn init app khi offline
+      this.loadGsi().then(() => {
+        try {
+          this.tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: cfg.GOOGLE_CLIENT_ID,
+            scope: cfg.DRIVE_SCOPE,
+            callback: () => {}
+          });
+        } catch (e) {
+          console.warn('Khởi tạo Google Sign-In lỗi:', e);
+        }
+      }).catch(e => {
+        console.warn('Không tải được Google Sign-In (offline?) — app vẫn dùng được, chỉ chưa đồng bộ:', e);
       });
-      this.loadCached();
+    },
+
+    async ensureGsi() {
+      // Gọi trước khi sign-in để đảm bảo GSI đã load
+      const cfg = window.QLT_CONFIG;
+      if (!cfg || !cfg.GOOGLE_CLIENT_ID) throw new Error('Chưa cấu hình GOOGLE_CLIENT_ID trong www/js/config.js');
+      await this.loadGsi();
+      if (!this.tokenClient) {
+        this.tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: cfg.GOOGLE_CLIENT_ID,
+          scope: cfg.DRIVE_SCOPE,
+          callback: () => {}
+        });
+      }
     },
 
     loadGsi() {
@@ -35,8 +59,10 @@
         s.src = 'https://accounts.google.com/gsi/client';
         s.async = true; s.defer = true;
         s.onload = () => resolve();
-        s.onerror = reject;
+        s.onerror = () => reject(new Error('Không tải được Google Sign-In script'));
         document.head.appendChild(s);
+        // Timeout 10s để không kẹt mãi
+        setTimeout(() => reject(new Error('Hết thời gian tải Google Sign-In')), 10000);
       });
     },
 
@@ -73,11 +99,7 @@
     },
 
     async signIn() {
-      const cfg = window.QLT_CONFIG;
-      if (!cfg.GOOGLE_CLIENT_ID) {
-        throw new Error('Chưa cấu hình GOOGLE_CLIENT_ID trong www/js/config.js');
-      }
-      if (!this.tokenClient) await this.init();
+      await this.ensureGsi();
 
       const token = await new Promise((resolve, reject) => {
         this.tokenClient.callback = (resp) => {
