@@ -266,9 +266,12 @@ const App = {
       // Render home dưới TRƯỚC để khi unlock app sẵn sàng (lock screen z-index cao hơn)
       this.switchTab('home');
 
+      // Migrate PIN từ meta cũ (nếu user đã setup trước bản này) sang localStorage device-wide
+      try { if (window.QLT_Lock) await window.QLT_Lock.migrate(); } catch (_) {}
+
       // Khoá app: nếu đã bật PIN → hiện lock screen ngay (đè lên home)
       try {
-        if (window.QLT_Lock && await window.QLT_Lock.isEnabled()) {
+        if (window.QLT_Lock && window.QLT_Lock.isEnabled()) {
           window.QLT_Lock.showVerify();
         }
       } catch (_) {}
@@ -277,16 +280,10 @@ const App = {
       try {
         const AppPlugin = window.Capacitor?.Plugins?.App;
         if (AppPlugin) {
-          AppPlugin.addListener('appStateChange', async ({ isActive }) => {
-            if (!isActive) {
-              // App vừa vào background → ghi mốc để check khi resume
-              if (window.QLT_Lock && await window.QLT_Lock.isEnabled()) {
-                // markUnlocked đã được gọi mỗi lần unlock → đọc dùng khi resume
-              }
-              return;
-            }
+          AppPlugin.addListener('appStateChange', ({ isActive }) => {
+            if (!isActive) return;
             // App vừa active lại
-            if (window.QLT_Lock && await window.QLT_Lock.shouldLockOnResume()) {
+            if (window.QLT_Lock && window.QLT_Lock.shouldLockOnResume()) {
               window.QLT_Lock.showVerify(() => {});
             }
           });
@@ -1897,10 +1894,10 @@ const App = {
   async renderLockSettings() {
     const Lock = window.QLT_Lock;
     if (!Lock) return;
-    const enabled = await Lock.isEnabled();
+    const enabled = Lock.isEnabled();
     const bioInfo = await Lock.bioAvailable();
-    const bioOn = !!(await window.QLT_Store.getMeta('appBiometric', false));
-    const timeout = await Lock.getTimeoutSeconds();
+    const bioOn = Lock.isBiometricFlagOn();
+    const timeout = Lock.getTimeoutSeconds();
 
     $('#setLockStatus').textContent = enabled
       ? (bioOn && bioInfo.available ? 'Đã bật PIN + Sinh trắc' : 'Đã bật PIN')
@@ -1946,8 +1943,8 @@ const App = {
       }
     };
 
-    $('#setLockTimeout').onchange = async (e) => {
-      await Lock.setTimeout(e.target.value);
+    $('#setLockTimeout').onchange = (e) => {
+      Lock.setTimeout(e.target.value);
       QLT_UI.toast('Đã cập nhật thời gian khoá lại', { type: 'success' });
     };
   },

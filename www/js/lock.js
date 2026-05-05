@@ -54,12 +54,61 @@
   }
 
   // ============ Storage helpers ============
-  async function getMeta(key, def = null) {
-    const v = await window.QLT_Store.getMeta(key);
-    return v === null || v === undefined ? def : v;
+  // Quan trọng: PIN/sinh trắc lưu DEVICE-WIDE (localStorage), KHÔNG theo user/sổ.
+  // Lý do: khoá là khoá thiết bị — đăng xuất / chuyển user vẫn phải nhập PIN.
+  const LS = {
+    enabled:      'qlt_lock_enabled',
+    pinHash:      'qlt_lock_pin_hash',
+    pinSalt:      'qlt_lock_pin_salt',
+    pinLength:    'qlt_lock_pin_length',
+    biometric:    'qlt_lock_biometric',
+    timeout:      'qlt_lock_timeout',
+    lastUnlocked: 'qlt_lock_last_unlocked'
+  };
+  function lsGet(key, def = null) {
+    const v = localStorage.getItem(key);
+    return (v === null || v === undefined) ? def : v;
   }
-  async function setMeta(key, value) {
-    return window.QLT_Store.setMeta(key, value);
+  function lsSet(key, value) {
+    if (value === null || value === undefined) localStorage.removeItem(key);
+    else localStorage.setItem(key, String(value));
+  }
+  function lsGetBool(key, def = false) {
+    const v = lsGet(key);
+    if (v === null) return def;
+    return v === 'true' || v === '1';
+  }
+  function lsGetInt(key, def = 0) {
+    const v = lsGet(key);
+    if (v === null) return def;
+    const n = parseInt(v, 10);
+    return isFinite(n) ? n : def;
+  }
+
+  // Migration 1 lần: nếu data cũ nằm trong meta IndexedDB (user-scoped) → copy sang localStorage
+  async function migrateFromMetaIfNeeded() {
+    if (lsGet(LS.enabled) !== null) return; // Đã migrate hoặc dùng localStorage rồi
+    try {
+      const oldEnabled = await window.QLT_Store.getMeta('appLockEnabled');
+      if (!oldEnabled) return;
+      const oldHash = await window.QLT_Store.getMeta('appPinHash');
+      const oldSalt = await window.QLT_Store.getMeta('appPinSalt');
+      const oldLen  = await window.QLT_Store.getMeta('appPinLength');
+      const oldBio  = await window.QLT_Store.getMeta('appBiometric');
+      const oldTo   = await window.QLT_Store.getMeta('appLockTimeout');
+      if (oldHash && oldSalt) {
+        lsSet(LS.enabled,   'true');
+        lsSet(LS.pinHash,   oldHash);
+        lsSet(LS.pinSalt,   oldSalt);
+        lsSet(LS.pinLength, oldLen || 4);
+        lsSet(LS.biometric, oldBio ? 'true' : 'false');
+        lsSet(LS.timeout,   oldTo != null ? oldTo : 300);
+        // Xoá data cũ trong meta (user hiện tại) — không cần lưu nữa
+        await window.QLT_Store.setMeta('appLockEnabled', false);
+        await window.QLT_Store.setMeta('appPinHash', null);
+        await window.QLT_Store.setMeta('appPinSalt', null);
+      }
+    } catch (_) { /* lần đầu hoặc lỗi đọc meta — bỏ qua */ }
   }
 
   // ============ Lock module ============
@@ -74,34 +123,37 @@
     _setupTempSalt: null,
     _failCount: 0,
 
-    async isEnabled() {
-      return !!(await getMeta('appLockEnabled', false));
+    // Một lần duy nhất khi app khởi động: di trú PIN cũ từ meta IndexedDB
+    async migrate() {
+      await migrateFromMetaIfNeeded();
+    },
+
+    isEnabled() {
+      return lsGetBool(LS.enabled, false);
     },
 
     async hasBiometric() {
-      const enabled = !!(await getMeta('appBiometric', false));
-      if (!enabled) return false;
+      if (!lsGetBool(LS.biometric, false)) return false;
       const { available } = await bioAvailable();
       return available;
     },
 
-    async getTimeoutSeconds() {
-      const t = await getMeta('appLockTimeout', 300);
-      return parseInt(t, 10) || 0;
+    getTimeoutSeconds() {
+      return lsGetInt(LS.timeout, 300);
     },
 
     // Có cần khoá khi resume từ background không?
-    async shouldLockOnResume() {
-      if (!(await this.isEnabled())) return false;
-      const timeout = await this.getTimeoutSeconds();
+    shouldLockOnResume() {
+      if (!this.isEnabled()) return false;
+      const timeout = this.getTimeoutSeconds();
       if (timeout === 0) return true; // Khoá ngay khi đóng
-      const last = await getMeta('appLastUnlockedAt', 0);
+      const last = lsGetInt(LS.lastUnlocked, 0);
       const elapsed = (Date.now() - last) / 1000;
       return elapsed >= timeout;
     },
 
-    async markUnlocked() {
-      await setMeta('appLastUnlockedAt', Date.now());
+    markUnlocked() {
+      lsSet(LS.lastUnlocked, Date.now());
     },
 
     // ====== UI ======
@@ -141,12 +193,12 @@
       const pin = this._pinBuf;
 
       if (this._mode === 'verify') {
-        const salt = await getMeta('appPinSalt');
-        const stored = await getMeta('appPinHash');
+        const salt = lsGet(LS.pinSalt);
+        const stored = lsGet(LS.pinHash);
         const h = await hashPin(pin, salt);
         if (h === stored) {
           this._failCount = 0;
-          await this.markUnlocked();
+          this.markUnlocked();
           this.hide();
           if (this._onSuccess) { const cb = this._onSuccess; this._onSuccess = null; cb(); }
         } else {
@@ -173,11 +225,11 @@
       if (this._mode === 'setup-2') {
         const h = await hashPin(pin, this._setupTempSalt);
         if (h === this._setupTempHash) {
-          await setMeta('appPinSalt', this._setupTempSalt);
-          await setMeta('appPinHash', this._setupTempHash);
-          await setMeta('appPinLength', this._pinLength);
-          await setMeta('appLockEnabled', true);
-          await this.markUnlocked();
+          lsSet(LS.pinSalt, this._setupTempSalt);
+          lsSet(LS.pinHash, this._setupTempHash);
+          lsSet(LS.pinLength, this._pinLength);
+          lsSet(LS.enabled, 'true');
+          this.markUnlocked();
           this._setupTempHash = null;
           this._setupTempSalt = null;
           this.hide();
@@ -194,8 +246,8 @@
       }
 
       if (this._mode === 'change-old') {
-        const salt = await getMeta('appPinSalt');
-        const stored = await getMeta('appPinHash');
+        const salt = lsGet(LS.pinSalt);
+        const stored = lsGet(LS.pinHash);
         const h = await hashPin(pin, salt);
         if (h === stored) {
           this._mode = 'change-new1';
@@ -224,10 +276,10 @@
       if (this._mode === 'change-new2') {
         const h = await hashPin(pin, this._setupTempSalt);
         if (h === this._setupTempHash) {
-          await setMeta('appPinSalt', this._setupTempSalt);
-          await setMeta('appPinHash', this._setupTempHash);
-          await setMeta('appPinLength', this._pinLength);
-          await this.markUnlocked();
+          lsSet(LS.pinSalt, this._setupTempSalt);
+          lsSet(LS.pinHash, this._setupTempHash);
+          lsSet(LS.pinLength, this._pinLength);
+          this.markUnlocked();
           this._setupTempHash = null;
           this._setupTempSalt = null;
           this.hide();
@@ -293,7 +345,7 @@
       try {
         await bioAuthenticate();
         this._failCount = 0;
-        await this.markUnlocked();
+        this.markUnlocked();
         this.hide();
         if (this._onSuccess) { const cb = this._onSuccess; this._onSuccess = null; cb(); }
       } catch (e) {
@@ -305,7 +357,7 @@
     // ============ Public API ============
     // Hiện màn khoá để VERIFY PIN. onSuccess gọi sau khi đúng PIN.
     async showVerify(onSuccess) {
-      const pinLen = parseInt(await getMeta('appPinLength', 4), 10) || 4;
+      const pinLen = lsGetInt(LS.pinLength, 4) || 4;
       this._pinLength = pinLen;
       this._mode = 'verify';
       this._pinBuf = '';
@@ -352,7 +404,7 @@
 
     // Đổi PIN (cần xác nhận PIN cũ trước)
     async showChange(onSuccess) {
-      const pinLen = parseInt(await getMeta('appPinLength', 4), 10) || 4;
+      const pinLen = lsGetInt(LS.pinLength, 4) || 4;
       this._pinLength = pinLen;
       this._mode = 'change-old';
       this._pinBuf = '';
@@ -372,10 +424,10 @@
     // Tắt khoá: cần verify PIN trước
     async disable(onSuccess) {
       this.showVerify(async () => {
-        await setMeta('appLockEnabled', false);
-        await setMeta('appPinHash', null);
-        await setMeta('appPinSalt', null);
-        await setMeta('appBiometric', false);
+        lsSet(LS.enabled, null);
+        lsSet(LS.pinHash, null);
+        lsSet(LS.pinSalt, null);
+        lsSet(LS.biometric, null);
         window.QLT_UI?.toast?.('Đã tắt khoá', { type: 'success' });
         if (onSuccess) onSuccess();
       });
@@ -393,11 +445,16 @@
         const { available } = await bioAvailable();
         if (!available) throw new Error('NO_BIOMETRIC');
       }
-      await setMeta('appBiometric', !!enabled);
+      lsSet(LS.biometric, enabled ? 'true' : 'false');
     },
 
-    async setTimeout(seconds) {
-      await setMeta('appLockTimeout', parseInt(seconds, 10) || 0);
+    setTimeout(seconds) {
+      lsSet(LS.timeout, parseInt(seconds, 10) || 0);
+    },
+
+    // Đọc raw flag — dùng cho UI hiển thị toggle
+    isBiometricFlagOn() {
+      return lsGetBool(LS.biometric, false);
     },
 
     bioAvailable
