@@ -778,6 +778,38 @@ const App = {
       return { id: cid, label: c.name || 'Không rõ', value, color: c.color || '#888' };
     }).sort((a, b) => b.value - a.value);
 
+    // Top 5 khoản chi nhiều nhất — list rõ ràng có huy chương
+    const top5El = $('#chartTop5');
+    if (top5El) {
+      if (!slices.length) {
+        top5El.innerHTML = '<div class="top5-empty">Chưa có chi tiêu trong kỳ này</div>';
+      } else {
+        const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+        const top5 = slices.slice(0, 5);
+        const maxVal = top5[0].value;
+        top5El.innerHTML = top5.map((s, i) => {
+          const pct = totalExp > 0 ? Math.round(s.value / totalExp * 100) : 0;
+          const barW = maxVal > 0 ? Math.round(s.value / maxVal * 100) : 0;
+          return `
+            <div class="top5-row" data-cat="${s.id}">
+              <div class="top5-rank ${i === 0 ? 'gold' : ''}">${medals[i]}</div>
+              <div class="top5-info">
+                <div class="top5-name">${this.escapeHtml(s.label)}</div>
+                <div class="top5-bar"><div class="top5-bar-fill" style="width:${barW}%;background:${s.color}"></div></div>
+              </div>
+              <div class="top5-amt">
+                <div class="top5-val">${fmt(s.value)}</div>
+                <div class="top5-pct">${pct}% tổng chi</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+        top5El.querySelectorAll('.top5-row').forEach(el => {
+          el.onclick = () => this.openCategoryTxs(el.dataset.cat, from, to);
+        });
+      }
+    }
+
     const donutCanvas = $('#chartDonut');
     if (donutCanvas) {
       window.QLT_Charts.donut(donutCanvas, slices, {
