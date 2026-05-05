@@ -1177,6 +1177,63 @@ const App = {
     $('#lightboxModal').classList.add('open');
   },
 
+  // ============ COLOR PICKER (12 swatch + 1 ô tuỳ chỉnh) ============
+  renderColorPicker(containerId, hiddenId, initialValue, onChange) {
+    const PRESETS = [
+      '#2d6a4f', '#52b788', '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1',
+      '#a855f7', '#ec4899', '#f43f5e', '#ef4444', '#f97316', '#f59e0b'
+    ];
+    const container = $('#' + containerId);
+    const hidden = $('#' + hiddenId);
+    if (!container || !hidden) return;
+
+    container.innerHTML = PRESETS.map(c =>
+      `<div class="color-swatch" data-color="${c}" style="background:${c}"></div>`
+    ).join('') + `<div class="color-swatch custom" title="Màu tuỳ chỉnh"></div>`;
+
+    const swatches = container.querySelectorAll('.color-swatch[data-color]');
+    const customEl = container.querySelector('.color-swatch.custom');
+
+    const setColor = (c) => {
+      if (!c) return;
+      const lc = c.toLowerCase();
+      hidden.value = c;
+      let matched = false;
+      swatches.forEach(el => {
+        const on = el.dataset.color.toLowerCase() === lc;
+        el.classList.toggle('on', on);
+        if (on) matched = true;
+      });
+      if (matched) {
+        customEl.classList.remove('on');
+        customEl.style.background = '';
+      } else {
+        customEl.classList.add('on');
+        customEl.style.background = c;
+      }
+      if (onChange) onChange(c);
+    };
+
+    swatches.forEach(el => {
+      el.onclick = () => setColor(el.dataset.color);
+    });
+
+    customEl.onclick = () => {
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.value = hidden.value || '#2d6a4f';
+      input.style.cssText = 'position:fixed;left:-9999px;opacity:0;pointer-events:none';
+      document.body.appendChild(input);
+      input.oninput = () => setColor(input.value);
+      input.onchange = () => { setColor(input.value); input.remove(); };
+      // dọn input nếu user huỷ (không có event nào fire)
+      setTimeout(() => { if (input.parentNode) input.remove(); }, 60000);
+      input.click();
+    };
+
+    setColor(initialValue);
+  },
+
   // ============ MODAL: CATEGORY ============
   openCatModal(id) {
     const isNew = !id;
@@ -1189,7 +1246,10 @@ const App = {
     }
     this.state.editingCat = { ...c };
     $('#catName').value = c.name;
-    $('#catColor').value = c.color || '#52b788';
+    this.renderColorPicker('catColorPicker', 'catColor', c.color || '#52b788', (color) => {
+      this.state.editingCat.color = color;
+      $$('#catIconGrid .icon-pick').forEach(el => el.style.color = color);
+    });
     $('#catType').value = c.type;
     $('#catTitle').textContent = isNew ? 'Tạo danh mục' : 'Sửa danh mục';
     $('#catDelete').style.display = isNew ? 'none' : 'block';
@@ -1555,7 +1615,9 @@ const App = {
     this.state.editingBook.members = this.state.editingBook.members || [];
     this.state._origMembers = JSON.parse(JSON.stringify(this.state.editingBook.members));
     $('#bookName').value = b.name;
-    $('#bookColor').value = b.color || '#2d6a4f';
+    this.renderColorPicker('bookColorPicker', 'bookColor', b.color || '#2d6a4f', (color) => {
+      this.state.editingBook.color = color;
+    });
     $('#bookEditTitle').textContent = isNew ? 'Tạo sổ mới' : 'Sửa sổ';
     $('#bookDelete').style.display = (isNew || this.state.books.length <= 1) ? 'none' : 'block';
     $('#bookExportSection').style.display = isNew ? 'none' : 'block';

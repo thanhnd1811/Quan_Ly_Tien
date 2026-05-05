@@ -197,6 +197,16 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 .tx-type-pill.on[data-type="transfer"]{background:#e8eef5;border-color:#4f86c6;color:#4f86c6}
 .picker-item.disabled{opacity:.4;cursor:not-allowed}
 
+/* Color picker (12 swatch tròn + 1 ô tuỳ chỉnh rainbow) */
+.color-picker{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;padding:6px 0}
+.color-swatch{aspect-ratio:1/1;border-radius:50%;cursor:pointer;position:relative;transition:transform .15s ease, box-shadow .15s ease;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.color-swatch:active{transform:scale(.9)}
+.color-swatch.on{transform:scale(1.08);box-shadow:inset 0 0 0 1px rgba(0,0,0,.12), 0 4px 12px rgba(0,0,0,.18)}
+.color-swatch.on::after{content:"";position:absolute;inset:0;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>");background-size:52%;background-repeat:no-repeat;background-position:center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))}
+.color-swatch.custom{background:conic-gradient(from 90deg at 50% 50%, #ef4444, #f97316, #f59e0b, #10b981, #06b6d4, #3b82f6, #6366f1, #a855f7, #ec4899, #ef4444)}
+.color-swatch.custom::before{content:"+";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:300;text-shadow:0 1px 3px rgba(0,0,0,.5);line-height:1}
+.color-swatch.custom.on::before{display:none}
+
 /* Icon picker */
 .icon-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:8px}
 .icon-pick{width:46px;height:46px;border-radius:50%;background:var(--surface);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text2);justify-self:center}
@@ -612,7 +622,8 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
       <div class="fg">
         <label class="fl">Màu</label>
-        <input id="catColor" class="fi" type="color" style="height:48px">
+        <div id="catColorPicker" class="color-picker"></div>
+        <input id="catColor" type="hidden" value="#52b788">
       </div>
       <div class="fg">
         <label class="fl">Biểu tượng</label>
@@ -783,7 +794,8 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
       <div class="fg">
         <label class="fl">Màu</label>
-        <input id="bookColor" class="fi" type="color" style="height:48px">
+        <div id="bookColorPicker" class="color-picker"></div>
+        <input id="bookColor" type="hidden" value="#2d6a4f">
       </div>
       <div class="fg">
         <label class="fl">Biểu tượng</label>
