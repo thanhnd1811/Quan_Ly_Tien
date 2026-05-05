@@ -363,7 +363,28 @@ const App = {
     const b = this.currentBook();
     if (!b) return;
     $('#topbarBookLabel').textContent = b.name;
+    this.applyBookTheme(b.color);
     this.renderDrawerBooks();
+  },
+
+  // Phủ màu sổ hiện tại lên topbar / balance hero / drawer / account summary
+  // → Anh nhìn cái biết đang ở sổ nào, đỡ nhầm giữa các sổ
+  applyBookTheme(color) {
+    const c = color || '#2d6a4f';
+    const lighter = this.lightenHex(c, 0.4);
+    const root = document.documentElement.style;
+    root.setProperty('--book-accent', c);
+    root.setProperty('--book-accent-light', lighter);
+  },
+
+  lightenHex(hex, amount) {
+    const s = String(hex || '').replace('#', '');
+    if (!/^[0-9a-f]{6}$/i.test(s)) return hex;
+    const r = parseInt(s.slice(0, 2), 16);
+    const g = parseInt(s.slice(2, 4), 16);
+    const b = parseInt(s.slice(4, 6), 16);
+    const mix = (v) => Math.round(v + (255 - v) * amount);
+    return '#' + [mix(r), mix(g), mix(b)].map(x => x.toString(16).padStart(2, '0')).join('');
   },
 
   renderDrawerBooks() {

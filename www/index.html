@@ -16,6 +16,8 @@
   --warn:#f4a261; --danger:#e63946; --pos:#2d8659;
   --text:#1a2a1f; --text2:#5e6b62; --text3:#9aa39c;
   --r:14px; --rsm:10px; --sh:0 2px 10px rgba(0,0,0,0.06); --shlg:0 8px 28px rgba(0,0,0,0.12);
+  /* Theme theo sổ hiện tại — JS cập nhật khi đổi sổ. Mặc định = brand green */
+  --book-accent:#2d6a4f; --book-accent-light:#52b788;
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html{overscroll-behavior:none;touch-action:pan-y}
@@ -31,7 +33,7 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .scroll-body{flex:1;overflow-y:auto;padding-bottom:96px}
 
 /* Topbar */
-.topbar{background:var(--accent);color:#fff;padding:46px 16px 18px;position:sticky;top:0;z-index:50}
+.topbar{background:var(--book-accent);color:#fff;padding:46px 16px 18px;position:sticky;top:0;z-index:50;transition:background .25s ease}
 .tb-row{display:flex;align-items:center;gap:14px}
 .tb-icon{width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .tb-icon svg{width:24px;height:24px}
@@ -56,7 +58,7 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 
 /* Drawer */
 .drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.4);opacity:0;visibility:hidden;transition:.2s;z-index:200}
-.drawer{position:fixed;top:0;left:0;height:100vh;width:78%;max-width:320px;background:var(--accent);color:#fff;transform:translateX(-100%);transition:.25s ease;z-index:201;display:flex;flex-direction:column}
+.drawer{position:fixed;top:0;left:0;height:100vh;width:78%;max-width:320px;background:var(--book-accent);color:#fff;transform:translateX(-100%);transition:transform .25s ease, background .25s ease;z-index:201;display:flex;flex-direction:column}
 .drawer.open{transform:translateX(0)}
 .drawer.open ~ .drawer-overlay{opacity:1;visibility:visible}
 .dr-header{padding:46px 18px 14px;border-bottom:1px solid rgba(255,255,255,0.12)}
@@ -99,7 +101,7 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .empty-msg{text-align:center;padding:40px 20px;color:var(--text3);font-size:13px}
 
 /* Home */
-.balance-hero{background:linear-gradient(135deg,#2d6a4f,#52b788);color:#fff;border-radius:var(--r);padding:18px;margin:16px;box-shadow:var(--sh)}
+.balance-hero{background:linear-gradient(135deg,var(--book-accent),var(--book-accent-light));color:#fff;border-radius:var(--r);padding:18px;margin:16px;box-shadow:var(--sh);transition:background .25s ease}
 .balance-label{font-size:12px;opacity:.9;margin-bottom:4px}
 .balance-amount{font-size:28px;font-weight:700}
 .balance-month{font-size:11px;opacity:.8;margin-top:8px}
@@ -266,7 +268,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 .setting-label{font-size:14px;color:var(--text)}
 .setting-value{font-size:13px;color:var(--text2)}
 
-.account-summary{padding:24px 16px;text-align:center;background:linear-gradient(135deg,#2d6a4f,#52b788);color:#fff}
+.account-summary{padding:24px 16px;text-align:center;background:linear-gradient(135deg,var(--book-accent),var(--book-accent-light));color:#fff;transition:background .25s ease}
 .account-summary-label{font-size:12px;opacity:.9}
 .account-summary-amount{font-size:30px;font-weight:700;margin-top:4px}
 
