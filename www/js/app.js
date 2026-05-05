@@ -160,9 +160,13 @@ const App = {
 
   async init() {
     try {
-      // Service worker — bỏ qua trên file:// hoặc Capacitor (không cần)
-      if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+      // Service worker — chỉ register khi production (KHÔNG phải localhost dev), tránh kẹt cache cũ
+      const isDev = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '';
+      if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !isDev) {
         navigator.serviceWorker.register('./sw.js').catch(() => {});
+      } else if (isDev && 'serviceWorker' in navigator) {
+        // Trên localhost: tự gỡ SW cũ nếu có (đã từng register trước đây)
+        navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
       }
 
       // Auth init không await sâu — luôn return nhanh để app render
