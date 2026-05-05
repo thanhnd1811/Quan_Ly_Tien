@@ -1028,11 +1028,15 @@ const App = {
         const photo = await window.Capacitor.Plugins.Camera.getPhoto({
           quality: 80,
           resultType: 'dataUrl',
-          source: 'CAMERA'
+          source: 'PROMPT',  // hỏi Camera hay Gallery — quét được cả ảnh chụp sẵn
+          allowEditing: false,
+          promptLabelHeader: 'Chọn ảnh hoá đơn',
+          promptLabelPhoto: 'Chọn từ thư viện',
+          promptLabelPicture: 'Chụp ảnh mới'
         });
         imageDataUrl = photo.dataUrl;
       } else {
-        // Web fallback
+        // Web fallback — bỏ capture để cho chọn file
         imageDataUrl = await this.pickImageWeb();
       }
       if (!imageDataUrl) return;
@@ -1062,7 +1066,7 @@ const App = {
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = 'image/*';
-      input.capture = 'environment';
+      // KHÔNG đặt capture → trình duyệt cho chọn Camera hoặc thư viện
       input.onchange = e => {
         const file = e.target.files[0];
         if (!file) { resolve(null); return; }
