@@ -262,7 +262,36 @@ const App = {
       this.render();
       this.bindEvents();
       $$('.qlt-amount').forEach(attachAmountFormatting);
+
+      // Render home dưới TRƯỚC để khi unlock app sẵn sàng (lock screen z-index cao hơn)
       this.switchTab('home');
+
+      // Khoá app: nếu đã bật PIN → hiện lock screen ngay (đè lên home)
+      try {
+        if (window.QLT_Lock && await window.QLT_Lock.isEnabled()) {
+          window.QLT_Lock.showVerify();
+        }
+      } catch (_) {}
+
+      // Hook Capacitor App resume — khoá lại nếu hết timeout
+      try {
+        const AppPlugin = window.Capacitor?.Plugins?.App;
+        if (AppPlugin) {
+          AppPlugin.addListener('appStateChange', async ({ isActive }) => {
+            if (!isActive) {
+              // App vừa vào background → ghi mốc để check khi resume
+              if (window.QLT_Lock && await window.QLT_Lock.isEnabled()) {
+                // markUnlocked đã được gọi mỗi lần unlock → đọc dùng khi resume
+              }
+              return;
+            }
+            // App vừa active lại
+            if (window.QLT_Lock && await window.QLT_Lock.shouldLockOnResume()) {
+              window.QLT_Lock.showVerify(() => {});
+            }
+          });
+        }
+      } catch (_) {}
     } catch (e) {
       console.error('App init lỗi:', e);
       // Hiện lỗi cho user (không phải màn trắng vô vọng)
@@ -1860,6 +1889,67 @@ const App = {
     $('#setLogin').style.display = window.QLT_Auth.user ? 'none' : 'block';
     $('#setLogout').style.display = window.QLT_Auth.user ? 'block' : 'none';
     $('#setSync').style.display = window.QLT_Auth.user ? 'block' : 'none';
+
+    // Bảo mật — Khoá PIN
+    await this.renderLockSettings();
+  },
+
+  async renderLockSettings() {
+    const Lock = window.QLT_Lock;
+    if (!Lock) return;
+    const enabled = await Lock.isEnabled();
+    const bioInfo = await Lock.bioAvailable();
+    const bioOn = !!(await window.QLT_Store.getMeta('appBiometric', false));
+    const timeout = await Lock.getTimeoutSeconds();
+
+    $('#setLockStatus').textContent = enabled
+      ? (bioOn && bioInfo.available ? 'Đã bật PIN + Sinh trắc' : 'Đã bật PIN')
+      : 'Chưa bật';
+    $('#setLockStatus').style.color = enabled ? 'var(--accent)' : 'var(--text2)';
+
+    $('#setLockEnable').style.display = enabled ? 'none' : 'block';
+    $('#setLockChangePin').style.display = enabled ? 'block' : 'none';
+    $('#setLockDisable').style.display = enabled ? 'block' : 'none';
+    $('#setBioRow').style.display = (enabled && bioInfo.available) ? 'flex' : 'none';
+    $('#setTimeoutRow').style.display = enabled ? 'flex' : 'none';
+    $('#setBiometricToggle').checked = bioOn;
+    $('#setLockTimeout').value = String(timeout);
+
+    // Bind 1 lần
+    if (this._lockSettingsBound) return;
+    this._lockSettingsBound = true;
+
+    $('#setLockEnable').onclick = async () => {
+      // Hỏi 4 hoặc 6 chữ số
+      const useSix = await QLT_UI.confirm('Chọn độ dài PIN:\n\n• Bấm "4 chữ số" để dùng PIN ngắn (mặc định)\n• Bấm "6 chữ số" để dùng PIN dài hơn (an toàn hơn)', { okLabel: '6 chữ số', cancelLabel: '4 chữ số' });
+      const pinLen = useSix ? 6 : 4;
+      Lock.showSetup(() => this.renderLockSettings(), pinLen);
+    };
+
+    $('#setLockChangePin').onclick = () => {
+      Lock.showChange(() => this.renderLockSettings());
+    };
+
+    $('#setLockDisable').onclick = async () => {
+      if (!await QLT_UI.confirm('Tắt khoá PIN? App sẽ không yêu cầu PIN nữa.', { okLabel: 'Tắt khoá', danger: true })) return;
+      Lock.disable(() => this.renderLockSettings());
+    };
+
+    $('#setBiometricToggle').onchange = async (e) => {
+      try {
+        await Lock.setBiometric(e.target.checked);
+        await this.renderLockSettings();
+        QLT_UI.toast(e.target.checked ? 'Đã bật sinh trắc' : 'Đã tắt sinh trắc', { type: 'success' });
+      } catch (err) {
+        e.target.checked = false;
+        QLT_UI.alert('Thiết bị không hỗ trợ sinh trắc, hoặc bạn chưa đăng ký vân tay/Face. Vào Cài đặt Android để đăng ký trước.', { title: 'Không khả dụng' });
+      }
+    };
+
+    $('#setLockTimeout').onchange = async (e) => {
+      await Lock.setTimeout(e.target.value);
+      QLT_UI.toast('Đã cập nhật thời gian khoá lại', { type: 'success' });
+    };
   },
 
   // ============ MODAL: TRANSACTION ============

@@ -179,6 +179,25 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .legend-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface);border-radius:var(--rsm);margin-bottom:6px;border:1px solid var(--border);cursor:pointer}
 .legend-item:active{background:var(--surface2)}
 .legend-pct{font-size:11px;color:var(--text3);margin-left:6px;font-weight:500}
+/* Lock screen (PIN + sinh trắc) */
+.lock-screen{position:fixed;inset:0;background:linear-gradient(160deg,var(--accent) 0%,var(--accent-light) 100%);z-index:9999;display:none;flex-direction:column;align-items:center;justify-content:center;padding:env(safe-area-inset-top,30px) 24px env(safe-area-inset-bottom,16px);color:#fff}
+.lock-screen.open{display:flex}
+.lock-logo{width:80px;height:80px;border-radius:24px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:42px;margin-bottom:16px;backdrop-filter:blur(10px)}
+.lock-title{font-size:22px;font-weight:700;margin-bottom:4px}
+.lock-prompt{font-size:14px;opacity:.85;margin-bottom:32px;text-align:center;line-height:1.5}
+.lock-dots{display:flex;gap:14px;margin-bottom:24px}
+.lock-dot{width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,.3);transition:all .15s}
+.lock-dot.filled{background:#fff;transform:scale(1.15)}
+.lock-dots.shake{animation:lock-shake .4s}
+@keyframes lock-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-10px)}75%{transform:translateX(10px)}}
+.lock-error{font-size:13px;color:#fee2e2;min-height:20px;margin-bottom:12px;text-align:center;font-weight:500}
+.lock-keypad{display:grid;grid-template-columns:repeat(3,72px);gap:14px;margin-bottom:16px}
+.lock-key{width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,.18);color:#fff;font-size:26px;font-weight:600;display:flex;align-items:center;justify-content:center;cursor:pointer;backdrop-filter:blur(10px);user-select:none;transition:transform .1s, background .15s}
+.lock-key:active{transform:scale(.92);background:rgba(255,255,255,.32)}
+.lock-key.fn{font-size:14px;background:transparent;font-weight:500}
+.lock-key.fn:active{background:rgba(255,255,255,.18)}
+.lock-key.bio{font-size:30px}
+.lock-foot{font-size:12px;opacity:.75;margin-top:8px;text-align:center;max-width:280px;line-height:1.5}
 /* Forecast (Dự báo cuối tháng) */
 .forecast-card{margin:14px 16px;padding:16px;border-radius:var(--r);border:1px solid var(--border);background:var(--surface);box-shadow:var(--sh)}
 .forecast-card.up{border-left:4px solid var(--danger);background:linear-gradient(135deg,#fff5f5 0%,var(--surface) 60%)}
@@ -442,6 +461,12 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 .setting-row{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border)}
 .setting-label{font-size:14px;color:var(--text)}
 .setting-value{font-size:13px;color:var(--text2)}
+.qlt-switch{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0}
+.qlt-switch input{opacity:0;width:0;height:0}
+.qlt-switch-slider{position:absolute;cursor:pointer;inset:0;background:var(--border);transition:.2s;border-radius:24px}
+.qlt-switch-slider::before{position:absolute;content:'';height:18px;width:18px;left:3px;top:3px;background:#fff;transition:.2s;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.qlt-switch input:checked + .qlt-switch-slider{background:var(--accent)}
+.qlt-switch input:checked + .qlt-switch-slider::before{transform:translateX(20px)}
 
 .account-summary{padding:24px 16px;text-align:center;background:linear-gradient(135deg,var(--book-accent),var(--book-accent-light));color:#fff;transition:background .25s ease}
 .account-summary-label{font-size:12px;opacity:.9}
@@ -842,6 +867,36 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       <button id="setSync" class="btn btn-primary btn-block">Đồng bộ với Google Drive</button>
       <button id="setLogout" class="btn btn-secondary btn-block">Đăng xuất</button>
     </div>
+    <div class="section">
+      <div class="sec-label">🔒 Bảo mật — Khoá app</div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Trạng thái</span>
+      <span class="setting-value" id="setLockStatus">Chưa bật</span>
+    </div>
+    <div class="setting-row" id="setBioRow" style="display:none">
+      <span class="setting-label">Mở khoá bằng sinh trắc</span>
+      <label class="qlt-switch">
+        <input type="checkbox" id="setBiometricToggle">
+        <span class="qlt-switch-slider"></span>
+      </label>
+    </div>
+    <div class="setting-row" id="setTimeoutRow" style="display:none">
+      <span class="setting-label">Khoá lại sau</span>
+      <select id="setLockTimeout" class="setting-value" style="background:transparent;border:none;color:var(--accent);font-weight:600;text-align:right">
+        <option value="0">Ngay khi đóng</option>
+        <option value="60">1 phút</option>
+        <option value="300" selected>5 phút</option>
+        <option value="900">15 phút</option>
+        <option value="3600">1 giờ</option>
+      </select>
+    </div>
+    <div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:10px">
+      <button id="setLockEnable" class="btn btn-primary btn-block">Bật khoá PIN</button>
+      <button id="setLockChangePin" class="btn btn-secondary btn-block" style="display:none">Đổi PIN</button>
+      <button id="setLockDisable" class="btn btn-secondary btn-block" style="display:none;color:var(--danger);border-color:var(--danger)">Tắt khoá PIN</button>
+    </div>
+
     <div class="section">
       <div class="sec-label">Sao lưu / khôi phục</div>
     </div>
@@ -1266,6 +1321,35 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 </div>
 <div id="qltToastWrap" class="qlt-toast-wrap" aria-live="polite"></div>
 
+<!-- ========== LOCK SCREEN (PIN + Sinh trắc) ========== -->
+<div id="lockScreen" class="lock-screen">
+  <div class="lock-logo">💰</div>
+  <div class="lock-title">Quản Lý Tiền</div>
+  <div class="lock-prompt" id="lockPrompt">Nhập PIN để mở khoá</div>
+  <div class="lock-dots" id="lockDots">
+    <div class="lock-dot"></div><div class="lock-dot"></div>
+    <div class="lock-dot"></div><div class="lock-dot"></div>
+    <div class="lock-dot" id="lockDot5" style="display:none"></div>
+    <div class="lock-dot" id="lockDot6" style="display:none"></div>
+  </div>
+  <div class="lock-error" id="lockError"></div>
+  <div class="lock-keypad">
+    <div class="lock-key" data-k="1">1</div>
+    <div class="lock-key" data-k="2">2</div>
+    <div class="lock-key" data-k="3">3</div>
+    <div class="lock-key" data-k="4">4</div>
+    <div class="lock-key" data-k="5">5</div>
+    <div class="lock-key" data-k="6">6</div>
+    <div class="lock-key" data-k="7">7</div>
+    <div class="lock-key" data-k="8">8</div>
+    <div class="lock-key" data-k="9">9</div>
+    <div class="lock-key fn bio" id="lockBioBtn" style="display:none" title="Dùng sinh trắc">👆</div>
+    <div class="lock-key" data-k="0">0</div>
+    <div class="lock-key fn" data-k="back">⌫</div>
+  </div>
+  <div class="lock-foot" id="lockFoot">Quên PIN? Vào Cài đặt → Bảo mật từ thiết bị khác đã đăng nhập, hoặc xoá dữ liệu app trong Android.</div>
+</div>
+
 <script src="js/config.js"></script>
 <script src="js/icons.js"></script>
 <script src="js/storage.js"></script>
@@ -1273,6 +1357,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 <script src="js/sync.js"></script>
 <script src="js/ocr.js"></script>
 <script src="js/charts.js"></script>
+<script src="js/lock.js"></script>
 <script src="js/app.js"></script>
 <script>
 // Inject SVG icons cho mọi element có data-icon
