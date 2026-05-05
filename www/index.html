@@ -170,6 +170,45 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .legend-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface);border-radius:var(--rsm);margin-bottom:6px;border:1px solid var(--border);cursor:pointer}
 .legend-item:active{background:var(--surface2)}
 .legend-pct{font-size:11px;color:var(--text3);margin-left:6px;font-weight:500}
+/* Budgets (Ngân sách) */
+.budget-summary{padding:14px 16px;background:var(--book-accent);color:#fff}
+.budget-summary-month{font-size:12px;opacity:.85;margin-bottom:8px}
+.budget-summary-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.budget-summary-label{font-size:10px;opacity:.8}
+.budget-summary-amount{font-size:15px;font-weight:700;margin-top:2px}
+.budget-summary-bar{height:6px;background:rgba(255,255,255,.2);border-radius:3px;overflow:hidden}
+.budget-summary-bar-fill{height:100%;background:#fff;border-radius:3px;transition:width .3s}
+.budget-summary-bar-fill.warn{background:#fbbf24}
+.budget-summary-bar-fill.over{background:#fca5a5}
+.budget-item{padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border);cursor:pointer;display:flex;align-items:center;gap:12px}
+.budget-item:active{background:var(--surface2)}
+.budget-item-icon{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.budget-item-icon svg{width:22px;height:22px}
+.budget-item-info{flex:1;min-width:0}
+.budget-item-name{font-size:14px;font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.budget-item-status{font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;flex-shrink:0}
+.budget-item-status.ok{background:#d1fae5;color:#047857}
+.budget-item-status.warn{background:#fef3c7;color:#b45309}
+.budget-item-status.over{background:#fee2e2;color:#b91c1c}
+.budget-item-meta{font-size:11px;color:var(--text3);margin-top:3px;display:flex;justify-content:space-between}
+.budget-item-bar{height:6px;background:var(--border);border-radius:3px;margin-top:6px;overflow:hidden}
+.budget-item-bar-fill{height:100%;border-radius:3px;transition:width .3s}
+.budget-item-bar-fill.ok{background:var(--accent-light)}
+.budget-item-bar-fill.warn{background:#f59e0b}
+.budget-item-bar-fill.over{background:var(--danger)}
+.home-budget-list{margin:0 16px;display:flex;flex-direction:column;gap:8px}
+.home-budget-row{background:var(--surface);border:1px solid var(--border);border-radius:var(--rsm);padding:10px 12px;cursor:pointer}
+.home-budget-row:active{background:var(--surface2)}
+.home-budget-row-top{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600;gap:6px}
+.home-budget-row-amts{font-size:11px;color:var(--text3);margin-top:3px;display:flex;justify-content:space-between}
+.home-budget-row-bar{height:5px;background:var(--border);border-radius:3px;margin-top:5px;overflow:hidden}
+.home-budget-row-bar-fill{height:100%;border-radius:3px}
+.home-budget-row-bar-fill.ok{background:var(--accent-light)}
+.home-budget-row-bar-fill.warn{background:#f59e0b}
+.home-budget-row-bar-fill.over{background:var(--danger)}
+.tx-budget-hint{font-size:11px;color:var(--text2);margin-top:6px;padding:6px 10px;background:var(--surface2);border-radius:8px;border-left:3px solid var(--accent)}
+.tx-budget-hint.warn{border-left-color:#f59e0b;color:#b45309}
+.tx-budget-hint.over{border-left-color:var(--danger);color:#b91c1c}
 /* Loans (Cho vay / Nợ) */
 .loan-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 16px;background:var(--book-accent);color:#fff}
 .loan-summary-card{background:rgba(255,255,255,.16);border-radius:var(--rsm);padding:10px 12px}
@@ -436,6 +475,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
     </div>
     <div id="homeWallets"></div>
+    <div id="homeBudgetWidget" style="display:none"></div>
     <div id="homeLoanShortcut" style="display:none"></div>
     <div class="section">
       <div class="sec-label">
@@ -552,6 +592,64 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     <div id="loanList"></div>
   </div>
   <button id="loanAddFab" class="ni-fab" style="position:fixed;bottom:80px;right:16px;width:56px;height:56px;z-index:90;box-shadow:0 6px 18px rgba(45,106,79,.4)" data-icon="add"></button>
+</div>
+
+<!-- ========== BUDGETS (Ngân sách tháng) ========== -->
+<div id="screen-budgets" class="screen">
+  <div class="topbar">
+    <div class="tb-row">
+      <div class="tb-back" data-icon="back" onclick="QLT_App.switchTab('home')"></div>
+      <div class="tb-title">Ngân sách tháng</div>
+    </div>
+  </div>
+  <div class="budget-summary">
+    <div class="budget-summary-month" id="budgetMonth">Tháng này</div>
+    <div class="budget-summary-row">
+      <div>
+        <div class="budget-summary-label">Tổng ngân sách</div>
+        <div class="budget-summary-amount" id="budgetTotalLimit">0 đ</div>
+      </div>
+      <div>
+        <div class="budget-summary-label">Đã chi</div>
+        <div class="budget-summary-amount" id="budgetTotalSpent">0 đ</div>
+      </div>
+      <div>
+        <div class="budget-summary-label">Còn lại</div>
+        <div class="budget-summary-amount" id="budgetTotalRemain">0 đ</div>
+      </div>
+    </div>
+    <div class="budget-summary-bar"><div class="budget-summary-bar-fill" id="budgetTotalBarFill"></div></div>
+  </div>
+  <div class="scroll-body">
+    <div id="budgetList"></div>
+  </div>
+  <button id="budgetAddFab" class="ni-fab" style="position:fixed;bottom:80px;right:16px;width:56px;height:56px;z-index:90;box-shadow:0 6px 18px rgba(45,106,79,.4)" data-icon="add"></button>
+</div>
+
+<!-- Modal: tạo / sửa ngân sách -->
+<div id="budgetModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close data-icon="close"></button>
+      <h3 id="budgetModalTitle">Ngân sách</h3>
+      <button id="budgetDelete" data-icon="trash" style="display:none"></button>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="fl">Danh mục chi <span style="color:var(--danger)">*</span></label>
+        <select id="budgetCategory" class="fi"></select>
+      </div>
+      <div class="fg">
+        <label class="fl">Hạn mức / tháng <span style="color:var(--danger)">*</span></label>
+        <input type="text" inputmode="numeric" id="budgetAmount" class="fi qlt-amount" placeholder="0">
+        <div style="font-size:11px;color:var(--text3);margin-top:6px">App sẽ cảnh báo cam khi vượt 80%, đỏ khi vượt 100%.</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close>Huỷ</button>
+      <button class="btn btn-primary" id="budgetSave">Lưu</button>
+    </div>
+  </div>
 </div>
 
 <!-- Modal: tạo / sửa khoản nợ -->
@@ -765,6 +863,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     <div class="dr-item" data-action="transactions"><span data-icon="refresh"></span> Giao dịch</div>
     <div class="dr-item" data-action="reminders"><span data-icon="bell"></span> Nhắc nhở</div>
     <div class="dr-item" data-action="loans"><span style="font-size:18px">🤝</span> Cho vay / Nợ</div>
+    <div class="dr-item" data-action="budgets"><span style="font-size:18px">🎯</span> Ngân sách tháng</div>
     <div class="dr-item" data-action="settings"><span data-icon="settings"></span> Cài đặt</div>
     <div class="dr-item" id="syncItem" data-action="sync" style="display:none"><span data-icon="cloud"></span> Đồng bộ Drive</div>
     <div class="dr-item" id="loginItem" data-action="login"><span data-icon="user"></span> Đăng nhập Google</div>
@@ -814,6 +913,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
         <div id="txToAccountList" class="picker-list"></div>
       </div>
       <div class="fg" id="txCategorySection">
+        <div id="txBudgetHint" class="tx-budget-hint" style="display:none"></div>
         <label class="fl">Danh mục</label>
         <div id="txCategoryList" class="picker-list"></div>
       </div>

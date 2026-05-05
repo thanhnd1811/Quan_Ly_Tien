@@ -148,6 +148,7 @@ const App = {
     transactions: [],
     reminders: [],
     loans: [],
+    budgets: [],
     currentTab: 'home',
     txFilter: { type: 'all', period: 'month', accountId: 'all' },
     chartPeriod: 'month',
@@ -161,7 +162,8 @@ const App = {
     editingAcc: null,
     editingReminder: null,
     editingBook: null,
-    editingLoan: null
+    editingLoan: null,
+    editingBudget: null
   },
 
   async init() {
@@ -236,6 +238,7 @@ const App = {
     this.state.transactions = inBook(await window.QLT_Store.getAll('transactions'));
     this.state.reminders = inBook(await window.QLT_Store.getAll('reminders'));
     this.state.loans = inBook(await window.QLT_Store.getAll('loans'));
+    this.state.budgets = inBook(await window.QLT_Store.getAll('budgets'));
   },
 
   currentBook() {
@@ -350,6 +353,11 @@ const App = {
     // Reminder form
     $('#remSave').onclick = () => this.saveReminder();
     $('#remDelete').onclick = () => this.deleteReminder();
+
+    // ----- Budgets (Ngân sách) -----
+    $('#budgetAddFab').onclick = () => this.openBudgetModal(null);
+    $('#budgetSave').onclick = () => this.saveBudget();
+    $('#budgetDelete').onclick = () => this.deleteBudget();
 
     // ----- Loans (Cho vay / Nợ) -----
     $('#loanAddFab').onclick = () => this.openLoanModal(null);
@@ -519,6 +527,7 @@ const App = {
     else if (name === 'reminders') this.renderReminders();
     else if (name === 'settings') this.renderSettings();
     else if (name === 'loans') this.renderLoans();
+    else if (name === 'budgets') this.renderBudgets();
   },
 
   // ============ HOME ============
@@ -594,6 +603,9 @@ const App = {
         };
       });
     }
+
+    // ----- Budget widget -----
+    this.renderHomeBudgets();
 
     // ----- Loan shortcut card -----
     this.renderHomeLoanShortcut();
@@ -1038,6 +1050,192 @@ const App = {
 
   frequencyLabel(f) {
     return { daily: 'Hàng ngày', weekly: 'Hàng tuần', monthly: 'Hàng tháng', yearly: 'Hàng năm' }[f] || f;
+  },
+
+  // ============ BUDGETS (Ngân sách tháng) ============
+  // Đã chi của 1 danh mục trong 1 tháng (ym = 'YYYY-MM')
+  budgetSpent(catId, ym) {
+    return this.state.transactions
+      .filter(t => t.type === 'expense' && t.categoryId === catId && t.date.startsWith(ym))
+      .reduce((s, t) => s + t.amount, 0);
+  },
+
+  // {pct, status, remain, spent, color, label} cho 1 budget
+  budgetStatus(budget, ym) {
+    const spent = this.budgetSpent(budget.categoryId, ym);
+    const limit = budget.amount || 0;
+    const pct = limit > 0 ? Math.round(spent / limit * 100) : 0;
+    const remain = limit - spent;
+    let status = 'ok', label = 'Còn dư';
+    if (pct >= 100) { status = 'over'; label = 'Đã vượt'; }
+    else if (pct >= 80) { status = 'warn'; label = 'Sắp vượt'; }
+    return { pct, status, remain, spent, limit, label };
+  },
+
+  renderBudgets() {
+    const ym = new Date().toISOString().slice(0, 7);
+    $('#budgetMonth').textContent = `Tháng ${ym.slice(5)}/${ym.slice(0, 4)}`;
+
+    const budgets = this.state.budgets.slice().sort((a, b) => {
+      const sa = this.budgetStatus(a, ym).pct;
+      const sb = this.budgetStatus(b, ym).pct;
+      return sb - sa;
+    });
+
+    // Tổng
+    const totalLimit = budgets.reduce((s, b) => s + (b.amount || 0), 0);
+    const totalSpent = budgets.reduce((s, b) => s + this.budgetSpent(b.categoryId, ym), 0);
+    const totalRemain = totalLimit - totalSpent;
+    const totalPct = totalLimit > 0 ? Math.min(100, Math.round(totalSpent / totalLimit * 100)) : 0;
+    let totalCls = 'ok';
+    if (totalSpent > totalLimit) totalCls = 'over';
+    else if (totalSpent / Math.max(1, totalLimit) >= 0.8) totalCls = 'warn';
+    $('#budgetTotalLimit').textContent = fmt(totalLimit) + ' đ';
+    $('#budgetTotalSpent').textContent = fmt(totalSpent) + ' đ';
+    $('#budgetTotalRemain').textContent = fmt(totalRemain) + ' đ';
+    const fillEl = $('#budgetTotalBarFill');
+    fillEl.style.width = totalPct + '%';
+    fillEl.className = 'budget-summary-bar-fill ' + (totalCls === 'ok' ? '' : totalCls);
+
+    const list = $('#budgetList');
+    if (!budgets.length) {
+      list.innerHTML = '<div class="empty-msg">Chưa có ngân sách. Bấm <strong>+</strong> để tạo cho từng danh mục chi.</div>';
+      return;
+    }
+
+    list.innerHTML = budgets.map(b => {
+      const cat = this.state.categories.find(c => c.id === b.categoryId) || {};
+      const st = this.budgetStatus(b, ym);
+      const barW = Math.min(100, st.pct);
+      const remainTxt = st.remain >= 0
+        ? `Còn ${fmt(st.remain)} đ`
+        : `Quá ${fmt(-st.remain)} đ`;
+      return `
+        <div class="budget-item" data-budget="${b.id}">
+          <div class="budget-item-icon" style="background:${(cat.color || '#888') + '1a'};color:${cat.color || '#888'}">
+            ${svgIcon(cat.icon || 'other')}
+          </div>
+          <div class="budget-item-info">
+            <div class="budget-item-name">
+              <span>${this.escapeHtml(cat.name || 'Không rõ')}</span>
+              <span class="budget-item-status ${st.status}">${st.pct}% · ${st.label}</span>
+            </div>
+            <div class="budget-item-bar"><div class="budget-item-bar-fill ${st.status}" style="width:${barW}%"></div></div>
+            <div class="budget-item-meta">
+              <span>${fmt(st.spent)} / ${fmt(st.limit)} đ</span>
+              <span>${remainTxt}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    list.querySelectorAll('[data-budget]').forEach(el => {
+      el.onclick = () => this.openBudgetModal(el.dataset.budget);
+    });
+  },
+
+  renderHomeBudgets() {
+    const wrap = $('#homeBudgetWidget');
+    if (!wrap) return;
+    if (!this.state.budgets.length) { wrap.style.display = 'none'; return; }
+    const ym = new Date().toISOString().slice(0, 7);
+    // Top 3 danh mục có % cao nhất
+    const top = this.state.budgets
+      .map(b => ({ b, st: this.budgetStatus(b, ym) }))
+      .sort((a, b) => b.st.pct - a.st.pct)
+      .slice(0, 3);
+
+    wrap.style.display = 'block';
+    wrap.innerHTML = `
+      <div class="section">
+        <div class="sec-label">Ngân sách tháng <span class="sec-action" onclick="QLT_App.switchTab('budgets')">Quản lý →</span></div>
+      </div>
+      <div class="home-budget-list">
+        ${top.map(({ b, st }) => {
+          const cat = this.state.categories.find(c => c.id === b.categoryId) || {};
+          const barW = Math.min(100, st.pct);
+          return `
+            <div class="home-budget-row" onclick="QLT_App.switchTab('budgets')">
+              <div class="home-budget-row-top">
+                <span>${this.escapeHtml(cat.name || 'Không rõ')}</span>
+                <span style="font-size:12px;color:${st.status === 'over' ? 'var(--danger)' : (st.status === 'warn' ? '#b45309' : 'var(--text2)')}">${st.pct}%</span>
+              </div>
+              <div class="home-budget-row-bar"><div class="home-budget-row-bar-fill ${st.status}" style="width:${barW}%"></div></div>
+              <div class="home-budget-row-amts">
+                <span>${fmt(st.spent)} / ${fmt(st.limit)} đ</span>
+                <span>${st.remain >= 0 ? 'Còn ' + fmt(st.remain) : 'Quá ' + fmt(-st.remain)} đ</span>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  },
+
+  openBudgetModal(budgetId) {
+    const isNew = !budgetId;
+    let budget;
+    if (isNew) {
+      budget = { id: null, categoryId: '', amount: 0 };
+    } else {
+      budget = JSON.parse(JSON.stringify(this.state.budgets.find(b => b.id === budgetId) || {}));
+    }
+    this.state.editingBudget = budget;
+
+    $('#budgetModalTitle').textContent = isNew ? 'Thêm ngân sách' : 'Sửa ngân sách';
+    $('#budgetDelete').style.display = isNew ? 'none' : '';
+
+    // Danh mục chi — loại trừ những danh mục đã có ngân sách (trừ khi đang sửa)
+    const usedCatIds = this.state.budgets
+      .filter(b => b.id !== budget.id)
+      .map(b => b.categoryId);
+    const expenseCats = this.state.categories
+      .filter(c => c.type === 'expense' && !usedCatIds.includes(c.id));
+
+    if (isNew && !expenseCats.length) {
+      QLT_UI.alert('Tất cả danh mục chi đã có ngân sách. Hãy sửa khoản hiện có hoặc thêm danh mục mới.', { title: 'Hết danh mục' });
+      return;
+    }
+
+    $('#budgetCategory').innerHTML = expenseCats.map(c =>
+      `<option value="${c.id}" ${c.id === budget.categoryId ? 'selected' : ''}>${this.escapeHtml(c.name)}</option>`
+    ).join('');
+    $('#budgetCategory').disabled = !isNew;
+    $('#budgetAmount').value = fmt(budget.amount || 0);
+
+    $('#budgetModal').classList.add('open');
+  },
+
+  async saveBudget() {
+    const b = this.state.editingBudget;
+    if (!b) return;
+    b.categoryId = $('#budgetCategory').value;
+    b.amount = readAmount($('#budgetAmount'));
+    b.bookId = b.bookId || this.state.currentBookId;
+
+    if (!b.categoryId) { QLT_UI.toast('Vui lòng chọn danh mục', { type: 'error' }); return; }
+    if (b.amount <= 0) { QLT_UI.toast('Vui lòng nhập hạn mức', { type: 'error' }); return; }
+
+    await window.QLT_Store.put('budgets', b);
+    await this.reload();
+    $('#budgetModal').classList.remove('open');
+    this.renderBudgets();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.autoSync();
+    QLT_UI.toast('Đã lưu ngân sách', { type: 'success' });
+  },
+
+  async deleteBudget() {
+    const b = this.state.editingBudget;
+    if (!b?.id) return;
+    if (!await QLT_UI.confirm('Xoá ngân sách này? Các giao dịch chi không bị ảnh hưởng.', { okLabel: 'Xoá', danger: true })) return;
+    await window.QLT_Store.del('budgets', b.id);
+    await this.reload();
+    $('#budgetModal').classList.remove('open');
+    this.renderBudgets();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.autoSync();
   },
 
   // ============ LOANS (Cho vay / Đi vay) ============
@@ -1530,6 +1728,7 @@ const App = {
       $('#txAccountLabel').textContent = 'Từ tài khoản';
       $('#txToAccountSection').style.display = 'block';
       this.renderTxToAccountPicker();
+      const hint = $('#txBudgetHint'); if (hint) hint.style.display = 'none';
     } else {
       $('#txCategorySection').style.display = 'block';
       $('#txAccountLabel').textContent = 'Tài khoản';
@@ -1640,8 +1839,44 @@ const App = {
         $$('#txCategoryList .picker-item').forEach(x => x.classList.remove('on'));
         el.classList.add('on');
         this.state.editingTx.categoryId = el.dataset.cat;
+        this.renderTxBudgetHint();
       };
     });
+    this.renderTxBudgetHint();
+  },
+
+  // Hiện ngân sách còn lại của danh mục đang chọn (chỉ áp dụng cho 'expense')
+  renderTxBudgetHint() {
+    const hint = $('#txBudgetHint');
+    if (!hint) return;
+    const tx = this.state.editingTx;
+    if (!tx || tx.type !== 'expense' || !tx.categoryId) {
+      hint.style.display = 'none';
+      return;
+    }
+    const budget = this.state.budgets.find(b => b.categoryId === tx.categoryId);
+    if (!budget) { hint.style.display = 'none'; return; }
+
+    const ym = (tx.date || today()).slice(0, 7);
+    let spent = this.budgetSpent(tx.categoryId, ym);
+    // Nếu đang sửa: trừ chính giao dịch này khỏi 'đã chi' để hiện đúng
+    if (tx.id) {
+      const existing = this.state.transactions.find(x => x.id === tx.id);
+      if (existing && existing.date.startsWith(ym)) spent -= existing.amount;
+    }
+    const remain = budget.amount - spent;
+    const pct = budget.amount > 0 ? Math.round(spent / budget.amount * 100) : 0;
+    let cls = 'ok', emoji = '✅';
+    if (pct >= 100) { cls = 'over'; emoji = '🚫'; }
+    else if (pct >= 80) { cls = 'warn'; emoji = '⚠️'; }
+
+    hint.style.display = 'block';
+    hint.className = 'tx-budget-hint ' + (cls === 'ok' ? '' : cls);
+    if (remain >= 0) {
+      hint.innerHTML = `${emoji} <strong>Ngân sách:</strong> còn <strong>${fmt(remain)} đ</strong> trong tháng này (đã chi ${fmt(spent)} / ${fmt(budget.amount)} · ${pct}%)`;
+    } else {
+      hint.innerHTML = `${emoji} <strong>Đã vượt ngân sách</strong> ${fmt(-remain)} đ (đã chi ${fmt(spent)} / ${fmt(budget.amount)})`;
+    }
   },
 
   async saveTx() {
