@@ -1858,7 +1858,6 @@ const App = {
       pct: totOut > 0 ? (val / totOut * 100).toFixed(1) : '0'
     })).sort((a, b) => b.value - a.value);
 
-    const userName = window.QLT_Auth.user ? (window.QLT_Auth.user.name || window.QLT_Auth.user.email) : 'Khách';
     const exportedAt = new Date().toLocaleString('vi-VN');
     const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const settlement = includeSettlement ? await this.calculateSettlement(bookId) : null;
@@ -1950,7 +1949,7 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
 <div class="report">
   <header>
     <h1>${esc(book.name)}</h1>
-    <div class="meta">Báo cáo xuất ${exportedAt} · ${esc(userName)} · ${allTxs.length} giao dịch</div>
+    <div class="meta">Báo cáo xuất ${exportedAt} · ${allTxs.length} giao dịch</div>
     <div class="meta" style="margin-top:6px;display:inline-block;background:rgba(255,255,255,.18);padding:3px 10px;border-radius:12px;font-weight:600;font-size:11px;letter-spacing:.5px">${reportType}</div>
   </header>
   <section>
