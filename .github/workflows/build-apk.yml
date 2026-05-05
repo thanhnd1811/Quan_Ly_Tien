@@ -34,6 +34,27 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
+      - name: Override launcher icons (cọc tiền xanh thay vì icon mặc định Capacitor)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y imagemagick
+          SRC=www/icons/icon-512.png
+          # Xoá adaptive icon XML để Android dùng PNG mới (tránh icon X xanh dương mặc định)
+          rm -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml || true
+          rm -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml || true
+          # Resize icon vào tất cả density
+          for entry in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            density=${entry%%:*}
+            size=${entry##*:}
+            DIR=android/app/src/main/res/mipmap-$density
+            mkdir -p "$DIR"
+            convert "$SRC" -resize ${size}x${size} "$DIR/ic_launcher.png"
+            convert "$SRC" -resize ${size}x${size} "$DIR/ic_launcher_round.png"
+            convert "$SRC" -resize ${size}x${size} "$DIR/ic_launcher_foreground.png"
+          done
+          echo "Done — listing icon files:"
+          find android/app/src/main/res -name "ic_launcher*" | head -20
+
       - name: Build debug APK
         working-directory: android
         run: |
