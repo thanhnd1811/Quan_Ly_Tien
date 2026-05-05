@@ -20,7 +20,7 @@ const QLT_UI = (() => {
     if (r) r(result);
   }
 
-  function open({ title = '', message = '', buttons }) {
+  function open({ title = '', message = '', buttons, html = false }) {
     return new Promise(resolve => {
       // Nếu có dialog cũ đang mở, đóng (resolve undefined) trước
       if (activeResolve) { try { activeResolve(undefined); } catch (_) {} activeResolve = null; }
@@ -30,7 +30,7 @@ const QLT_UI = (() => {
 
       document.getElementById('qltDialogTitle').innerHTML = title ? escapeText(title) : '';
       document.getElementById('qltDialogTitle').style.display = title ? 'block' : 'none';
-      document.getElementById('qltDialogMsg').innerHTML = escapeText(message);
+      document.getElementById('qltDialogMsg').innerHTML = html ? message : escapeText(message);
 
       const actions = document.getElementById('qltDialogActions');
       actions.innerHTML = '';
@@ -52,6 +52,7 @@ const QLT_UI = (() => {
     return open({
       title: opts.title || '',
       message,
+      html: !!opts.html,
       buttons: [{ label: opts.okLabel || 'OK', variant: 'primary', value: true }]
     });
   }
@@ -2608,6 +2609,8 @@ const App = {
     $('#setSync').onclick = () => this.doSync();
     $('#setExport').onclick = () => this.doExport();
     $('#setImport').onclick = () => this.doImport();
+    const diagBtn = $('#setDiagBalance');
+    if (diagBtn) diagBtn.onclick = () => this.showBalanceDiagnosis();
 
     // Gỡ banner cũ nếu còn (từ phiên bản trước hide login trên native)
     const oldNote = $('#setNativeNote');
@@ -2958,19 +2961,81 @@ const App = {
   },
 
   // delta=+1: cộng giao dịch vào số dư; delta=-1: hoàn tác
+  // Đọc TƯƠI từ DB để tránh state cũ — chống mất cập nhật khi cache RAM bị stale
+  // (vd: sau sync pull, hoặc 2 ví cùng id trong transfer-to-self).
   async applyBalanceDelta(t, delta) {
+    const updates = [];
     if (t.type === 'transfer') {
-      const from = this.state.accounts.find(a => a.id === t.accountId);
-      const to = this.state.accounts.find(a => a.id === t.toAccountId);
-      if (from) { from.balance -= t.amount * delta; await window.QLT_Store.put('accounts', from); }
-      if (to) { to.balance += t.amount * delta; await window.QLT_Store.put('accounts', to); }
-    } else {
-      const acc = this.state.accounts.find(a => a.id === t.accountId);
-      if (acc) {
-        acc.balance += (t.type === 'income' ? +1 : -1) * t.amount * delta;
-        await window.QLT_Store.put('accounts', acc);
+      if (t.accountId)   updates.push({ id: t.accountId,   change: -t.amount * delta });
+      if (t.toAccountId) updates.push({ id: t.toAccountId, change: +t.amount * delta });
+    } else if (t.accountId) {
+      const sign = (t.type === 'income' ? +1 : -1);
+      updates.push({ id: t.accountId, change: sign * t.amount * delta });
+    }
+
+    // Gộp updates cùng id (vd: transfer ví → chính nó → net = 0, không ghi đè vô nghĩa)
+    const merged = {};
+    for (const u of updates) merged[u.id] = (merged[u.id] || 0) + u.change;
+
+    for (const id of Object.keys(merged)) {
+      const change = merged[id];
+      if (!change) continue;
+      const fresh = await window.QLT_Store.get('accounts', id);
+      if (!fresh) {
+        console.warn('[QLT] applyBalanceDelta: không tìm thấy ví', id, 'tx=', t);
+        continue;
+      }
+      fresh.balance = (Number(fresh.balance) || 0) + change;
+      await window.QLT_Store.put('accounts', fresh);
+      // Đồng bộ state cache để UI hiện ngay đúng giá trị (không cần đợi reload)
+      const cached = this.state.accounts.find(a => a.id === id);
+      if (cached) cached.balance = fresh.balance;
+    }
+  },
+
+  // Báo cáo so sánh số dư: cho từng ví trong sổ hiện tại, tính lại theo ALL giao dịch
+  // và so với balance đang lưu. Không tự sửa — chỉ trả về danh sách lệch để user tự
+  // đối chiếu (vì app không lưu "initial balance" riêng nên không thể auto-fix an toàn).
+  async diagnoseBalances() {
+    const bid = this.state.currentBookId;
+    const allAccs = (await window.QLT_Store.getAll('accounts')).filter(a => a.bookId === bid);
+    const allTxs  = (await window.QLT_Store.getAll('transactions')).filter(t => t.bookId === bid);
+    const allLoans = (await window.QLT_Store.getAll('loans')).filter(l => l.bookId === bid);
+
+    // delta tích luỹ theo accountId
+    const delta = {};
+    const accIds = new Set(allAccs.map(a => a.id));
+    for (const id of accIds) delta[id] = 0;
+
+    for (const t of allTxs) {
+      if (t.type === 'income' && accIds.has(t.accountId)) {
+        delta[t.accountId] += t.amount;
+      } else if (t.type === 'expense' && accIds.has(t.accountId)) {
+        delta[t.accountId] -= t.amount;
+      } else if (t.type === 'transfer') {
+        if (accIds.has(t.accountId))   delta[t.accountId]   -= t.amount;
+        if (accIds.has(t.toAccountId)) delta[t.toAccountId] += t.amount;
       }
     }
+    for (const l of allLoans) {
+      if (accIds.has(l.accountId)) {
+        delta[l.accountId] += (l.type === 'lend' ? -1 : +1) * (l.principal || 0);
+      }
+      for (const p of (l.payments || [])) {
+        if (accIds.has(p.accountId)) {
+          delta[p.accountId] += (l.type === 'lend' ? +1 : -1) * (p.amount || 0);
+        }
+      }
+    }
+
+    // Báo cáo: với mỗi ví, baseline (initial) hợp lý = balance - delta
+    return allAccs.map(a => ({
+      id: a.id,
+      name: a.name,
+      currentBalance: Number(a.balance) || 0,
+      txDelta: delta[a.id] || 0,
+      impliedInitial: (Number(a.balance) || 0) - (delta[a.id] || 0)
+    }));
   },
 
   async deleteTx() {
@@ -3923,6 +3988,34 @@ const App = {
     this._syncTimer = setTimeout(async () => {
       try { await window.QLT_Sync.pushNow(); } catch (e) { console.warn('Auto-sync lỗi:', e); }
     }, 3000);
+  },
+
+  async showBalanceDiagnosis() {
+    const rows = await this.diagnoseBalances();
+    if (!rows.length) {
+      QLT_UI.alert('Sổ này chưa có ví nào.', { title: 'Kiểm tra số dư' });
+      return;
+    }
+    const html = rows.map(r => {
+      const cur = fmt(r.currentBalance);
+      const init = fmt(r.impliedInitial);
+      const delta = (r.txDelta > 0 ? '+' : '') + fmt(r.txDelta);
+      return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="font-weight:700">${this.escapeHtml(r.name)}</div>
+        <div style="font-size:12px;color:var(--text2);line-height:1.6">
+          Số dư hiện tại: <strong>${cur} đ</strong><br>
+          Tổng thay đổi từ giao dịch: <strong>${delta} đ</strong><br>
+          → Số dư-gốc suy ra: <strong>${init} đ</strong>
+        </div>
+      </div>`;
+    }).join('');
+    QLT_UI.alert(
+      `<div style="text-align:left;font-size:13px">
+        <div style="margin-bottom:8px;color:var(--text2)">Nếu "Số dư-gốc suy ra" khác với số dư bạn từng nhập, nghĩa là có giao dịch nào đó chưa cập nhật đúng vào ví. Mở "Sửa tài khoản" → nhập lại số dư đúng để khắc phục.</div>
+        ${html}
+      </div>`,
+      { title: '🔎 Kiểm tra số dư', html: true }
+    );
   },
 
   async doExport() {
