@@ -259,6 +259,12 @@ const App = {
           await this.scheduleLoanNotif(l);
         }
       } catch (_) {}
+      // Đặt lại notif cho mọi sổ tiết kiệm có ngày đáo hạn
+      try {
+        for (const a of this.state.accounts.filter(a => this.isSavings(a) && a.maturityDate)) {
+          await this.scheduleMaturityNotif(a);
+        }
+      } catch (_) {}
       this.render();
       this.bindEvents();
       $$('.qlt-amount').forEach(attachAmountFormatting);
@@ -426,6 +432,34 @@ const App = {
     // Account form
     $('#accSave').onclick = () => this.saveAcc();
     $('#accDelete').onclick = () => this.deleteAcc();
+    $('#accMaturity').onclick = () => this.openMaturityModal();
+    $('#maturityConfirm').onclick = () => this.confirmMaturity();
+    $$('.acc-type-pill').forEach(el => {
+      el.onclick = () => {
+        if (this.state.editingAcc?.id) return; // Khoá khi đang sửa
+        $$('.acc-type-pill').forEach(x => x.classList.remove('on'));
+        el.classList.add('on');
+        if (this.state.editingAcc) {
+          this.state.editingAcc.accountType = el.dataset.type;
+          this.applyAccountTypeUI();
+          this.recalcMaturityHint();
+        }
+      };
+    });
+    // Tự cập nhật ngày đáo hạn + hint khi đổi field
+    ['accStartDate', 'accInterestRate', 'accBalance'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', () => this.recalcMaturityHint());
+    });
+    const termSel = $('#accTermMonths');
+    if (termSel) termSel.onchange = () => {
+      $('#accTermMonthsCustomWrap').style.display = termSel.value === 'custom' ? 'block' : 'none';
+      this.recalcMaturityHint();
+    };
+    const termCustom = $('#accTermMonthsCustom');
+    if (termCustom) termCustom.addEventListener('input', () => this.recalcMaturityHint());
+    const accMatDate = $('#accMaturityDate');
+    if (accMatDate) accMatDate.addEventListener('change', () => this.recalcMaturityHint());
 
     // Reminder form
     $('#remSave').onclick = () => this.saveReminder();
@@ -608,9 +642,28 @@ const App = {
   },
 
   // ============ HOME ============
+  // Phân biệt 'payment' (tiền dùng được) và 'savings' (sổ tiết kiệm — locked)
+  isSavings(acc) { return (acc?.accountType || 'payment') === 'savings'; },
+  isPayment(acc) { return (acc?.accountType || 'payment') === 'payment'; },
+
   renderHome() {
-    const totalBalance = this.state.accounts.reduce((s, a) => s + (a.balance || 0), 0);
+    // Tổng số dư = CHỈ tính ví thanh toán (tiền dùng được)
+    const paymentAccs = this.state.accounts.filter(a => this.isPayment(a));
+    const savingsAccs = this.state.accounts.filter(a => this.isSavings(a));
+    const totalBalance = paymentAccs.reduce((s, a) => s + (a.balance || 0), 0);
+    const totalSavings = savingsAccs.reduce((s, a) => s + (a.balance || 0), 0);
     $('#homeBalance').textContent = fmt(totalBalance) + ' đ';
+
+    // Hint sổ tiết kiệm dưới hero
+    const savingsLink = $('#homeSavingsLink');
+    if (savingsLink) {
+      if (totalSavings > 0) {
+        savingsLink.style.display = 'inline-flex';
+        savingsLink.innerHTML = `+ ${fmt(totalSavings)} đ trong tiết kiệm <span style="font-size:14px">→</span>`;
+      } else {
+        savingsLink.style.display = 'none';
+      }
+    }
 
     // Tổng thu/chi tháng hiện tại + thay đổi số dư từng ví trong tháng
     const now = new Date();
@@ -620,6 +673,7 @@ const App = {
     for (const a of this.state.accounts) accChange[a.id] = 0;
     for (const t of this.state.transactions) {
       if (!t.date.startsWith(ym)) continue;
+      // Bỏ qua transfer giữa savings ↔ payment khỏi Thu/Chi tháng (không phải thu nhập/chi tiêu thật)
       if (t.type === 'income') {
         inc += t.amount;
         accChange[t.accountId] = (accChange[t.accountId] || 0) + t.amount;
@@ -635,9 +689,9 @@ const App = {
     $('#homeExpense').textContent = fmt(exp) + ' đ';
     $('#homeMonth').textContent = `Tháng ${now.getMonth() + 1}/${now.getFullYear()}`;
 
-    // ----- Số dư từng ví -----
+    // ----- Số dư từng ví (CHỈ payment) -----
     const walletEl = $('#homeWallets');
-    const accs = this.state.accounts;
+    const accs = paymentAccs;
     if (!accs.length) {
       walletEl.innerHTML = '<div class="empty-msg">Chưa có ví nào. Vào Tài khoản để thêm.</div>';
     } else {
@@ -680,6 +734,9 @@ const App = {
         };
       });
     }
+
+    // ----- Sổ tiết kiệm / Tài sản dài hạn -----
+    this.renderHomeSavings(totalBalance, totalSavings);
 
     // ----- Forecast cuối tháng -----
     this.renderHomeForecast();
@@ -754,27 +811,48 @@ const App = {
 
   // ============ ACCOUNTS ============
   renderAccounts() {
-    const total = this.state.accounts.reduce((s, a) => s + (a.balance || 0), 0);
-    $('#accTotalBalance').textContent = fmt(total) + ' đ';
+    const payAccs = this.state.accounts.filter(a => this.isPayment(a));
+    const savAccs = this.state.accounts.filter(a => this.isSavings(a));
+    const totalPay = payAccs.reduce((s, a) => s + (a.balance || 0), 0);
+    const totalSav = savAccs.reduce((s, a) => s + (a.balance || 0), 0);
+    $('#accTotalBalance').textContent = fmt(totalPay + totalSav) + ' đ';
 
     const list = $('#accList');
     if (this.state.accounts.length === 0) {
       list.innerHTML = '<div class="empty-msg">Chưa có tài khoản</div>';
-    } else {
-      list.innerHTML = this.state.accounts.map(a => `
+      $('#accAddBtn').onclick = () => this.openAccModal(null);
+      return;
+    }
+
+    const renderAcc = (a) => {
+      const meta = this.isSavings(a)
+        ? `${a.interestRate || 0}%/năm · ${a.termMonths || 0} tháng${a.maturityDate ? ' · đáo hạn ' + this.formatDate(a.maturityDate) : ''}`
+        : (a.currency || 'VND');
+      return `
         <div class="acc-item" data-acc="${a.id}">
-          <div class="tx-icon" style="background:#2d6a4f1a;color:#2d6a4f">${svgIcon(a.icon || 'cash')}</div>
+          <div class="tx-icon" style="background:#2d6a4f1a;color:#2d6a4f">${svgIcon(a.icon || (this.isSavings(a) ? 'emoji:💎' : 'cash'))}</div>
           <div class="tx-info">
             <div class="tx-cat">${this.escapeHtml(a.name)}</div>
-            <div class="tx-meta">${a.currency || 'VND'}</div>
+            <div class="tx-meta">${this.escapeHtml(meta)}</div>
           </div>
           <div class="tx-amount ${(a.balance || 0) < 0 ? 'amount-neg' : ''}">${fmt(a.balance)} đ</div>
         </div>
-      `).join('');
-      list.querySelectorAll('[data-acc]').forEach(el => {
-        el.onclick = () => this.openAccModal(el.dataset.acc);
-      });
+      `;
+    };
+
+    let html = '';
+    if (payAccs.length) {
+      html += `<div class="sec-label" style="padding:14px 16px 6px">💳 Tiền dùng được — ${fmt(totalPay)} đ</div>`;
+      html += payAccs.map(renderAcc).join('');
     }
+    if (savAccs.length) {
+      html += `<div class="sec-label" style="padding:14px 16px 6px">💎 Sổ tiết kiệm — ${fmt(totalSav)} đ</div>`;
+      html += savAccs.map(renderAcc).join('');
+    }
+    list.innerHTML = html;
+    list.querySelectorAll('[data-acc]').forEach(el => {
+      el.onclick = () => this.openAccModal(el.dataset.acc);
+    });
 
     $('#accAddBtn').onclick = () => this.openAccModal(null);
   },
@@ -1288,6 +1366,62 @@ const App = {
     list.querySelectorAll('[data-budget]').forEach(el => {
       el.onclick = () => this.openBudgetModal(el.dataset.budget);
     });
+  },
+
+  // ----- Tài sản dài hạn (sổ tiết kiệm) -----
+  renderHomeSavings(totalPayment, totalSavings) {
+    const wrap = $('#homeSavings');
+    if (!wrap) return;
+    const savAccs = this.state.accounts.filter(a => this.isSavings(a));
+    if (!savAccs.length) { wrap.style.display = 'none'; return; }
+    const todayStr = today();
+    savAccs.sort((a, b) => (a.maturityDate || '').localeCompare(b.maturityDate || ''));
+
+    wrap.style.display = 'block';
+    wrap.innerHTML = `
+      <div class="savings-section-card">
+        <div class="savings-section-head">💎 Tài sản dài hạn — sổ tiết kiệm</div>
+        <div class="savings-section-total">${fmt(totalSavings)} đ</div>
+        <div class="savings-list">
+          ${savAccs.map(a => {
+            const due = a.maturityDate || '';
+            let dueCls = '', dueLabel = 'Chưa đặt hạn';
+            if (due) {
+              const daysLeft = Math.ceil((new Date(due) - new Date(todayStr)) / 86400000);
+              if (daysLeft < 0) { dueCls = 'overdue'; dueLabel = `Quá hạn ${-daysLeft}d`; }
+              else if (daysLeft === 0) { dueCls = 'soon'; dueLabel = '⚠️ Đáo hạn HÔM NAY'; }
+              else if (daysLeft <= 7) { dueCls = 'soon'; dueLabel = `⚠️ Còn ${daysLeft}d → đáo hạn`; }
+              else dueLabel = `Đáo hạn ${this.formatDate(due)}`;
+            }
+            return `
+              <div class="savings-item" data-acc="${a.id}">
+                <div class="savings-item-icon">${(a.icon || '').startsWith('emoji:') ? a.icon.slice(6) : '💎'}</div>
+                <div class="savings-item-info">
+                  <div class="savings-item-name">${this.escapeHtml(a.name)}</div>
+                  <div class="savings-item-meta">${a.interestRate || 0}%/năm · ${a.termMonths || 0} tháng</div>
+                </div>
+                <div class="savings-item-amt">
+                  <div class="savings-item-bal">${fmt(a.balance || 0)} đ</div>
+                  <div class="savings-item-due ${dueCls}">${dueLabel}</div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+        <div class="savings-grand">
+          <span>Tổng tài sản (tiền dùng + tiết kiệm)</span>
+          <strong>${fmt((totalPayment || 0) + totalSavings)} đ</strong>
+        </div>
+      </div>
+    `;
+    wrap.querySelectorAll('[data-acc]').forEach(el => {
+      el.onclick = () => this.openAccModal(el.dataset.acc);
+    });
+  },
+
+  scrollToSavings() {
+    const el = $('#homeSavings');
+    if (el && el.style.display !== 'none') el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   },
 
   renderHomeForecast() {
@@ -2666,24 +2800,107 @@ const App = {
     const isNew = !id;
     let a;
     if (isNew) {
-      a = { id: null, name: '', icon: 'cash', balance: 0, currency: 'VND', bookId: this.state.currentBookId };
+      a = {
+        id: null, name: '', icon: 'cash', balance: 0, currency: 'VND',
+        bookId: this.state.currentBookId,
+        accountType: 'payment',
+        // Savings fields (chỉ dùng nếu accountType='savings')
+        interestRate: 0, termMonths: 6, startDate: today(), maturityDate: ''
+      };
     } else {
       a = this.state.accounts.find(x => x.id === id);
       if (!a) return;
     }
     this.state.editingAcc = { ...a };
+    const editing = this.state.editingAcc;
+    if (!editing.accountType) editing.accountType = 'payment';
+
     $('#accName').value = a.name;
     $('#accBalance').value = fmtAmount(a.balance);
     $('#accTitle').textContent = isNew ? 'Thêm tài khoản' : 'Sửa tài khoản';
     $('#accDelete').style.display = isNew ? 'none' : 'block';
+    $('#accMaturity').style.display = (!isNew && editing.accountType === 'savings') ? 'block' : 'none';
+
+    // Type pills
+    $$('.acc-type-pill').forEach(el => {
+      el.classList.toggle('on', el.dataset.type === editing.accountType);
+      // Không cho đổi type khi sửa (vì sẽ làm rối logic balance)
+      el.style.opacity = isNew ? '1' : '0.5';
+      el.style.pointerEvents = isNew ? 'auto' : 'none';
+    });
+
+    // Savings fields
+    $('#accInterestRate').value = editing.interestRate || '';
+    const termVal = editing.termMonths || 6;
+    const standardTerms = [1, 3, 6, 9, 12, 18, 24, 36];
+    if (standardTerms.includes(termVal)) {
+      $('#accTermMonths').value = String(termVal);
+      $('#accTermMonthsCustomWrap').style.display = 'none';
+      $('#accTermMonthsCustom').value = '';
+    } else {
+      $('#accTermMonths').value = 'custom';
+      $('#accTermMonthsCustomWrap').style.display = 'block';
+      $('#accTermMonthsCustom').value = termVal;
+    }
+    $('#accStartDate').value = editing.startDate || today();
+    $('#accMaturityDate').value = editing.maturityDate || '';
+
+    this.applyAccountTypeUI();
+    this.recalcMaturityHint();
 
     this.renderIconPicker({
       containerId: 'accIconGrid',
-      currentIcon: a.icon || 'cash',
+      currentIcon: a.icon || (editing.accountType === 'savings' ? 'emoji:💎' : 'cash'),
       allowEmoji: true,
       onPick: (icon) => { this.state.editingAcc.icon = icon; }
     });
     $('#accModal').classList.add('open');
+  },
+
+  applyAccountTypeUI() {
+    const t = this.state.editingAcc?.accountType || 'payment';
+    $('#accSavingsFields').style.display = t === 'savings' ? 'block' : 'none';
+    $('#accBalanceLabel').textContent = t === 'savings' ? 'Số gốc gửi (VND)' : 'Số dư ban đầu (VND)';
+  },
+
+  // Tính ngày đáo hạn = startDate + termMonths
+  computeMaturityDate(startDate, termMonths) {
+    if (!startDate || !termMonths) return '';
+    const d = new Date(startDate + 'T00:00:00');
+    d.setMonth(d.getMonth() + parseInt(termMonths, 10));
+    return d.toISOString().slice(0, 10);
+  },
+
+  // Đọc termMonths hiện tại từ form (xử lý 'custom')
+  readTermMonths() {
+    const sel = $('#accTermMonths').value;
+    if (sel === 'custom') return parseInt($('#accTermMonthsCustom').value, 10) || 0;
+    return parseInt(sel, 10) || 0;
+  },
+
+  // Cập nhật maturityDate input + hint dự kiến
+  recalcMaturityHint() {
+    const e = this.state.editingAcc;
+    if (!e || e.accountType !== 'savings') return;
+    const start = $('#accStartDate').value || today();
+    const term = this.readTermMonths();
+    const auto = this.computeMaturityDate(start, term);
+    // Auto-fill maturityDate nếu chưa có hoặc match với auto cũ
+    const cur = $('#accMaturityDate').value;
+    if (!cur || cur === e.maturityDate) {
+      $('#accMaturityDate').value = auto;
+    }
+    // Hint: lãi dự kiến + ngày đáo hạn
+    const rate = parseFloat($('#accInterestRate').value) || 0;
+    const principal = readAmount($('#accBalance'));
+    const interest = Math.round(principal * (rate / 100) * (term / 12));
+    const due = $('#accMaturityDate').value || auto;
+    const hint = $('#accMaturityHint');
+    if (principal > 0 && rate > 0 && term > 0) {
+      hint.innerHTML = `📊 Lãi dự kiến: <strong>${fmt(interest)} đ</strong> · Tổng nhận khi đáo hạn: <strong>${fmt(principal + interest)} đ</strong> (ngày ${this.formatDate(due)})`;
+    } else {
+      hint.innerHTML = `📅 Ngày đáo hạn dự kiến: <strong>${this.formatDate(due)}</strong>`;
+    }
   },
 
   async saveAcc() {
@@ -2692,27 +2909,172 @@ const App = {
     a.balance = readAmount($('#accBalance'));
     a.bookId = a.bookId || this.state.currentBookId;
     if (!a.name) { QLT_UI.toast('Nhập tên tài khoản', { type: 'error' }); return; }
+
+    if (a.accountType === 'savings') {
+      a.interestRate = parseFloat($('#accInterestRate').value) || 0;
+      a.termMonths = this.readTermMonths();
+      a.startDate = $('#accStartDate').value || today();
+      a.maturityDate = $('#accMaturityDate').value || this.computeMaturityDate(a.startDate, a.termMonths);
+      if (a.balance <= 0) { QLT_UI.toast('Vui lòng nhập số gốc gửi', { type: 'error' }); return; }
+      if (!a.maturityDate) { QLT_UI.toast('Vui lòng đặt ngày đáo hạn', { type: 'error' }); return; }
+    }
+
     await window.QLT_Store.put('accounts', a);
     await this.reload();
+
+    // Schedule notif đáo hạn (cho savings)
+    if (a.accountType === 'savings' && a.maturityDate) {
+      try { await this.scheduleMaturityNotif(a); } catch (_) {}
+    }
+
     $('#accModal').classList.remove('open');
     this.renderAccounts();
+    if (this.state.currentTab === 'home') this.renderHome();
     this.autoSync();
   },
 
   async deleteAcc() {
     const a = this.state.editingAcc;
     if (!a.id) return;
-    const used = this.state.transactions.filter(t => t.accountId === a.id).length;
+    const used = this.state.transactions.filter(t => t.accountId === a.id || t.toAccountId === a.id).length;
     if (used > 0) {
       await QLT_UI.alert(`Không xoá được, có ${used} giao dịch đang dùng tài khoản này`, { title: 'Không thể xoá' });
       return;
     }
     if (!await QLT_UI.confirm('Xoá tài khoản?', { okLabel: 'Xoá', danger: true })) return;
+    // Cancel notif nếu có
+    if (a.accountType === 'savings' && window.Capacitor?.Plugins?.LocalNotifications) {
+      try {
+        const idNum = Math.abs(this.hashCode('savings_' + a.id)) % 2000000;
+        await window.Capacitor.Plugins.LocalNotifications.cancel({ notifications: [{ id: idNum }] });
+      } catch (_) {}
+    }
     await window.QLT_Store.del('accounts', a.id);
     await this.reload();
     $('#accModal').classList.remove('open');
     this.renderAccounts();
+    if (this.state.currentTab === 'home') this.renderHome();
     this.autoSync();
+  },
+
+  // Notification: nhắc 3 ngày trước ngày đáo hạn (9h sáng)
+  async scheduleMaturityNotif(acc) {
+    if (!window.Capacitor?.Plugins?.LocalNotifications) return;
+    const LN = window.Capacitor.Plugins.LocalNotifications;
+    try {
+      await LN.requestPermissions();
+      const idNum = Math.abs(this.hashCode('savings_' + acc.id)) % 2000000;
+      try { await LN.cancel({ notifications: [{ id: idNum }] }); } catch (_) {}
+
+      const due = new Date(acc.maturityDate + 'T09:00:00');
+      const notifAt = new Date(due); notifAt.setDate(notifAt.getDate() - 3);
+      if (notifAt.getTime() < Date.now()) return;
+
+      const interest = Math.round((acc.balance || 0) * ((acc.interestRate || 0) / 100) * ((acc.termMonths || 0) / 12));
+      await LN.schedule({
+        notifications: [{
+          id: idNum,
+          title: `📅 Sổ TK "${acc.name}" sắp đáo hạn`,
+          body: `Còn 3 ngày — gốc ${fmt(acc.balance)} đ + lãi dự kiến ${fmt(interest)} đ`,
+          schedule: { at: notifAt },
+          sound: 'default'
+        }]
+      });
+    } catch (e) { console.warn('Maturity notif lỗi:', e); }
+  },
+
+  // ============ ĐÁO HẠN SỔ TIẾT KIỆM ============
+  async openMaturityModal() {
+    const acc = this.state.editingAcc;
+    if (!acc?.id || acc.accountType !== 'savings') return;
+
+    const interest = Math.round((acc.balance || 0) * ((acc.interestRate || 0) / 100) * ((acc.termMonths || 0) / 12));
+
+    $('#maturityInfo').innerHTML = `
+      <div><strong>${this.escapeHtml(acc.name)}</strong></div>
+      <div style="color:var(--text2)">Gốc: <strong>${fmt(acc.balance)} đ</strong> · Lãi suất: ${acc.interestRate}%/năm · Kỳ hạn: ${acc.termMonths} tháng</div>
+      <div style="color:var(--text2)">Ngày gửi: ${this.formatDate(acc.startDate)} → Đáo hạn: ${this.formatDate(acc.maturityDate)}</div>
+    `;
+
+    $('#maturityInterest').value = fmt(interest);
+
+    // Ví đích: chỉ payment accounts
+    const payAccs = this.state.accounts.filter(x => (x.accountType || 'payment') === 'payment');
+    $('#maturityToAccount').innerHTML = payAccs.map(a =>
+      `<option value="${a.id}">${this.escapeHtml(a.name)}</option>`
+    ).join('');
+
+    // Danh mục thu nhập (lọc category type=income)
+    const incCats = this.state.categories.filter(c => c.type === 'income');
+    $('#maturityCategory').innerHTML = incCats.map(c =>
+      `<option value="${c.id}" ${c.name === 'Đầu tư' ? 'selected' : ''}>${this.escapeHtml(c.name)}</option>`
+    ).join('');
+
+    $('#maturityDate').value = today();
+
+    $('#maturityModal').classList.add('open');
+  },
+
+  async confirmMaturity() {
+    const acc = this.state.editingAcc;
+    if (!acc?.id) return;
+    const interest = readAmount($('#maturityInterest'));
+    const toAccId = $('#maturityToAccount').value;
+    const catId = $('#maturityCategory').value;
+    const date = $('#maturityDate').value || today();
+
+    if (!toAccId) { QLT_UI.toast('Chọn ví nhận tiền', { type: 'error' }); return; }
+    if (!catId) { QLT_UI.toast('Chọn danh mục thu nhập cho lãi', { type: 'error' }); return; }
+    if (interest < 0) { QLT_UI.toast('Lãi không hợp lệ', { type: 'error' }); return; }
+
+    const principal = acc.balance || 0;
+
+    // 1) Tạo giao dịch CHUYỂN KHOẢN gốc: từ savings → payment account
+    const txTransfer = {
+      type: 'transfer',
+      amount: principal,
+      date,
+      accountId: acc.id,
+      toAccountId: toAccId,
+      categoryId: null,
+      note: `Đáo hạn sổ ${acc.name} — chuyển gốc`,
+      bookId: this.state.currentBookId
+    };
+    // Cập nhật balance: savings -principal, payment +principal
+    await this.applyBalanceDelta(txTransfer, +1);
+    await window.QLT_Store.put('transactions', txTransfer);
+
+    // 2) Tạo giao dịch THU NHẬP cho lãi (nếu > 0)
+    if (interest > 0) {
+      const txIncome = {
+        type: 'income',
+        amount: interest,
+        date,
+        accountId: toAccId,
+        categoryId: catId,
+        note: `Lãi sổ ${acc.name}`,
+        bookId: this.state.currentBookId
+      };
+      await this.applyBalanceDelta(txIncome, +1);
+      await window.QLT_Store.put('transactions', txIncome);
+    }
+
+    // 3) Xoá tài khoản savings (số dư đã = 0 sau transfer)
+    if (window.Capacitor?.Plugins?.LocalNotifications) {
+      try {
+        const idNum = Math.abs(this.hashCode('savings_' + acc.id)) % 2000000;
+        await window.Capacitor.Plugins.LocalNotifications.cancel({ notifications: [{ id: idNum }] });
+      } catch (_) {}
+    }
+    await window.QLT_Store.del('accounts', acc.id);
+
+    await this.reload();
+    $('#maturityModal').classList.remove('open');
+    $('#accModal').classList.remove('open');
+    this.renderAccounts();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.autoSync();
+    QLT_UI.toast(`Đáo hạn xong: nhận ${fmt(principal + interest)} đ`, { type: 'success' });
   },
 
   // ============ MODAL: REMINDER ============

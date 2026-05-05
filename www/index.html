@@ -198,6 +198,26 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .lock-key.fn:active{background:rgba(255,255,255,.18)}
 .lock-key.bio{font-size:30px}
 .lock-foot{font-size:12px;opacity:.75;margin-top:8px;text-align:center;max-width:280px;line-height:1.5}
+/* Savings (Tài sản dài hạn) */
+.balance-hero-extra{font-size:11px;opacity:.85;margin-top:8px;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+.balance-hero-extra:active{opacity:.6}
+.savings-section-card{margin:0 16px 14px;background:linear-gradient(135deg,#1e293b,#334155);color:#fff;border-radius:var(--r);padding:16px;box-shadow:var(--sh)}
+.savings-section-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;opacity:.85}
+.savings-section-total{font-size:22px;font-weight:700;margin:6px 0 10px}
+.savings-list{display:flex;flex-direction:column;gap:8px}
+.savings-item{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.08);border-radius:var(--rsm);padding:10px 12px;cursor:pointer;backdrop-filter:blur(4px)}
+.savings-item:active{background:rgba(255,255,255,.16)}
+.savings-item-icon{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.savings-item-info{flex:1;min-width:0}
+.savings-item-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.savings-item-meta{font-size:11px;opacity:.8;margin-top:2px}
+.savings-item-amt{text-align:right;flex-shrink:0}
+.savings-item-bal{font-size:14px;font-weight:700}
+.savings-item-due{font-size:10px;opacity:.85;margin-top:1px}
+.savings-item-due.soon{color:#fbbf24;font-weight:700;opacity:1}
+.savings-item-due.overdue{color:#fca5a5;font-weight:700;opacity:1}
+.savings-grand{margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.18);display:flex;justify-content:space-between;align-items:center;font-size:12px}
+.savings-grand strong{font-size:16px}
 /* Forecast (Dự báo cuối tháng) */
 .forecast-card{margin:14px 16px;padding:16px;border-radius:var(--r);border:1px solid var(--border);background:var(--surface);box-shadow:var(--sh)}
 .forecast-card.up{border-left:4px solid var(--danger);background:linear-gradient(135deg,#fff5f5 0%,var(--surface) 60%)}
@@ -513,9 +533,10 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
   </div>
   <div class="scroll-body">
     <div class="balance-hero">
-      <div class="balance-label">Tổng số dư</div>
+      <div class="balance-label">Tổng số dư (tiền dùng được)</div>
       <div class="balance-amount" id="homeBalance">0 đ</div>
       <div class="balance-month" id="homeMonth">Tháng này</div>
+      <div class="balance-hero-extra" id="homeSavingsLink" style="display:none" onclick="QLT_App.scrollToSavings()"></div>
       <div class="stats-grid">
         <div class="stat-card">
           <div class="stat-lbl">Thu nhập</div>
@@ -534,6 +555,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
     </div>
     <div id="homeWallets"></div>
+    <div id="homeSavings" style="display:none"></div>
     <div id="homeForecast" style="display:none"></div>
     <div id="homeBudgetWidget" style="display:none"></div>
     <div id="homeLoanShortcut" style="display:none"></div>
@@ -1090,13 +1112,50 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       <h3 id="accTitle">Thêm tài khoản</h3>
     </div>
     <div class="modal-body">
+      <div class="seg" style="background:var(--surface2);border-radius:8px;padding:4px;margin-bottom:14px">
+        <div class="seg-item acc-type-pill on" data-type="payment" style="border-bottom:0;border-radius:6px;padding:8px 0;color:var(--text2)">💳 Thanh toán</div>
+        <div class="seg-item acc-type-pill" data-type="savings" style="border-bottom:0;border-radius:6px;padding:8px 0;color:var(--text2)">💎 Tiết kiệm</div>
+      </div>
       <div class="fg">
         <label class="fl">Tên</label>
         <input id="accName" class="fi" type="text" placeholder="Ví dụ: Tiền mặt, Vietcombank...">
       </div>
       <div class="fg">
-        <label class="fl">Số dư ban đầu (VND)</label>
+        <label class="fl" id="accBalanceLabel">Số dư ban đầu (VND)</label>
         <input id="accBalance" class="fi qlt-amount" type="text" inputmode="numeric" placeholder="0">
+      </div>
+      <div id="accSavingsFields" style="display:none">
+        <div class="fg">
+          <label class="fl">Lãi suất (%/năm)</label>
+          <input id="accInterestRate" class="fi" type="number" step="0.01" min="0" placeholder="Vd: 5.5">
+        </div>
+        <div class="fg">
+          <label class="fl">Kỳ hạn (tháng)</label>
+          <select id="accTermMonths" class="fi">
+            <option value="1">1 tháng</option>
+            <option value="3">3 tháng</option>
+            <option value="6" selected>6 tháng</option>
+            <option value="9">9 tháng</option>
+            <option value="12">12 tháng</option>
+            <option value="18">18 tháng</option>
+            <option value="24">24 tháng</option>
+            <option value="36">36 tháng</option>
+            <option value="custom">Khác (nhập tay)</option>
+          </select>
+        </div>
+        <div class="fg" id="accTermMonthsCustomWrap" style="display:none">
+          <label class="fl">Số tháng tuỳ chỉnh</label>
+          <input id="accTermMonthsCustom" class="fi" type="number" min="1" max="120" placeholder="Vd: 4">
+        </div>
+        <div class="fg">
+          <label class="fl">Ngày gửi</label>
+          <input id="accStartDate" class="fi" type="date">
+        </div>
+        <div class="fg">
+          <label class="fl">Ngày đáo hạn (tự tính, có thể sửa)</label>
+          <input id="accMaturityDate" class="fi" type="date">
+        </div>
+        <div id="accMaturityHint" style="font-size:12px;color:var(--text2);background:var(--surface2);padding:10px 12px;border-radius:8px;border-left:3px solid var(--accent);margin-top:-4px;line-height:1.5"></div>
       </div>
       <div class="fg">
         <label class="fl">Biểu tượng</label>
@@ -1105,7 +1164,44 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     </div>
     <div class="modal-footer">
       <button id="accDelete" class="btn btn-danger" style="display:none">Xoá</button>
+      <button id="accMaturity" class="btn btn-secondary" style="display:none;color:var(--accent);border-color:var(--accent)">📅 Đáo hạn</button>
       <button id="accSave" class="btn btn-primary">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Đáo hạn sổ tiết kiệm -->
+<div id="maturityModal" class="modal" style="z-index:310">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3>📅 Đáo hạn sổ tiết kiệm</h3>
+    </div>
+    <div class="modal-body">
+      <div id="maturityInfo" style="background:var(--surface2);padding:14px;border-radius:var(--rsm);margin-bottom:14px;line-height:1.7;font-size:13px"></div>
+      <div class="fg">
+        <label class="fl">Lãi nhận được (gợi ý đã tính sẵn)</label>
+        <input id="maturityInterest" class="fi qlt-amount" type="text" inputmode="numeric">
+      </div>
+      <div class="fg">
+        <label class="fl">Chuyển gốc + lãi vào ví</label>
+        <select id="maturityToAccount" class="fi"></select>
+      </div>
+      <div class="fg">
+        <label class="fl">Danh mục thu nhập (cho lãi)</label>
+        <select id="maturityCategory" class="fi"></select>
+      </div>
+      <div class="fg">
+        <label class="fl">Ngày đáo hạn thực tế</label>
+        <input id="maturityDate" class="fi" type="date">
+      </div>
+      <div style="font-size:12px;color:var(--text3);line-height:1.5;background:var(--acl);padding:10px 12px;border-radius:8px;margin-top:6px">
+        ✅ App sẽ tự tạo: 1 chuyển khoản (gốc) + 1 thu nhập (lãi), rồi xoá sổ tiết kiệm này.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close>Huỷ</button>
+      <button class="btn btn-primary" id="maturityConfirm">Xác nhận đáo hạn</button>
     </div>
   </div>
 </div>
