@@ -160,6 +160,15 @@ const App = {
 
   async init() {
     try {
+      // Edge-to-edge: WebView vẽ tràn ra sau status bar để màu topbar phủ kín lên trên
+      const SB = window.Capacitor?.Plugins?.StatusBar;
+      if (SB) {
+        try {
+          await SB.setOverlaysWebView({ overlay: true });
+          await SB.setStyle({ style: 'LIGHT' });
+        } catch (e) { /* web/PWA bỏ qua */ }
+      }
+
       // Service worker — chỉ register khi production (KHÔNG phải localhost dev), tránh kẹt cache cũ
       const isDev = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '';
       if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !isDev) {
