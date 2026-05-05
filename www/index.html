@@ -170,6 +170,45 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .legend-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface);border-radius:var(--rsm);margin-bottom:6px;border:1px solid var(--border);cursor:pointer}
 .legend-item:active{background:var(--surface2)}
 .legend-pct{font-size:11px;color:var(--text3);margin-left:6px;font-weight:500}
+/* Loans (Cho vay / Nợ) */
+.loan-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 16px;background:var(--book-accent);color:#fff}
+.loan-summary-card{background:rgba(255,255,255,.16);border-radius:var(--rsm);padding:10px 12px}
+.loan-summary-label{font-size:11px;opacity:.85;margin-bottom:3px}
+.loan-summary-amount{font-size:17px;font-weight:700}
+.loan-item{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border);cursor:pointer}
+.loan-item:active{background:var(--surface2)}
+.loan-item-icon{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+.loan-item-icon.lend{background:#fef3c71a;color:#d97706}
+.loan-item-icon.borrow{background:#dbeafe40;color:#2563eb}
+.loan-item-info{flex:1;min-width:0}
+.loan-item-name{font-size:14px;font-weight:600}
+.loan-item-meta{font-size:11px;color:var(--text3);margin-top:2px}
+.loan-item-bar{height:5px;background:var(--border);border-radius:3px;margin-top:6px;overflow:hidden}
+.loan-item-bar-fill{height:100%;background:var(--accent-light);border-radius:3px;transition:width .3s}
+.loan-item-amt{text-align:right;flex-shrink:0}
+.loan-item-remain{font-size:14px;font-weight:700}
+.loan-item-remain.lend{color:#d97706}
+.loan-item-remain.borrow{color:#2563eb}
+.loan-item-remain.closed{color:var(--text3);text-decoration:line-through}
+.loan-item-progress{font-size:10px;color:var(--text3);margin-top:2px}
+.loan-due{font-size:10px;font-weight:700;color:var(--danger);margin-top:2px}
+.loan-due.ok{color:var(--text3);font-weight:500}
+.payment-row{display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rsm);margin-bottom:6px}
+.payment-row-info{flex:1}
+.payment-row-amt{font-weight:700;color:var(--pos)}
+.payment-row-date{font-size:11px;color:var(--text3);margin-top:2px}
+.payment-row-del{width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:var(--text3);border-radius:50%;cursor:pointer}
+.payment-row-del:active{background:var(--border)}
+.payment-row-del svg{width:16px;height:16px}
+.home-loan-card{margin:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:10px;cursor:pointer}
+.home-loan-card-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px;display:flex;align-items:center;gap:10px}
+.home-loan-card-item:active{background:var(--surface2)}
+.home-loan-card-icon{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.home-loan-card-icon.lend{background:#fef3c7;color:#d97706}
+.home-loan-card-icon.borrow{background:#dbeafe;color:#2563eb}
+.home-loan-card-info{flex:1;min-width:0}
+.home-loan-card-label{font-size:11px;color:var(--text3)}
+.home-loan-card-val{font-size:14px;font-weight:700;color:var(--text);margin-top:2px}
 .top5-list{display:flex;flex-direction:column;gap:8px}
 .top5-row{display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--surface2);border-radius:var(--rsm);border:1px solid var(--border);cursor:pointer}
 .top5-row:active{background:var(--acl)}
@@ -397,6 +436,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
     </div>
     <div id="homeWallets"></div>
+    <div id="homeLoanShortcut" style="display:none"></div>
     <div class="section">
       <div class="sec-label">
         Giao dịch gần đây
@@ -478,6 +518,122 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       <canvas id="chartDonut" class="chart-canvas-donut"></canvas>
     </div>
     <div id="chartLegend" class="legend-list"></div>
+  </div>
+</div>
+
+<!-- ========== LOANS (Cho vay / Đi vay) ========== -->
+<div id="screen-loans" class="screen">
+  <div class="topbar">
+    <div class="tb-row">
+      <div class="tb-back" data-icon="back" onclick="QLT_App.switchTab('home')"></div>
+      <div class="tb-title">Cho vay / Nợ</div>
+    </div>
+    <div class="seg">
+      <div class="seg-item loan-tab on" data-type="lend">CHO VAY</div>
+      <div class="seg-item loan-tab" data-type="borrow">ĐI VAY</div>
+    </div>
+  </div>
+  <div class="loan-summary">
+    <div class="loan-summary-card lend">
+      <div class="loan-summary-label">Đang cho vay</div>
+      <div class="loan-summary-amount" id="loanTotalLend">0 đ</div>
+    </div>
+    <div class="loan-summary-card borrow">
+      <div class="loan-summary-label">Đang nợ</div>
+      <div class="loan-summary-amount" id="loanTotalBorrow">0 đ</div>
+    </div>
+  </div>
+  <div class="scroll-body">
+    <div class="pill-row">
+      <div class="pill loan-status-pill on" data-status="open">Đang mở</div>
+      <div class="pill loan-status-pill" data-status="closed">Đã đóng</div>
+      <div class="pill loan-status-pill" data-status="all">Tất cả</div>
+    </div>
+    <div id="loanList"></div>
+  </div>
+  <button id="loanAddFab" class="ni-fab" style="position:fixed;bottom:80px;right:16px;width:56px;height:56px;z-index:90;box-shadow:0 6px 18px rgba(45,106,79,.4)" data-icon="add"></button>
+</div>
+
+<!-- Modal: tạo / sửa khoản nợ -->
+<div id="loanModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close data-icon="close"></button>
+      <h3 id="loanModalTitle">Khoản nợ</h3>
+      <button id="loanDelete" data-icon="trash" style="display:none"></button>
+    </div>
+    <div class="modal-body">
+      <div class="seg" style="background:var(--surface2);border-radius:8px;padding:4px;margin-bottom:14px">
+        <div class="seg-item loan-type-pill on" data-type="lend" style="border-bottom:0;border-radius:6px;padding:8px 0;color:var(--text2)">💸 Cho vay</div>
+        <div class="seg-item loan-type-pill" data-type="borrow" style="border-bottom:0;border-radius:6px;padding:8px 0;color:var(--text2)">💰 Đi vay</div>
+      </div>
+      <div class="fg">
+        <label class="fl">Tên người vay/cho vay <span style="color:var(--danger)">*</span></label>
+        <input type="text" id="loanCounterparty" class="fi" placeholder="Vd: Anh Tuấn">
+      </div>
+      <div class="fg">
+        <label class="fl">Số tiền <span style="color:var(--danger)">*</span></label>
+        <input type="text" inputmode="numeric" id="loanPrincipal" class="fi qlt-amount" placeholder="0">
+      </div>
+      <div class="fg">
+        <label class="fl">Ví liên quan <span style="color:var(--danger)">*</span></label>
+        <select id="loanAccount" class="fi"></select>
+      </div>
+      <div class="fg">
+        <label class="fl">Ngày <span style="color:var(--danger)">*</span></label>
+        <input type="date" id="loanDate" class="fi">
+      </div>
+      <div class="fg">
+        <label class="fl">Hạn trả (tuỳ chọn — sẽ nhắc khi đến hạn)</label>
+        <input type="date" id="loanDueDate" class="fi">
+      </div>
+      <div class="fg">
+        <label class="fl">Ghi chú</label>
+        <textarea id="loanNote" class="fi" rows="2" placeholder="Lý do, thoả thuận..."></textarea>
+      </div>
+      <div id="loanPaymentsSection" style="display:none">
+        <div class="sec-label" style="padding:0;margin:18px 0 10px">Lịch sử trả tiền</div>
+        <div id="loanPaymentsList"></div>
+        <button id="loanAddPaymentBtn" class="btn btn-secondary" style="margin-top:10px">+ Ghi nhận trả tiền</button>
+        <button id="loanCloseBtn" class="btn btn-secondary" style="margin-top:8px;color:var(--accent);border-color:var(--accent)">✓ Đóng khoản (đã thanh toán xong)</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close>Huỷ</button>
+      <button class="btn btn-primary" id="loanSave">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: ghi nhận 1 lần trả tiền -->
+<div id="paymentModal" class="modal" style="z-index:310">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close data-icon="close"></button>
+      <h3 id="paymentModalTitle">Ghi nhận trả tiền</h3>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="fl">Số tiền <span style="color:var(--danger)">*</span></label>
+        <input type="text" inputmode="numeric" id="paymentAmount" class="fi qlt-amount" placeholder="0">
+      </div>
+      <div class="fg">
+        <label class="fl">Ngày <span style="color:var(--danger)">*</span></label>
+        <input type="date" id="paymentDate" class="fi">
+      </div>
+      <div class="fg">
+        <label class="fl">Ví <span style="color:var(--danger)">*</span></label>
+        <select id="paymentAccount" class="fi"></select>
+      </div>
+      <div class="fg">
+        <label class="fl">Ghi chú</label>
+        <input type="text" id="paymentNote" class="fi" placeholder="Tuỳ chọn">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close>Huỷ</button>
+      <button class="btn btn-primary" id="paymentSave">Lưu</button>
+    </div>
   </div>
 </div>
 
@@ -608,6 +764,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     <div class="dr-item" data-action="categories"><span data-icon="list"></span> Danh mục</div>
     <div class="dr-item" data-action="transactions"><span data-icon="refresh"></span> Giao dịch</div>
     <div class="dr-item" data-action="reminders"><span data-icon="bell"></span> Nhắc nhở</div>
+    <div class="dr-item" data-action="loans"><span style="font-size:18px">🤝</span> Cho vay / Nợ</div>
     <div class="dr-item" data-action="settings"><span data-icon="settings"></span> Cài đặt</div>
     <div class="dr-item" id="syncItem" data-action="sync" style="display:none"><span data-icon="cloud"></span> Đồng bộ Drive</div>
     <div class="dr-item" id="loginItem" data-action="login"><span data-icon="user"></span> Đăng nhập Google</div>

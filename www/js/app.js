@@ -147,17 +147,21 @@ const App = {
     categories: [],
     transactions: [],
     reminders: [],
+    loans: [],
     currentTab: 'home',
     txFilter: { type: 'all', period: 'month', accountId: 'all' },
     chartPeriod: 'month',
     chartFrom: '',
     chartTo: '',
     catTab: 'expense',
+    loanTab: 'lend',
+    loanStatusFilter: 'open',
     editingTx: null,
     editingCat: null,
     editingAcc: null,
     editingReminder: null,
-    editingBook: null
+    editingBook: null,
+    editingLoan: null
   },
 
   async init() {
@@ -196,6 +200,12 @@ const App = {
 
       await window.QLT_Store.initDefaults();
       await this.reload();
+      // Đặt lại notif cho mọi khoản nợ đang mở có hạn trả
+      try {
+        for (const l of this.state.loans.filter(l => l.status !== 'closed' && l.dueDate)) {
+          await this.scheduleLoanNotif(l);
+        }
+      } catch (_) {}
       this.render();
       this.bindEvents();
       $$('.qlt-amount').forEach(attachAmountFormatting);
@@ -225,6 +235,7 @@ const App = {
     this.state.categories = inBook(await window.QLT_Store.getAll('categories'));
     this.state.transactions = inBook(await window.QLT_Store.getAll('transactions'));
     this.state.reminders = inBook(await window.QLT_Store.getAll('reminders'));
+    this.state.loans = inBook(await window.QLT_Store.getAll('loans'));
   },
 
   currentBook() {
@@ -339,6 +350,40 @@ const App = {
     // Reminder form
     $('#remSave').onclick = () => this.saveReminder();
     $('#remDelete').onclick = () => this.deleteReminder();
+
+    // ----- Loans (Cho vay / Nợ) -----
+    $('#loanAddFab').onclick = () => this.openLoanModal(null);
+    $('#loanSave').onclick = () => this.saveLoan();
+    $('#loanDelete').onclick = () => this.deleteLoan();
+    $('#loanAddPaymentBtn').onclick = () => this.openPaymentModal();
+    $('#loanCloseBtn').onclick = () => this.toggleLoanClosed();
+    $('#paymentSave').onclick = () => this.savePayment();
+
+    $$('.loan-tab').forEach(el => {
+      el.onclick = () => {
+        $$('.loan-tab').forEach(x => x.classList.remove('on'));
+        el.classList.add('on');
+        this.state.loanTab = el.dataset.type;
+        this.renderLoans();
+      };
+    });
+    $$('.loan-status-pill').forEach(el => {
+      el.onclick = () => {
+        $$('.loan-status-pill').forEach(x => x.classList.remove('on'));
+        el.classList.add('on');
+        this.state.loanStatusFilter = el.dataset.status;
+        this.renderLoans();
+      };
+    });
+    $$('.loan-type-pill').forEach(el => {
+      el.onclick = () => {
+        // Chỉ cho đổi loại khi tạo MỚI (chưa có id)
+        if (this.state.editingLoan?.id) return;
+        $$('.loan-type-pill').forEach(x => x.classList.remove('on'));
+        el.classList.add('on');
+        if (this.state.editingLoan) this.state.editingLoan.type = el.dataset.type;
+      };
+    });
 
     // Period switchers (chart)
     $$('.period-pill').forEach(el => {
@@ -473,6 +518,7 @@ const App = {
     else if (name === 'transactions') this.renderTransactions();
     else if (name === 'reminders') this.renderReminders();
     else if (name === 'settings') this.renderSettings();
+    else if (name === 'loans') this.renderLoans();
   },
 
   // ============ HOME ============
@@ -548,6 +594,9 @@ const App = {
         };
       });
     }
+
+    // ----- Loan shortcut card -----
+    this.renderHomeLoanShortcut();
 
     // ----- Giao dịch gần nhất -----
     const recent = [...this.state.transactions]
@@ -989,6 +1038,408 @@ const App = {
 
   frequencyLabel(f) {
     return { daily: 'Hàng ngày', weekly: 'Hàng tuần', monthly: 'Hàng tháng', yearly: 'Hàng năm' }[f] || f;
+  },
+
+  // ============ LOANS (Cho vay / Đi vay) ============
+  loanRemaining(l) {
+    const paid = (l.payments || []).reduce((s, p) => s + (p.amount || 0), 0);
+    return Math.max(0, (l.principal || 0) - paid);
+  },
+
+  loanPaid(l) {
+    return (l.payments || []).reduce((s, p) => s + (p.amount || 0), 0);
+  },
+
+  renderLoans() {
+    // Tổng đang cho vay / đang nợ (chỉ tính khoản 'open')
+    const openLoans = this.state.loans.filter(l => l.status !== 'closed');
+    const totalLend = openLoans.filter(l => l.type === 'lend').reduce((s, l) => s + this.loanRemaining(l), 0);
+    const totalBorrow = openLoans.filter(l => l.type === 'borrow').reduce((s, l) => s + this.loanRemaining(l), 0);
+    $('#loanTotalLend').textContent = fmt(totalLend) + ' đ';
+    $('#loanTotalBorrow').textContent = fmt(totalBorrow) + ' đ';
+
+    // Filter list
+    const tab = this.state.loanTab;
+    const status = this.state.loanStatusFilter;
+    let loans = this.state.loans.filter(l => l.type === tab);
+    if (status === 'open') loans = loans.filter(l => l.status !== 'closed');
+    else if (status === 'closed') loans = loans.filter(l => l.status === 'closed');
+    loans.sort((a, b) => (b.date + (b._updatedAt || '')).localeCompare(a.date + (a._updatedAt || '')));
+
+    const list = $('#loanList');
+    if (!loans.length) {
+      list.innerHTML = '<div class="empty-msg">Chưa có khoản nào trong nhóm này</div>';
+      return;
+    }
+
+    const todayStr = today();
+    list.innerHTML = loans.map(l => {
+      const remain = this.loanRemaining(l);
+      const paid = this.loanPaid(l);
+      const pct = l.principal > 0 ? Math.round(paid / l.principal * 100) : 0;
+      const isClosed = l.status === 'closed';
+      const icon = l.type === 'lend' ? '💸' : '💰';
+      const remainCls = isClosed ? 'closed' : l.type;
+
+      let dueHtml = '';
+      if (l.dueDate && !isClosed) {
+        const overdue = l.dueDate < todayStr;
+        dueHtml = `<div class="loan-due ${overdue ? '' : 'ok'}">${overdue ? '⚠️ Quá hạn ' : 'Hạn '}${this.formatDate(l.dueDate)}</div>`;
+      }
+
+      return `
+        <div class="loan-item" data-loan="${l.id}">
+          <div class="loan-item-icon ${l.type}">${icon}</div>
+          <div class="loan-item-info">
+            <div class="loan-item-name">${this.escapeHtml(l.counterparty || 'Không tên')}</div>
+            <div class="loan-item-meta">${this.formatDate(l.date)} · Gốc ${fmt(l.principal)} đ${l.note ? ' · ' + this.escapeHtml(l.note) : ''}</div>
+            <div class="loan-item-bar"><div class="loan-item-bar-fill" style="width:${pct}%"></div></div>
+            ${dueHtml}
+          </div>
+          <div class="loan-item-amt">
+            <div class="loan-item-remain ${remainCls}">${isClosed ? '✓ Đã đóng' : fmt(remain) + ' đ'}</div>
+            <div class="loan-item-progress">${isClosed ? 'Tổng ' + fmt(l.principal) : 'Đã trả ' + pct + '%'}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    list.querySelectorAll('[data-loan]').forEach(el => {
+      el.onclick = () => this.openLoanModal(el.dataset.loan);
+    });
+  },
+
+  renderHomeLoanShortcut() {
+    const wrap = $('#homeLoanShortcut');
+    if (!wrap) return;
+    const openLoans = this.state.loans.filter(l => l.status !== 'closed');
+    if (!openLoans.length) { wrap.style.display = 'none'; return; }
+
+    const lend = openLoans.filter(l => l.type === 'lend').reduce((s, l) => s + this.loanRemaining(l), 0);
+    const borrow = openLoans.filter(l => l.type === 'borrow').reduce((s, l) => s + this.loanRemaining(l), 0);
+
+    if (lend === 0 && borrow === 0) { wrap.style.display = 'none'; return; }
+
+    wrap.style.display = 'block';
+    wrap.innerHTML = `
+      <div class="section">
+        <div class="sec-label">Cho vay / Nợ <span class="sec-action" onclick="QLT_App.switchTab('loans')">Xem tất cả</span></div>
+      </div>
+      <div class="home-loan-card" onclick="QLT_App.switchTab('loans')">
+        <div class="home-loan-card-item">
+          <div class="home-loan-card-icon lend">💸</div>
+          <div class="home-loan-card-info">
+            <div class="home-loan-card-label">Đang cho vay</div>
+            <div class="home-loan-card-val">${fmt(lend)} đ</div>
+          </div>
+        </div>
+        <div class="home-loan-card-item">
+          <div class="home-loan-card-icon borrow">💰</div>
+          <div class="home-loan-card-info">
+            <div class="home-loan-card-label">Đang nợ</div>
+            <div class="home-loan-card-val">${fmt(borrow)} đ</div>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  openLoanModal(loanId) {
+    const isNew = !loanId;
+    let loan;
+    if (isNew) {
+      loan = {
+        id: null,
+        type: this.state.loanTab || 'lend',
+        counterparty: '',
+        principal: 0,
+        accountId: this.state.accounts[0]?.id || null,
+        date: today(),
+        dueDate: '',
+        note: '',
+        status: 'open',
+        payments: []
+      };
+    } else {
+      loan = JSON.parse(JSON.stringify(this.state.loans.find(l => l.id === loanId) || {}));
+    }
+    this.state.editingLoan = loan;
+
+    $('#loanModalTitle').textContent = isNew ? 'Thêm khoản nợ' : (loan.type === 'lend' ? 'Cho vay' : 'Đi vay') + ': ' + (loan.counterparty || '');
+    $('#loanDelete').style.display = isNew ? 'none' : '';
+    $('#loanCounterparty').value = loan.counterparty || '';
+    $('#loanPrincipal').value = fmt(loan.principal || 0);
+    $('#loanDate').value = loan.date || today();
+    $('#loanDueDate').value = loan.dueDate || '';
+    $('#loanNote').value = loan.note || '';
+
+    // Type pills (chỉ chỉnh được khi tạo mới)
+    $$('.loan-type-pill').forEach(el => {
+      el.classList.toggle('on', el.dataset.type === loan.type);
+      el.style.opacity = isNew ? '1' : '0.5';
+      el.style.pointerEvents = isNew ? 'auto' : 'none';
+    });
+
+    // Account dropdown
+    const accSel = $('#loanAccount');
+    accSel.innerHTML = this.state.accounts.map(a =>
+      `<option value="${a.id}" ${a.id === loan.accountId ? 'selected' : ''}>${this.escapeHtml(a.name)}</option>`
+    ).join('');
+
+    // Payments section (chỉ hiện khi đã có id)
+    const paySection = $('#loanPaymentsSection');
+    if (isNew) {
+      paySection.style.display = 'none';
+    } else {
+      paySection.style.display = 'block';
+      this.renderLoanPayments();
+      $('#loanCloseBtn').textContent = loan.status === 'closed' ? '↺ Mở lại khoản' : '✓ Đóng khoản (đã thanh toán xong)';
+    }
+
+    $('#loanModal').classList.add('open');
+  },
+
+  renderLoanPayments() {
+    const loan = this.state.editingLoan;
+    if (!loan) return;
+    const list = $('#loanPaymentsList');
+    const payments = loan.payments || [];
+    if (!payments.length) {
+      list.innerHTML = '<div class="empty-msg" style="padding:20px">Chưa có lần trả nào</div>';
+      return;
+    }
+    const sorted = [...payments].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    list.innerHTML = sorted.map(p => {
+      const acc = this.state.accounts.find(a => a.id === p.accountId);
+      return `
+        <div class="payment-row">
+          <div class="payment-row-info">
+            <div><strong>${fmt(p.amount)} đ</strong>${p.note ? ' · ' + this.escapeHtml(p.note) : ''}</div>
+            <div class="payment-row-date">${this.formatDate(p.date)} · ${this.escapeHtml(acc?.name || '')}</div>
+          </div>
+          <div class="payment-row-del" data-pay="${p.id}" title="Xoá">${svgIcon('trash')}</div>
+        </div>
+      `;
+    }).join('');
+    list.querySelectorAll('[data-pay]').forEach(el => {
+      el.onclick = (e) => { e.stopPropagation(); this.deletePayment(el.dataset.pay); };
+    });
+  },
+
+  async saveLoan() {
+    const loan = this.state.editingLoan;
+    if (!loan) return;
+    loan.counterparty = $('#loanCounterparty').value.trim();
+    loan.principal = readAmount($('#loanPrincipal'));
+    loan.accountId = $('#loanAccount').value;
+    loan.date = $('#loanDate').value || today();
+    loan.dueDate = $('#loanDueDate').value || '';
+    loan.note = $('#loanNote').value || '';
+    loan.bookId = loan.bookId || this.state.currentBookId;
+    loan.payments = loan.payments || [];
+
+    if (!loan.counterparty) { QLT_UI.toast('Vui lòng nhập tên người', { type: 'error' }); return; }
+    if (loan.principal <= 0) { QLT_UI.toast('Vui lòng nhập số tiền', { type: 'error' }); return; }
+    if (!loan.accountId) { QLT_UI.toast('Vui lòng chọn ví', { type: 'error' }); return; }
+
+    const isNew = !loan.id;
+    if (isNew) {
+      // Lần đầu tạo: cộng/trừ ví theo loại
+      // - lend (cho vay): tiền RA khỏi ví
+      // - borrow (đi vay): tiền VÀO ví
+      const acc = this.state.accounts.find(a => a.id === loan.accountId);
+      if (acc) {
+        acc.balance += (loan.type === 'lend' ? -1 : +1) * loan.principal;
+        await window.QLT_Store.put('accounts', acc);
+      }
+      loan.status = 'open';
+      loan.createdAt = Date.now();
+    }
+
+    await window.QLT_Store.put('loans', loan);
+    await this.scheduleLoanNotif(loan);
+    await this.reload();
+    $('#loanModal').classList.remove('open');
+    this.renderLoans();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.autoSync();
+    QLT_UI.toast(isNew ? 'Đã thêm khoản nợ' : 'Đã cập nhật', { type: 'success' });
+  },
+
+  async deleteLoan() {
+    const loan = this.state.editingLoan;
+    if (!loan?.id) return;
+    if (!await QLT_UI.confirm('Xoá khoản này? Hệ thống sẽ HOÀN TÁC tất cả tác động lên ví (cả khoản gốc lẫn các lần trả).', { okLabel: 'Xoá', danger: true })) return;
+
+    // Hoàn tác balance: hoàn lại khoản gốc + cộng/trừ lại các lần trả
+    const acc = this.state.accounts.find(a => a.id === loan.accountId);
+    if (acc) {
+      // Đảo dấu của lúc tạo: lend đã trừ → giờ cộng lại; borrow đã cộng → giờ trừ lại
+      acc.balance += (loan.type === 'lend' ? +1 : -1) * loan.principal;
+      await window.QLT_Store.put('accounts', acc);
+    }
+    for (const p of (loan.payments || [])) {
+      const pa = this.state.accounts.find(a => a.id === p.accountId);
+      if (pa) {
+        // Đảo dấu của lúc trả: lend-payment đã cộng vào ví → giờ trừ; borrow-payment đã trừ → giờ cộng
+        pa.balance += (loan.type === 'lend' ? -1 : +1) * p.amount;
+        await window.QLT_Store.put('accounts', pa);
+      }
+    }
+
+    // Cancel notif
+    if (window.Capacitor?.Plugins?.LocalNotifications) {
+      try {
+        const idNum = Math.abs(this.hashCode('loan_' + loan.id)) % 2000000;
+        await window.Capacitor.Plugins.LocalNotifications.cancel({ notifications: [{ id: idNum }] });
+      } catch (_) {}
+    }
+
+    await window.QLT_Store.del('loans', loan.id);
+    await this.reload();
+    $('#loanModal').classList.remove('open');
+    this.renderLoans();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.autoSync();
+  },
+
+  openPaymentModal() {
+    const loan = this.state.editingLoan;
+    if (!loan?.id) return;
+    const remain = this.loanRemaining(loan);
+    $('#paymentModalTitle').textContent = (loan.type === 'lend' ? '✅ Nhận trả nợ từ ' : '💳 Trả nợ cho ') + (loan.counterparty || '');
+    $('#paymentAmount').value = fmt(remain);
+    $('#paymentDate').value = today();
+    $('#paymentNote').value = '';
+    $('#paymentAccount').innerHTML = this.state.accounts.map(a =>
+      `<option value="${a.id}" ${a.id === loan.accountId ? 'selected' : ''}>${this.escapeHtml(a.name)}</option>`
+    ).join('');
+    $('#paymentModal').classList.add('open');
+  },
+
+  async savePayment() {
+    const loan = this.state.editingLoan;
+    if (!loan?.id) return;
+    const amount = readAmount($('#paymentAmount'));
+    const date = $('#paymentDate').value || today();
+    const accountId = $('#paymentAccount').value;
+    const note = $('#paymentNote').value || '';
+
+    if (amount <= 0) { QLT_UI.toast('Vui lòng nhập số tiền', { type: 'error' }); return; }
+    if (!accountId) { QLT_UI.toast('Vui lòng chọn ví', { type: 'error' }); return; }
+
+    const remain = this.loanRemaining(loan);
+    if (amount > remain) {
+      if (!await QLT_UI.confirm(`Số tiền ${fmt(amount)} đ lớn hơn số còn lại (${fmt(remain)} đ). Vẫn ghi nhận?`, { okLabel: 'Ghi nhận' })) return;
+    }
+
+    const payment = {
+      id: 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      date, amount, accountId, note,
+      createdAt: Date.now()
+    };
+    loan.payments = loan.payments || [];
+    loan.payments.push(payment);
+
+    // Cập nhật ví
+    // - lend-payment: đối tác trả mình → tiền VÀO ví
+    // - borrow-payment: mình trả đối tác → tiền RA khỏi ví
+    const acc = this.state.accounts.find(a => a.id === accountId);
+    if (acc) {
+      acc.balance += (loan.type === 'lend' ? +1 : -1) * amount;
+      await window.QLT_Store.put('accounts', acc);
+    }
+
+    // Tự đóng nếu trả đủ
+    if (this.loanRemaining(loan) === 0) {
+      loan.status = 'closed';
+    }
+
+    await window.QLT_Store.put('loans', loan);
+    await this.reload();
+    // Refresh editingLoan từ state mới
+    this.state.editingLoan = this.state.loans.find(l => l.id === loan.id);
+    $('#paymentModal').classList.remove('open');
+    this.renderLoanPayments();
+    $('#loanCloseBtn').textContent = this.state.editingLoan.status === 'closed' ? '↺ Mở lại khoản' : '✓ Đóng khoản (đã thanh toán xong)';
+    this.renderLoans();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.autoSync();
+    QLT_UI.toast('Đã ghi nhận trả tiền', { type: 'success' });
+  },
+
+  async deletePayment(payId) {
+    const loan = this.state.editingLoan;
+    if (!loan?.id) return;
+    const p = (loan.payments || []).find(x => x.id === payId);
+    if (!p) return;
+    if (!await QLT_UI.confirm('Xoá lần trả này? Số tiền sẽ hoàn lại ví.', { okLabel: 'Xoá', danger: true })) return;
+
+    // Hoàn tác balance
+    const acc = this.state.accounts.find(a => a.id === p.accountId);
+    if (acc) {
+      acc.balance += (loan.type === 'lend' ? -1 : +1) * p.amount;
+      await window.QLT_Store.put('accounts', acc);
+    }
+
+    loan.payments = loan.payments.filter(x => x.id !== payId);
+    // Nếu khoản đang đóng mà còn dư → mở lại
+    if (loan.status === 'closed' && this.loanRemaining(loan) > 0) {
+      loan.status = 'open';
+    }
+    await window.QLT_Store.put('loans', loan);
+    await this.reload();
+    this.state.editingLoan = this.state.loans.find(l => l.id === loan.id);
+    this.renderLoanPayments();
+    $('#loanCloseBtn').textContent = this.state.editingLoan.status === 'closed' ? '↺ Mở lại khoản' : '✓ Đóng khoản (đã thanh toán xong)';
+    this.renderLoans();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.autoSync();
+  },
+
+  async toggleLoanClosed() {
+    const loan = this.state.editingLoan;
+    if (!loan?.id) return;
+    loan.status = loan.status === 'closed' ? 'open' : 'closed';
+    await window.QLT_Store.put('loans', loan);
+    await this.reload();
+    this.state.editingLoan = this.state.loans.find(l => l.id === loan.id);
+    $('#loanCloseBtn').textContent = this.state.editingLoan.status === 'closed' ? '↺ Mở lại khoản' : '✓ Đóng khoản (đã thanh toán xong)';
+    this.renderLoans();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.autoSync();
+    QLT_UI.toast(loan.status === 'closed' ? 'Đã đóng khoản' : 'Đã mở lại khoản', { type: 'success' });
+  },
+
+  async scheduleLoanNotif(loan) {
+    if (!loan.dueDate || loan.status === 'closed') return;
+    if (!window.Capacitor?.Plugins?.LocalNotifications) return;
+    const LN = window.Capacitor.Plugins.LocalNotifications;
+    try {
+      await LN.requestPermissions();
+      const idNum = Math.abs(this.hashCode('loan_' + loan.id)) % 2000000;
+      // Hủy notif cũ trước
+      try { await LN.cancel({ notifications: [{ id: idNum }] }); } catch (_) {}
+
+      const due = new Date(loan.dueDate + 'T09:00:00');
+      if (due.getTime() < Date.now()) return; // đã quá hạn rồi thì khỏi nhắc
+
+      const remain = this.loanRemaining(loan);
+      const title = loan.type === 'lend'
+        ? `📢 ${loan.counterparty} đến hạn trả`
+        : `📢 Đến hạn trả ${loan.counterparty}`;
+      const body = `Còn ${fmt(remain)} đ — ${loan.note || 'Đừng quên nhé!'}`;
+
+      await LN.schedule({
+        notifications: [{
+          id: idNum,
+          title,
+          body,
+          schedule: { at: due },
+          sound: 'default'
+        }]
+      });
+    } catch (e) { console.warn('Loan notif lỗi:', e); }
   },
 
   // ============ SETTINGS ============
