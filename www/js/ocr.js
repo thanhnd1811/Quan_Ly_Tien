@@ -29,32 +29,62 @@
   }
 
   function parseAmount(text) {
-    // Tìm số tiền lớn nhất trong text - thường là tổng cộng
-    const candidates = [];
-    // Pattern: 1,234,567 hoặc 1.234.567 hoặc 1234567 (3+ chữ số)
-    const re = /(\d{1,3}([.,]\d{3})+|\d{4,})(\s*(VND|VNĐ|đ|d))?/gi;
+    if (!text) return null;
+    // Chuyển 1 số chuỗi → int VND, hoặc null nếu ngoài ngưỡng hợp lý
+    // (1,000 → 10 tỷ — vượt là gần như chắc chắn không phải tiền)
+    const toN = (s) => {
+      const n = parseInt(String(s).replace(/[.,\s]/g, ''), 10);
+      if (!isFinite(n) || n < 1000 || n > 1e10) return null;
+      return n;
+    };
+
+    // Tier 1: số có hậu tố VND/VNĐ/đ ngay sau — gần như chắc chắn là tiền
+    // VD: "1,440,000 VND" / "1.440.000đ" / "500000 VNĐ"
+    const RE_WITH_CCY = /(\d{1,3}(?:[.,]\d{3})+|\d{4,9})\s*(VND|VNĐ|VNÐ|đ)\b/gi;
+    const tier1 = [];
     let m;
-    while ((m = re.exec(text)) !== null) {
-      const raw = m[1].replace(/[.,]/g, '');
-      const n = parseInt(raw, 10);
-      if (n >= 1000 && n <= 1e10) candidates.push(n);
+    while ((m = RE_WITH_CCY.exec(text)) !== null) {
+      const n = toN(m[1]);
+      if (n) tier1.push(n);
     }
-    if (candidates.length === 0) return null;
-    // Ưu tiên số xuất hiện gần keyword "tổng", "thanh toán", "cộng"
-    const lines = text.split('\n');
-    for (const line of lines) {
-      if (/(tổng|thanh toán|cộng|total)/i.test(line)) {
-        const re2 = /(\d{1,3}([.,]\d{3})+|\d{4,})/g;
-        let mm;
-        let best = 0;
-        while ((mm = re2.exec(line)) !== null) {
-          const n = parseInt(mm[1].replace(/[.,]/g, ''), 10);
-          if (n > best) best = n;
-        }
-        if (best > 0) return best;
+    if (tier1.length) return Math.max(...tier1);
+
+    // Tier 2: số nằm trên dòng có keyword tiền (gồm cả các app chuyển khoản VN)
+    const KEYWORDS = /(số tiền|tổng|thanh toán|cộng|total|amount|chuyển khoản|giao dịch thành công|paid)/i;
+    const tier2 = [];
+    for (const line of text.split('\n')) {
+      if (!KEYWORDS.test(line)) continue;
+      let mm;
+      const re = /(\d{1,3}(?:[.,]\d{3})+|\d{4,9})/g;
+      while ((mm = re.exec(line)) !== null) {
+        const n = toN(mm[1]);
+        if (n) tier2.push(n);
       }
     }
-    return Math.max(...candidates);
+    if (tier2.length) return Math.max(...tier2);
+
+    // Tier 3: bất kỳ số có dấu phân cách (1,440,000 / 1.440.000)
+    // Loại trừ dãy số dài liền không format (STK, mã GD) ở tier này
+    const tier3 = [];
+    const RE_FORMATTED = /\b(\d{1,3}(?:[.,]\d{3})+)\b/g;
+    let m3;
+    while ((m3 = RE_FORMATTED.exec(text)) !== null) {
+      const n = toN(m3[1]);
+      if (n) tier3.push(n);
+    }
+    if (tier3.length) return Math.max(...tier3);
+
+    // Tier 4: số trần 4-9 chữ số (cap 9 để loại STK ngân hàng 10+ chữ số / mã GD)
+    const tier4 = [];
+    const RE_RAW = /\b\d{4,9}\b/g;
+    let m4;
+    while ((m4 = RE_RAW.exec(text)) !== null) {
+      const n = toN(m4[0]);
+      if (n) tier4.push(n);
+    }
+    if (tier4.length) return Math.max(...tier4);
+
+    return null;
   }
 
   function parseDate(text) {
