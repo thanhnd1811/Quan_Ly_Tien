@@ -149,14 +149,15 @@
   }
 
   // ---------- Parser cho ML Kit (có spatial info) ----------
-  // ML Kit trả về blocks → lines → mỗi line có frame.height
+  // ML Kit trả về blocks → lines, mỗi line có boundingBox {left,top,right,bottom}
   // Chiến lược: số tiền = số có chiều cao font LỚN NHẤT + có VND + có dấu phân cách
   function parseFromMlKit(result) {
     const blocks = result.blocks || [];
     const lines = [];
     for (const block of blocks) {
       for (const line of (block.lines || [])) {
-        const h = (line.frame && line.frame.height) || 0;
+        const bb = line.boundingBox || {};
+        const h = (bb.bottom != null && bb.top != null) ? Math.abs(bb.bottom - bb.top) : 0;
         lines.push({ text: line.text || '', height: h });
       }
     }
@@ -195,38 +196,14 @@
   }
 
   // ---------- ML Kit caller (native) ----------
-  async function dataUrlToTempFile(dataUrl) {
-    const Filesystem = window.Capacitor?.Plugins?.Filesystem;
-    if (!Filesystem) throw new Error('Filesystem plugin chưa cài');
-    const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (!m) throw new Error('dataUrl không hợp lệ');
-    const ext = (m[1].split('/')[1] || 'jpg').replace('jpeg', 'jpg');
-    const filename = `qlt-ocr-${Date.now()}.${ext}`;
-    const result = await Filesystem.writeFile({
-      path: filename,
-      data: m[2],
-      directory: 'CACHE'
-    });
-    return { uri: result.uri, path: filename };
-  }
-
   async function recognizeNative(dataUrl) {
-    const Plugin = window.Capacitor?.Plugins?.TextRecognition;
-    if (!Plugin) throw new Error('Plugin ML Kit chưa cài');
-    let temp;
-    try {
-      temp = await dataUrlToTempFile(dataUrl);
-      const result = await Plugin.recognizeText({ filename: temp.uri });
-      return parseFromMlKit(result);
-    } finally {
-      // Dọn file tạm
-      try {
-        const Filesystem = window.Capacitor?.Plugins?.Filesystem;
-        if (Filesystem && temp) {
-          await Filesystem.deleteFile({ path: temp.path, directory: 'CACHE' });
-        }
-      } catch (_) {}
-    }
+    const Plugin = window.Capacitor?.Plugins?.MlKitTextRecognition;
+    if (!Plugin) throw new Error('Plugin MlKitTextRecognition chưa cài');
+    // Plugin nhận base64 thuần — bỏ prefix "data:image/...;base64,"
+    const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    const base64 = m ? m[2] : dataUrl;
+    const result = await Plugin.detectText({ base64Image: base64 });
+    return parseFromMlKit(result);
   }
 
   // ---------- API chính ----------
@@ -234,7 +211,7 @@
     async recognize(imageDataUrl, onProgress) {
       // Thử ML Kit trước (chỉ trên native + plugin có)
       const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform?.());
-      if (isNative && window.Capacitor?.Plugins?.TextRecognition) {
+      if (isNative && window.Capacitor?.Plugins?.MlKitTextRecognition) {
         try {
           if (onProgress) onProgress({ stage: 'recognizing', progress: 0.3 });
           const r = await recognizeNative(imageDataUrl);
