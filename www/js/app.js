@@ -1055,6 +1055,13 @@ const App = {
       if (result.amount) $('#txAmount').value = result.amount;
       if (result.date) $('#txDate').value = result.date;
       if (result.merchant) $('#txNote').value = result.merchant;
+
+      // Tự đính kèm ảnh vừa quét làm minh chứng — khỏi phải add lại
+      try {
+        const compressed = await this.compressImage(imageDataUrl);
+        this.state.editingTx.photo = compressed;
+        this.renderTxPhoto();
+      } catch (_) { /* compress lỗi cũng không chặn flow OCR */ }
     } catch (e) {
       console.error(e);
       QLT_UI.alert('Không nhận diện được: ' + e.message, { title: 'Lỗi OCR' });
