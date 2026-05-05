@@ -435,20 +435,76 @@ const App = {
     const totalBalance = this.state.accounts.reduce((s, a) => s + (a.balance || 0), 0);
     $('#homeBalance').textContent = fmt(totalBalance) + ' đ';
 
-    // Tổng thu/chi tháng hiện tại
+    // Tổng thu/chi tháng hiện tại + thay đổi số dư từng ví trong tháng
     const now = new Date();
     const ym = now.toISOString().slice(0, 7);
     let inc = 0, exp = 0;
+    const accChange = {};
+    for (const a of this.state.accounts) accChange[a.id] = 0;
     for (const t of this.state.transactions) {
       if (!t.date.startsWith(ym)) continue;
-      if (t.type === 'income') inc += t.amount;
-      else if (t.type === 'expense') exp += t.amount;
+      if (t.type === 'income') {
+        inc += t.amount;
+        accChange[t.accountId] = (accChange[t.accountId] || 0) + t.amount;
+      } else if (t.type === 'expense') {
+        exp += t.amount;
+        accChange[t.accountId] = (accChange[t.accountId] || 0) - t.amount;
+      } else if (t.type === 'transfer') {
+        accChange[t.accountId] = (accChange[t.accountId] || 0) - t.amount;
+        accChange[t.toAccountId] = (accChange[t.toAccountId] || 0) + t.amount;
+      }
     }
     $('#homeIncome').textContent = fmt(inc) + ' đ';
     $('#homeExpense').textContent = fmt(exp) + ' đ';
     $('#homeMonth').textContent = `Tháng ${now.getMonth() + 1}/${now.getFullYear()}`;
 
-    // 5 giao dịch gần nhất
+    // ----- Số dư từng ví -----
+    const walletEl = $('#homeWallets');
+    const accs = this.state.accounts;
+    if (!accs.length) {
+      walletEl.innerHTML = '<div class="empty-msg">Chưa có ví nào. Vào Tài khoản để thêm.</div>';
+    } else {
+      // % của từng ví so với ví số dư lớn nhất → mini bar
+      const maxBal = Math.max(1, ...accs.map(a => Math.abs(a.balance || 0)));
+      walletEl.innerHTML = accs.map(a => {
+        const bal = a.balance || 0;
+        const change = accChange[a.id] || 0;
+        const pct = Math.min(100, Math.round(Math.abs(bal) / maxBal * 100));
+        const accentColor = a.color || '#2d6a4f';
+        let changeHtml = '';
+        if (change !== 0) {
+          const cls = change > 0 ? 'pos' : 'neg';
+          const arrow = change > 0 ? '↑' : '↓';
+          changeHtml = `<div class="wallet-change ${cls}">${arrow} ${fmt(Math.abs(change))} đ</div>`;
+        } else {
+          changeHtml = `<div class="wallet-change zero">— Không đổi</div>`;
+        }
+        return `
+          <div class="wallet-row" data-acc="${a.id}">
+            <div class="wallet-icon" style="background:${accentColor}1a;color:${accentColor}">
+              ${svgIcon(a.icon || 'wallet')}
+            </div>
+            <div class="wallet-info">
+              <div class="wallet-name">${this.escapeHtml(a.name)}</div>
+              <div class="wallet-bar"><div class="wallet-bar-fill" style="width:${pct}%;background:${accentColor}"></div></div>
+            </div>
+            <div class="wallet-amounts">
+              <div class="wallet-bal">${fmt(bal)} đ</div>
+              ${changeHtml}
+            </div>
+          </div>
+        `;
+      }).join('');
+      // Bấm vào ví → sang trang Giao dịch lọc theo ví đó
+      walletEl.querySelectorAll('[data-acc]').forEach(el => {
+        el.onclick = () => {
+          this.state.txAccountFilter = el.dataset.acc;
+          this.switchTab('transactions');
+        };
+      });
+    }
+
+    // ----- Giao dịch gần nhất -----
     const recent = [...this.state.transactions]
       .sort((a, b) => (b.date + b._updatedAt).localeCompare(a.date + a._updatedAt))
       .slice(0, 8);
