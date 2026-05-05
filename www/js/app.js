@@ -860,20 +860,52 @@ const App = {
   // ============ CATEGORIES ============
   renderCategories() {
     const cats = this.state.categories.filter(c => c.type === this.state.catTab);
+    const parents = cats.filter(c => !c.parentId);
+    const childrenByParent = {};
+    for (const c of cats) {
+      if (c.parentId) {
+        (childrenByParent[c.parentId] = childrenByParent[c.parentId] || []).push(c);
+      }
+    }
+    // Mồ côi: có parentId nhưng parent không tồn tại (vd cha bị xoá ở máy khác qua sync) → coi như top-level
+    const orphans = cats.filter(c => c.parentId && !cats.find(x => x.id === c.parentId));
+
     const grid = $('#catGrid');
-    grid.innerHTML = cats.map(c => `
-      <div class="cat-item" data-cat="${c.id}">
-        <div class="cat-circle" style="background:${c.color}">
-          ${svgIcon(c.icon)}
-        </div>
+
+    const renderItem = (c, isChild = false) => `
+      <div class="cat-item ${isChild ? 'cat-child' : ''}" data-cat="${c.id}">
+        <div class="cat-circle" style="background:${c.color}">${svgIcon(c.icon)}</div>
         <div class="cat-name">${this.escapeHtml(c.name)}</div>
       </div>
-    `).join('') + `
+    `;
+
+    let html = '';
+    [...parents, ...orphans].forEach(p => {
+      const children = childrenByParent[p.id] || [];
+      // Render parent
+      html += `
+        <div class="cat-item ${children.length ? 'cat-parent' : ''}" data-cat="${p.id}">
+          <div class="cat-circle" style="background:${p.color}">
+            ${svgIcon(p.icon)}
+            ${children.length ? `<span class="cat-children-badge">${children.length}</span>` : ''}
+          </div>
+          <div class="cat-name">${this.escapeHtml(p.name)}</div>
+        </div>
+      `;
+      // Render children — indent visually
+      children.forEach(ch => {
+        html += renderItem(ch, true);
+      });
+    });
+
+    html += `
       <div class="cat-item" data-cat="new">
         <div class="cat-circle" style="background:#f4b942">${svgIcon('add')}</div>
         <div class="cat-name">Tạo</div>
       </div>
     `;
+
+    grid.innerHTML = html;
     grid.querySelectorAll('[data-cat]').forEach(el => {
       el.onclick = () => {
         const id = el.dataset.cat;
@@ -2250,10 +2282,25 @@ const App = {
   renderTxCategoryPicker(type) {
     const cats = this.state.categories.filter(c => c.type === type);
     const sel = this.state.editingTx?.categoryId;
-    $('#txCategoryList').innerHTML = cats.map(c => `
-      <div class="picker-item ${c.id === sel ? 'on' : ''}" data-cat="${c.id}">
+
+    // Sắp xếp: parents → ngay sau là children của nó
+    const parents = cats.filter(c => !c.parentId);
+    const childrenByParent = {};
+    for (const c of cats) {
+      if (c.parentId) (childrenByParent[c.parentId] = childrenByParent[c.parentId] || []).push(c);
+    }
+    const orphans = cats.filter(c => c.parentId && !cats.find(x => x.id === c.parentId));
+
+    const sortedFlat = [];
+    [...parents, ...orphans].forEach(p => {
+      sortedFlat.push({ ...p, _depth: 0 });
+      (childrenByParent[p.id] || []).forEach(ch => sortedFlat.push({ ...ch, _depth: 1 }));
+    });
+
+    $('#txCategoryList').innerHTML = sortedFlat.map(c => `
+      <div class="picker-item ${c.id === sel ? 'on' : ''} ${c._depth ? 'picker-child' : ''}" data-cat="${c.id}">
         <span class="picker-icon" style="color:${c.color}">${svgIcon(c.icon)}</span>
-        <span>${this.escapeHtml(c.name)}</span>
+        <span>${c._depth ? '↳ ' : ''}${this.escapeHtml(c.name)}</span>
       </div>
     `).join('');
     $$('#txCategoryList .picker-item').forEach(el => {
@@ -2739,7 +2786,7 @@ const App = {
     const isNew = !id;
     let c;
     if (isNew) {
-      c = { id: null, type: this.state.catTab, name: '', icon: 'other', color: '#52b788', bookId: this.state.currentBookId };
+      c = { id: null, type: this.state.catTab, name: '', icon: 'other', color: '#52b788', parentId: null, bookId: this.state.currentBookId };
     } else {
       c = this.state.categories.find(x => x.id === id);
       if (!c) return;
@@ -2762,7 +2809,45 @@ const App = {
     $('#catTitle').textContent = isNew ? 'Tạo danh mục' : 'Sửa danh mục';
     $('#catDelete').style.display = isNew ? 'none' : 'block';
 
+    // Populate parent dropdown — chỉ hiện danh mục cha cùng type, KHÔNG bao gồm chính nó & con của nó
+    this.renderCatParentOptions();
+    // Đổi type → reload parent options
+    $('#catType').onchange = () => {
+      this.state.editingCat.type = $('#catType').value;
+      this.renderCatParentOptions();
+    };
+
     $('#catModal').classList.add('open');
+  },
+
+  // Lọc các danh mục cha hợp lệ:
+  // - cùng type với danh mục đang sửa
+  // - không phải chính nó
+  // - không phải đã có cha (1 level: parent KHÔNG được là child của ai khác)
+  // - không có con (tránh nested 3 level)
+  renderCatParentOptions() {
+    const c = this.state.editingCat;
+    if (!c) return;
+    const type = $('#catType').value || c.type;
+    const candidates = this.state.categories.filter(x =>
+      x.type === type &&
+      x.id !== c.id &&
+      !x.parentId // chỉ category top-level mới được làm parent
+    );
+    const sel = $('#catParent');
+    sel.innerHTML = `<option value="">— Không có (danh mục cha) —</option>` +
+      candidates.map(p => `<option value="${p.id}" ${c.parentId === p.id ? 'selected' : ''}>${this.escapeHtml(p.name)}</option>`).join('');
+
+    // Nếu mục đang sửa CÓ con → KHÔNG cho chọn parent (vì sẽ thành 3 level)
+    const hasChildren = c.id && this.state.categories.some(x => x.parentId === c.id);
+    if (hasChildren) {
+      sel.value = '';
+      sel.disabled = true;
+      sel.title = 'Danh mục này đã có danh mục con — không thể làm con của ai khác';
+    } else {
+      sel.disabled = false;
+      sel.title = '';
+    }
   },
 
   async saveCat() {
@@ -2770,8 +2855,26 @@ const App = {
     c.name = $('#catName').value.trim();
     c.color = $('#catColor').value;
     c.type = $('#catType').value;
+    c.parentId = $('#catParent').value || null;
     c.bookId = c.bookId || this.state.currentBookId;
     if (!c.name) { QLT_UI.toast('Nhập tên danh mục', { type: 'error' }); return; }
+
+    // Nếu chọn parent, đảm bảo cùng type
+    if (c.parentId) {
+      const parent = this.state.categories.find(x => x.id === c.parentId);
+      if (parent && parent.type !== c.type) {
+        QLT_UI.toast('Danh mục cha phải cùng loại (Chi/Thu)', { type: 'error' });
+        return;
+      }
+      // Tránh đổi parent thành con của 1 cha có cha (3 level)
+      if (parent && parent.parentId) {
+        QLT_UI.toast('Không thể chọn danh mục cha đã là con của mục khác', { type: 'error' });
+        return;
+      }
+      // Tránh tự làm cha của chính mình
+      if (c.id === c.parentId) { c.parentId = null; }
+    }
+
     await window.QLT_Store.put('categories', c);
     await this.reload();
     $('#catModal').classList.remove('open');
@@ -2783,9 +2886,18 @@ const App = {
     const c = this.state.editingCat;
     if (!c.id) return;
     const used = this.state.transactions.filter(t => t.categoryId === c.id).length;
+    const children = this.state.categories.filter(x => x.parentId === c.id);
+    if (children.length > 0) {
+      if (!await QLT_UI.confirm(`Danh mục này có ${children.length} danh mục con. Xoá sẽ chuyển các con thành danh mục cha (top-level). Tiếp tục?`, { okLabel: 'Xoá', danger: true })) return;
+      // Gỡ parentId của các con
+      for (const ch of children) {
+        ch.parentId = null;
+        await window.QLT_Store.put('categories', ch);
+      }
+    }
     if (used > 0) {
       if (!await QLT_UI.confirm(`Có ${used} giao dịch dùng danh mục này. Vẫn xoá?`, { okLabel: 'Xoá', danger: true })) return;
-    } else {
+    } else if (children.length === 0) {
       if (!await QLT_UI.confirm('Xoá danh mục?', { okLabel: 'Xoá', danger: true })) return;
     }
     await window.QLT_Store.del('categories', c.id);

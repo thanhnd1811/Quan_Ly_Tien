@@ -143,10 +143,18 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 
 /* Categories grid */
 .cat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:18px 16px}
-.cat-item{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer}
-.cat-circle{width:62px;height:62px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff}
+.cat-item{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;position:relative}
+.cat-circle{width:62px;height:62px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;position:relative}
 .cat-circle svg{width:30px;height:30px}
 .cat-name{font-size:12px;color:var(--text);text-align:center;font-weight:500}
+/* Parent: badge số con */
+.cat-children-badge{position:absolute;top:-3px;right:-3px;min-width:20px;height:20px;border-radius:10px;background:var(--accent);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid var(--bg);box-shadow:0 2px 4px rgba(0,0,0,.15)}
+/* Child: nhỏ hơn + có dấu nối */
+.cat-item.cat-child .cat-circle{width:48px;height:48px}
+.cat-item.cat-child .cat-circle svg{width:22px;height:22px}
+.cat-item.cat-child .cat-circle::before{content:'↳';position:absolute;left:-14px;top:50%;transform:translateY(-50%);font-size:18px;color:var(--text3);font-weight:bold}
+.cat-item.cat-child .cat-name{font-size:11px;color:var(--text2)}
+.cat-item.cat-parent .cat-name{font-weight:700}
 
 /* Wallet summary trên Home — danh sách ví compact với số dư + thay đổi tháng */
 .wallet-row{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border);cursor:pointer}
@@ -385,6 +393,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 .tx-type-pill.on[data-type="income"]{background:var(--acl);border-color:var(--accent);color:var(--accent)}
 .tx-type-pill.on[data-type="transfer"]{background:#e8eef5;border-color:#4f86c6;color:#4f86c6}
 .picker-item.disabled{opacity:.4;cursor:not-allowed}
+.picker-item.picker-child{padding-left:22px;font-size:12px;background:var(--surface2)}
 
 /* Color picker (12 swatch tròn + 1 ô tuỳ chỉnh rainbow) */
 .color-picker{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;padding:6px 0}
@@ -1086,6 +1095,13 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
           <option value="expense">Chi phí</option>
           <option value="income">Thu nhập</option>
         </select>
+      </div>
+      <div class="fg">
+        <label class="fl">Danh mục cha (tuỳ chọn)</label>
+        <select id="catParent" class="fi">
+          <option value="">— Không có (danh mục cha) —</option>
+        </select>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.5">Chọn danh mục cha để biến mục này thành <strong>danh mục con</strong>. Vd: cha "Ăn uống" → con "Cà phê", "Trà sữa".</div>
       </div>
       <div class="fg">
         <label class="fl">Màu</label>
