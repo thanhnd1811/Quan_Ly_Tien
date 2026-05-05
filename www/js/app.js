@@ -1205,6 +1205,136 @@ const App = {
     $('#lightboxModal').classList.add('open');
   },
 
+  // ============ ICON PICKER (search + tabs + emoji input) ============
+  // Trả về object { setColor(c) } để caller update màu khi user đổi color picker
+  renderIconPicker(opts) {
+    // opts: { containerId, currentIcon, color?, allowEmoji?, onPick }
+    const container = document.getElementById(opts.containerId);
+    if (!container) return { setColor: () => {} };
+
+    const lib = window.QLT_ICON_LIB || [];
+    const popular = window.QLT_ICON_POPULAR || [];
+
+    // Tab list: "Phổ biến" + unique groups từ lib
+    const allGroups = [];
+    const seen = new Set();
+    for (const i of lib) {
+      if (!seen.has(i.group)) { seen.add(i.group); allGroups.push(i.group); }
+    }
+    const tabs = ['Phổ biến', ...allGroups];
+
+    // Tab mặc định: nếu icon hiện tại nằm trong group nào → mở tab đó
+    let activeTab = 'Phổ biến';
+    if (opts.currentIcon && !String(opts.currentIcon).startsWith('emoji:')) {
+      const found = lib.find(x => x.name === opts.currentIcon);
+      if (found) activeTab = found.group;
+    }
+    let searchTerm = '';
+
+    const initEmoji = String(opts.currentIcon || '').startsWith('emoji:')
+      ? opts.currentIcon.slice(6) : '';
+
+    const showEmoji = opts.allowEmoji !== false;
+
+    container.innerHTML = `
+      <input class="icon-search" type="text" placeholder="Tìm icon (vd: xe, ăn, điện)...">
+      <div class="icon-tabs"></div>
+      <div class="icon-grid"></div>
+      ${showEmoji ? `
+        <div class="icon-emoji-row">
+          <label>Emoji</label>
+          <input type="text" placeholder="🍜 ☕ 🚗 ..." maxlength="4" value="${this.escapeHtml(initEmoji)}">
+        </div>
+      ` : ''}
+    `;
+
+    const searchInput = container.querySelector('.icon-search');
+    const tabsEl = container.querySelector('.icon-tabs');
+    const gridEl = container.querySelector('.icon-grid');
+    const emojiInput = container.querySelector('.icon-emoji-row input');
+
+    // Bỏ dấu tiếng Việt cho search (regex unicode escape — không phụ thuộc encoding file)
+    const norm = (s) => String(s || '').toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
+
+    const renderTabs = () => {
+      tabsEl.innerHTML = tabs.map(g =>
+        `<div class="icon-tab ${(!searchTerm && g === activeTab) ? 'on' : ''}" data-group="${this.escapeHtml(g)}">${this.escapeHtml(g)}</div>`
+      ).join('');
+      tabsEl.querySelectorAll('.icon-tab').forEach(el => {
+        el.onclick = () => {
+          activeTab = el.dataset.group;
+          searchTerm = '';
+          if (searchInput) searchInput.value = '';
+          renderTabs();
+          renderGrid();
+        };
+      });
+    };
+
+    const renderGrid = () => {
+      let items;
+      if (searchTerm) {
+        const term = norm(searchTerm);
+        items = lib.filter(i => norm(i.name + ' ' + i.label + ' ' + i.kw).includes(term));
+      } else if (activeTab === 'Phổ biến') {
+        items = popular.map(name => lib.find(x => x.name === name)).filter(Boolean);
+      } else {
+        items = lib.filter(i => i.group === activeTab);
+      }
+
+      if (!items.length) {
+        gridEl.innerHTML = `<div class="icon-grid-empty">Không tìm thấy icon.</div>`;
+        return;
+      }
+
+      const colorAttr = opts.color ? ` style="color:${opts.color}"` : '';
+      gridEl.innerHTML = items.map(i => {
+        const on = opts.currentIcon === i.name;
+        return `<div class="icon-pick ${on ? 'on' : ''}" data-icon="${i.name}" title="${this.escapeHtml(i.label)}"${colorAttr}>${window.svgIcon(i.name)}</div>`;
+      }).join('');
+
+      gridEl.querySelectorAll('.icon-pick').forEach(el => {
+        el.onclick = () => {
+          opts.currentIcon = el.dataset.icon;
+          gridEl.querySelectorAll('.icon-pick').forEach(x => x.classList.remove('on'));
+          el.classList.add('on');
+          if (emojiInput) emojiInput.value = '';
+          if (opts.onPick) opts.onPick(opts.currentIcon);
+        };
+      });
+    };
+
+    if (searchInput) {
+      searchInput.oninput = (e) => {
+        searchTerm = e.target.value.trim();
+        tabsEl.querySelectorAll('.icon-tab').forEach(x => x.classList.remove('on'));
+        renderGrid();
+      };
+    }
+
+    if (emojiInput) {
+      emojiInput.oninput = (e) => {
+        const v = e.target.value.trim();
+        if (v) {
+          opts.currentIcon = 'emoji:' + v;
+          gridEl.querySelectorAll('.icon-pick').forEach(x => x.classList.remove('on'));
+          if (opts.onPick) opts.onPick(opts.currentIcon);
+        }
+      };
+    }
+
+    renderTabs();
+    renderGrid();
+
+    return {
+      setColor(c) {
+        opts.color = c;
+        container.querySelectorAll('.icon-pick').forEach(el => el.style.color = c);
+      }
+    };
+  },
+
   // ============ COLOR PICKER (12 swatch + 1 ô tuỳ chỉnh) ============
   renderColorPicker(containerId, hiddenId, initialValue, onChange) {
     const PRESETS = [
@@ -1274,28 +1404,21 @@ const App = {
     }
     this.state.editingCat = { ...c };
     $('#catName').value = c.name;
+    const catIconPicker = this.renderIconPicker({
+      containerId: 'catIconGrid',
+      currentIcon: c.icon || 'other',
+      color: c.color || '#52b788',
+      allowEmoji: true,
+      onPick: (icon) => { this.state.editingCat.icon = icon; }
+    });
+    this.state._catIconPicker = catIconPicker;
     this.renderColorPicker('catColorPicker', 'catColor', c.color || '#52b788', (color) => {
       this.state.editingCat.color = color;
-      $$('#catIconGrid .icon-pick').forEach(el => el.style.color = color);
+      catIconPicker.setColor(color);
     });
     $('#catType').value = c.type;
     $('#catTitle').textContent = isNew ? 'Tạo danh mục' : 'Sửa danh mục';
     $('#catDelete').style.display = isNew ? 'none' : 'block';
-
-    const iconList = ['health', 'entertainment', 'home', 'cafe', 'education', 'gift', 'grocery',
-      'family', 'fitness', 'transport', 'other', 'coin', 'salary', 'hobby', 'sellcoin', 'cash', 'bank', 'wallet', 'piggy'];
-    $('#catIconGrid').innerHTML = iconList.map(ic => `
-      <div class="icon-pick ${ic === c.icon ? 'on' : ''}" data-icon="${ic}" style="color:${c.color}">
-        ${svgIcon(ic)}
-      </div>
-    `).join('');
-    $$('#catIconGrid .icon-pick').forEach(el => {
-      el.onclick = () => {
-        $$('#catIconGrid .icon-pick').forEach(x => x.classList.remove('on'));
-        el.classList.add('on');
-        this.state.editingCat.icon = el.dataset.icon;
-      };
-    });
 
     $('#catModal').classList.add('open');
   },
@@ -1346,18 +1469,11 @@ const App = {
     $('#accTitle').textContent = isNew ? 'Thêm tài khoản' : 'Sửa tài khoản';
     $('#accDelete').style.display = isNew ? 'none' : 'block';
 
-    const iconList = ['cash', 'bank', 'card', 'wallet', 'piggy', 'paypal', 'bitcoin', 'coin'];
-    $('#accIconGrid').innerHTML = iconList.map(ic => `
-      <div class="icon-pick ${ic === a.icon ? 'on' : ''}" data-icon="${ic}">
-        ${svgIcon(ic)}
-      </div>
-    `).join('');
-    $$('#accIconGrid .icon-pick').forEach(el => {
-      el.onclick = () => {
-        $$('#accIconGrid .icon-pick').forEach(x => x.classList.remove('on'));
-        el.classList.add('on');
-        this.state.editingAcc.icon = el.dataset.icon;
-      };
+    this.renderIconPicker({
+      containerId: 'accIconGrid',
+      currentIcon: a.icon || 'cash',
+      allowEmoji: true,
+      onPick: (icon) => { this.state.editingAcc.icon = icon; }
     });
     $('#accModal').classList.add('open');
   },
@@ -1651,18 +1767,11 @@ const App = {
     $('#bookExportSection').style.display = isNew ? 'none' : 'block';
     $('#bookMembersSection').style.display = isNew ? 'none' : 'block';
 
-    const iconList = ['wallet', 'cash', 'bank', 'piggy', 'family', 'transport', 'home', 'gift', 'fitness', 'cafe', 'education', 'coin', 'other'];
-    $('#bookIconGrid').innerHTML = iconList.map(ic => `
-      <div class="icon-pick ${ic === b.icon ? 'on' : ''}" data-icon="${ic}">
-        ${svgIcon(ic)}
-      </div>
-    `).join('');
-    $$('#bookIconGrid .icon-pick').forEach(el => {
-      el.onclick = () => {
-        $$('#bookIconGrid .icon-pick').forEach(x => x.classList.remove('on'));
-        el.classList.add('on');
-        this.state.editingBook.icon = el.dataset.icon;
-      };
+    this.renderIconPicker({
+      containerId: 'bookIconGrid',
+      currentIcon: b.icon || 'wallet',
+      allowEmoji: true,
+      onPick: (icon) => { this.state.editingBook.icon = icon; }
     });
     this.renderBookMembers();
     $('#bookEditModal').classList.add('open');

@@ -209,11 +209,26 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 .color-swatch.custom::before{content:"+";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:300;text-shadow:0 1px 3px rgba(0,0,0,.5);line-height:1}
 .color-swatch.custom.on::before{display:none}
 
-/* Icon picker */
-.icon-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:8px}
-.icon-pick{width:46px;height:46px;border-radius:50%;background:var(--surface);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text2);justify-self:center}
+/* Icon picker — search + tabs + grid + emoji input */
+.icon-picker{display:flex;flex-direction:column;gap:10px}
+.icon-picker .icon-search{padding:10px 14px;background:var(--surface);border:1.5px solid var(--border);border-radius:var(--rsm);font-size:14px;outline:none;color:var(--text)}
+.icon-picker .icon-search:focus{border-color:var(--accent)}
+.icon-tabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;margin:0 -2px}
+.icon-tabs::-webkit-scrollbar{display:none}
+.icon-tab{padding:6px 12px;background:var(--surface);border:1px solid var(--border);border-radius:16px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;flex-shrink:0;white-space:nowrap}
+.icon-tab.on{background:var(--acl);border-color:var(--accent);color:var(--accent)}
+.icon-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;max-height:240px;overflow-y:auto;padding:2px}
+.icon-pick{width:46px;height:46px;border-radius:50%;background:var(--surface);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text2);justify-self:center;position:relative}
 .icon-pick svg{width:22px;height:22px}
 .icon-pick.on{background:var(--acl);border-color:var(--accent)}
+.icon-pick:active{transform:scale(.92)}
+.icon-grid-empty{grid-column:1/-1;text-align:center;padding:30px 10px;color:var(--text3);font-size:13px}
+.emoji-icon{display:inline-flex;align-items:center;justify-content:center;font-size:1.4em;line-height:1;font-style:normal}
+.icon-pick .emoji-icon{font-size:24px}
+.icon-emoji-row{display:flex;align-items:center;gap:8px;background:var(--surface2);padding:10px 12px;border-radius:var(--rsm);border:1px dashed var(--border)}
+.icon-emoji-row label{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;flex-shrink:0}
+.icon-emoji-row input{flex:1;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:18px;text-align:center;outline:none}
+.icon-emoji-row input:focus{border-color:var(--accent)}
 
 /* Buttons */
 .btn{padding:13px;border-radius:var(--rsm);font-size:15px;font-weight:600;cursor:pointer;flex:1}
@@ -629,7 +644,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
       <div class="fg">
         <label class="fl">Biểu tượng</label>
-        <div id="catIconGrid" class="icon-grid"></div>
+        <div id="catIconGrid" class="icon-picker"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -657,7 +672,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
       <div class="fg">
         <label class="fl">Biểu tượng</label>
-        <div id="accIconGrid" class="icon-grid"></div>
+        <div id="accIconGrid" class="icon-picker"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -801,7 +816,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
       <div class="fg">
         <label class="fl">Biểu tượng</label>
-        <div id="bookIconGrid" class="icon-grid"></div>
+        <div id="bookIconGrid" class="icon-picker"></div>
       </div>
       <div class="fg" id="bookMembersSection" style="display:none">
         <label class="fl">Quỹ chung (chia tiền cuối chuyến)</label>

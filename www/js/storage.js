@@ -181,25 +181,34 @@
       const cats = (await this.getAll('categories')).filter(c => c.bookId === bookId);
       if (cats.length > 0) return;
 
+      // Danh mục mặc định cho người Việt — đa dạng, dùng icon mới
       const expenseCats = [
-        { type: 'expense', name: 'Sức khỏe', icon: 'health', color: '#e63946' },
-        { type: 'expense', name: 'Giải trí', icon: 'entertainment', color: '#52b788' },
-        { type: 'expense', name: 'Trang chủ', icon: 'home', color: '#f4a261' },
-        { type: 'expense', name: 'Cafe', icon: 'cafe', color: '#9d7bb0' },
-        { type: 'expense', name: 'Giáo dục', icon: 'education', color: '#4f86c6' },
-        { type: 'expense', name: 'Quà tặng', icon: 'gift', color: '#e65a9e' },
-        { type: 'expense', name: 'Tạp phẩm', icon: 'grocery', color: '#73a942' },
-        { type: 'expense', name: 'Gia đình', icon: 'family', color: '#f4b942' },
-        { type: 'expense', name: 'Tập thể dục', icon: 'fitness', color: '#e76f51' },
-        { type: 'expense', name: 'Di chuyển', icon: 'transport', color: '#4f86c6' },
+        { type: 'expense', name: 'Ăn uống', icon: 'food', color: '#f97316' },
+        { type: 'expense', name: 'Cà phê / Trà sữa', icon: 'coffee', color: '#92400e' },
+        { type: 'expense', name: 'Đi siêu thị', icon: 'cart', color: '#73a942' },
+        { type: 'expense', name: 'Xăng xe', icon: 'fuel', color: '#dc2626' },
+        { type: 'expense', name: 'Đi lại / Grab', icon: 'taxi', color: '#3b82f6' },
+        { type: 'expense', name: 'Tiền nhà', icon: 'home', color: '#f4a261' },
+        { type: 'expense', name: 'Tiền điện', icon: 'electricity', color: '#f59e0b' },
+        { type: 'expense', name: 'Tiền nước', icon: 'water', color: '#06b6d4' },
+        { type: 'expense', name: 'Internet / Điện thoại', icon: 'wifi', color: '#6366f1' },
+        { type: 'expense', name: 'Mua sắm', icon: 'shopping', color: '#ec4899' },
+        { type: 'expense', name: 'Sức khoẻ / Thuốc', icon: 'medical', color: '#e63946' },
+        { type: 'expense', name: 'Giải trí', icon: 'film', color: '#a855f7' },
+        { type: 'expense', name: 'Du lịch', icon: 'travel', color: '#14b8a6' },
+        { type: 'expense', name: 'Học hành', icon: 'graduation', color: '#4f86c6' },
+        { type: 'expense', name: 'Gia đình / Biếu tặng', icon: 'gift', color: '#e65a9e' },
         { type: 'expense', name: 'Khác', icon: 'other', color: '#888888' }
       ];
 
       const incomeCats = [
-        { type: 'income', name: 'Phiếu lương', icon: 'salary', color: '#4f86c6' },
+        { type: 'income', name: 'Lương', icon: 'briefcase', color: '#2d6a4f' },
+        { type: 'income', name: 'Thưởng', icon: 'award', color: '#f59e0b' },
+        { type: 'income', name: 'Đầu tư', icon: 'trending', color: '#10b981' },
+        { type: 'income', name: 'Freelance', icon: 'laptop', color: '#6366f1' },
+        { type: 'income', name: 'Bán hàng', icon: 'shop', color: '#ec4899' },
         { type: 'income', name: 'Quà tặng', icon: 'gift', color: '#e65a9e' },
-        { type: 'income', name: 'Sở thích', icon: 'hobby', color: '#52b788' },
-        { type: 'income', name: 'Khác', icon: 'other', color: '#73a942' }
+        { type: 'income', name: 'Khác', icon: 'other', color: '#888888' }
       ];
 
       for (const c of [...expenseCats, ...incomeCats]) {
