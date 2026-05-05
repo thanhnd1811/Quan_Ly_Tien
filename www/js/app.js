@@ -150,6 +150,8 @@ const App = {
     currentTab: 'home',
     txFilter: { type: 'all', period: 'month', accountId: 'all' },
     chartPeriod: 'month',
+    chartFrom: '',
+    chartTo: '',
     catTab: 'expense',
     editingTx: null,
     editingCat: null,
@@ -344,9 +346,43 @@ const App = {
         $$('.period-pill').forEach(x => x.classList.remove('on'));
         el.classList.add('on');
         this.state.chartPeriod = el.dataset.period;
+        const rangeRow = $('#chartRangeRow');
+        if (this.state.chartPeriod === 'custom') {
+          // Mặc định lần đầu: tháng này → hôm nay
+          if (!this.state.chartFrom || !this.state.chartTo) {
+            const now = new Date();
+            this.state.chartFrom = now.toISOString().slice(0, 7) + '-01';
+            this.state.chartTo = today();
+          }
+          $('#chartFrom').value = this.state.chartFrom;
+          $('#chartTo').value = this.state.chartTo;
+          rangeRow.style.display = 'flex';
+        } else {
+          rangeRow.style.display = 'none';
+        }
         this.renderCharts();
       };
     });
+
+    // Date range inputs (chart custom)
+    const fromIn = $('#chartFrom');
+    const toIn = $('#chartTo');
+    if (fromIn) fromIn.onchange = () => {
+      this.state.chartFrom = fromIn.value;
+      if (this.state.chartFrom > this.state.chartTo) this.state.chartTo = this.state.chartFrom;
+      toIn.value = this.state.chartTo;
+      this.renderCharts();
+    };
+    if (toIn) toIn.onchange = () => {
+      this.state.chartTo = toIn.value;
+      if (this.state.chartTo < this.state.chartFrom) this.state.chartFrom = this.state.chartTo;
+      fromIn.value = this.state.chartFrom;
+      this.renderCharts();
+    };
+
+    // Modal: đóng category-tx modal
+    const catTxClose = $('#catTxClose');
+    if (catTxClose) catTxClose.onclick = () => $('#catTxModal').classList.remove('open');
   },
 
   renderAuthUI() {
@@ -722,6 +758,9 @@ const App = {
     } else if (period === 'month') {
       from = now.toISOString().slice(0, 7) + '-01';
       to = today();
+    } else if (period === 'custom') {
+      from = this.state.chartFrom || today();
+      to = this.state.chartTo || today();
     } else {
       from = now.getFullYear() + '-01-01';
       to = today();
@@ -736,7 +775,7 @@ const App = {
     }
     const slices = Object.entries(expByCat).map(([cid, value]) => {
       const c = this.state.categories.find(x => x.id === cid) || {};
-      return { label: c.name || 'Không rõ', value, color: c.color || '#888' };
+      return { id: cid, label: c.name || 'Không rõ', value, color: c.color || '#888' };
     }).sort((a, b) => b.value - a.value);
 
     const donutCanvas = $('#chartDonut');
@@ -747,14 +786,67 @@ const App = {
       });
     }
 
-    // Legend
-    $('#chartLegend').innerHTML = slices.length ? slices.map(s => `
-      <div class="legend-item">
-        <span class="legend-dot" style="background:${s.color}"></span>
-        <span class="legend-name">${this.escapeHtml(s.label)}</span>
-        <span class="legend-val">${fmt(s.value)}</span>
-      </div>
-    `).join('') : '<div class="empty-msg">Chưa có chi tiêu trong kỳ này</div>';
+    // Legend — bấm 1 dòng để xem danh sách giao dịch của danh mục đó trong kỳ
+    const legend = $('#chartLegend');
+    if (slices.length) {
+      legend.innerHTML = slices.map(s => {
+        const pct = totalExp > 0 ? Math.round(s.value / totalExp * 100) : 0;
+        return `
+          <div class="legend-item" data-cat="${s.id}">
+            <span class="legend-dot" style="background:${s.color}"></span>
+            <span class="legend-name">${this.escapeHtml(s.label)}<span class="legend-pct">${pct}%</span></span>
+            <span class="legend-val">${fmt(s.value)}</span>
+          </div>
+        `;
+      }).join('');
+      legend.querySelectorAll('.legend-item').forEach(el => {
+        el.onclick = () => this.openCategoryTxs(el.dataset.cat, from, to);
+      });
+    } else {
+      legend.innerHTML = '<div class="empty-msg">Chưa có chi tiêu trong kỳ này</div>';
+    }
+  },
+
+  // Mở modal: liệt kê giao dịch của 1 danh mục trong khoảng [from, to]
+  openCategoryTxs(catId, from, to) {
+    const cat = this.state.categories.find(c => c.id === catId) || {};
+    const txs = this.state.transactions
+      .filter(t => t.type === 'expense' && t.categoryId === catId && t.date >= from && t.date <= to)
+      .sort((a, b) => (b.date + (b._updatedAt || '')).localeCompare(a.date + (a._updatedAt || '')));
+    const total = txs.reduce((s, t) => s + t.amount, 0);
+
+    $('#catTxTitle').textContent = `${cat.name || 'Danh mục'} · ${fmt(total)}`;
+
+    const body = $('#catTxBody');
+    if (!txs.length) {
+      body.innerHTML = '<div class="empty-msg">Không có giao dịch trong kỳ này</div>';
+    } else {
+      const groups = {};
+      txs.forEach(t => { (groups[t.date] = groups[t.date] || []).push(t); });
+      body.innerHTML = `
+        <div style="padding:8px 4px 14px;color:var(--text2);font-size:12px">
+          ${txs.length} giao dịch · từ ${this.formatDate(from)} đến ${this.formatDate(to)}
+        </div>
+      ` + Object.keys(groups).sort().reverse().map(date => {
+        const dayExp = groups[date].reduce((s, t) => s + t.amount, 0);
+        return `
+          <div class="day-header">
+            <div>${this.formatDate(date)}</div>
+            <div class="day-totals"><span class="amount-neg">-${fmt(dayExp)}</span></div>
+          </div>
+          ${groups[date].map(t => this.renderTxItem(t)).join('')}
+        `;
+      }).join('');
+
+      body.querySelectorAll('[data-tx]').forEach(el => {
+        el.onclick = () => {
+          $('#catTxModal').classList.remove('open');
+          this.openTxModal(el.dataset.tx);
+        };
+      });
+    }
+
+    $('#catTxModal').classList.add('open');
   },
 
   groupByPeriod(period) {
@@ -797,6 +889,41 @@ const App = {
         const inc = this.state.transactions.filter(t => t.type === 'income' && t.date.startsWith(y + '')).reduce((s, t) => s + t.amount, 0);
         const exp = this.state.transactions.filter(t => t.type === 'expense' && t.date.startsWith(y + '')).reduce((s, t) => s + t.amount, 0);
         out.push({ label: y + '', income: inc, expense: exp });
+      }
+    } else if (period === 'custom') {
+      const fromS = this.state.chartFrom || today();
+      const toS = this.state.chartTo || today();
+      const fromD = new Date(fromS + 'T00:00:00');
+      const toD = new Date(toS + 'T00:00:00');
+      const days = Math.floor((toD - fromD) / 86400000) + 1;
+      // ≤31 ngày: group ngày; ≤180 ngày: group tuần; còn lại: group tháng
+      if (days <= 31) {
+        for (let i = 0; i < days; i++) {
+          const d = new Date(fromD); d.setDate(fromD.getDate() + i);
+          const key = d.toISOString().slice(0, 10);
+          const inc = this.state.transactions.filter(t => t.type === 'income' && t.date === key).reduce((s, t) => s + t.amount, 0);
+          const exp = this.state.transactions.filter(t => t.type === 'expense' && t.date === key).reduce((s, t) => s + t.amount, 0);
+          out.push({ label: `${d.getDate()}/${d.getMonth() + 1}`, income: inc, expense: exp });
+        }
+      } else if (days <= 180) {
+        const start = new Date(fromD); start.setDate(fromD.getDate() - fromD.getDay());
+        for (let s = new Date(start); s <= toD; s.setDate(s.getDate() + 7)) {
+          const wEnd = new Date(s); wEnd.setDate(s.getDate() + 6);
+          const fromW = s.toISOString().slice(0, 10);
+          const toW = wEnd.toISOString().slice(0, 10);
+          const inc = this.state.transactions.filter(t => t.type === 'income' && t.date >= fromW && t.date <= toW && t.date >= fromS && t.date <= toS).reduce((sum, t) => sum + t.amount, 0);
+          const exp = this.state.transactions.filter(t => t.type === 'expense' && t.date >= fromW && t.date <= toW && t.date >= fromS && t.date <= toS).reduce((sum, t) => sum + t.amount, 0);
+          out.push({ label: `T${s.getDate()}/${s.getMonth() + 1}`, income: inc, expense: exp });
+        }
+      } else {
+        const m = new Date(fromD.getFullYear(), fromD.getMonth(), 1);
+        while (m <= toD) {
+          const ym = m.toISOString().slice(0, 7);
+          const inc = this.state.transactions.filter(t => t.type === 'income' && t.date.startsWith(ym) && t.date >= fromS && t.date <= toS).reduce((sum, t) => sum + t.amount, 0);
+          const exp = this.state.transactions.filter(t => t.type === 'expense' && t.date.startsWith(ym) && t.date >= fromS && t.date <= toS).reduce((sum, t) => sum + t.amount, 0);
+          out.push({ label: `${m.getMonth() + 1}/${(m.getFullYear() + '').slice(2)}`, income: inc, expense: exp });
+          m.setMonth(m.getMonth() + 1);
+        }
       }
     }
     return out;
