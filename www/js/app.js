@@ -655,6 +655,9 @@ const App = {
       });
     }
 
+    // ----- Forecast cuối tháng -----
+    this.renderHomeForecast();
+
     // ----- Budget widget -----
     this.renderHomeBudgets();
 
@@ -935,7 +938,37 @@ const App = {
       return { id: cid, label: c.name || 'Không rõ', value, color: c.color || '#888' };
     }).sort((a, b) => b.value - a.value);
 
-    // Top 5 khoản chi nhiều nhất — list rõ ràng có huy chương
+    // ----- Tính khoảng "kỳ trước" cùng độ dài để so sánh -----
+    const fromD = new Date(from + 'T00:00:00');
+    const toD = new Date(to + 'T00:00:00');
+    const days = Math.floor((toD - fromD) / 86400000) + 1;
+    const prevToD = new Date(fromD); prevToD.setDate(fromD.getDate() - 1);
+    const prevFromD = new Date(prevToD); prevFromD.setDate(prevToD.getDate() - days + 1);
+    const prevFrom = prevFromD.toISOString().slice(0, 10);
+    const prevTo = prevToD.toISOString().slice(0, 10);
+    const prevByCat = {};
+    for (const t of this.state.transactions) {
+      if (t.type !== 'expense') continue;
+      if (t.date < prevFrom || t.date > prevTo) continue;
+      prevByCat[t.categoryId] = (prevByCat[t.categoryId] || 0) + t.amount;
+    }
+    const periodCmpLabel = period === 'day' ? 'hôm qua'
+      : period === 'week' ? 'tuần trước'
+      : period === 'month' ? `T${prevFromD.getMonth() + 1}`
+      : period === 'year' ? `${prevFromD.getFullYear()}`
+      : 'kỳ trước';
+    const compareHtml = (catId) => {
+      const prev = prevByCat[catId] || 0;
+      const curr = expByCat[catId] || 0;
+      if (prev === 0 && curr > 0) return `<span class="cmp-tag new">🆕 mới</span>`;
+      if (prev === 0) return '';
+      const pct = Math.round((curr - prev) / prev * 100);
+      if (pct > 2) return `<span class="cmp-tag up">▲ +${pct}% vs ${periodCmpLabel}</span>`;
+      if (pct < -2) return `<span class="cmp-tag down">▼ ${pct}% vs ${periodCmpLabel}</span>`;
+      return `<span class="cmp-tag flat">≈ vs ${periodCmpLabel}</span>`;
+    };
+
+    // Top 5 khoản chi nhiều nhất — list rõ ràng có huy chương + so sánh kỳ trước
     const top5El = $('#chartTop5');
     if (top5El) {
       if (!slices.length) {
@@ -951,7 +984,7 @@ const App = {
             <div class="top5-row" data-cat="${s.id}">
               <div class="top5-rank ${i === 0 ? 'gold' : ''}">${medals[i]}</div>
               <div class="top5-info">
-                <div class="top5-name">${this.escapeHtml(s.label)}</div>
+                <div class="top5-name">${this.escapeHtml(s.label)} ${compareHtml(s.id)}</div>
                 <div class="top5-bar"><div class="top5-bar-fill" style="width:${barW}%;background:${s.color}"></div></div>
               </div>
               <div class="top5-amt">
@@ -983,7 +1016,7 @@ const App = {
         return `
           <div class="legend-item" data-cat="${s.id}">
             <span class="legend-dot" style="background:${s.color}"></span>
-            <span class="legend-name">${this.escapeHtml(s.label)}<span class="legend-pct">${pct}%</span></span>
+            <span class="legend-name">${this.escapeHtml(s.label)}<span class="legend-pct">${pct}%</span> ${compareHtml(s.id)}</span>
             <span class="legend-val">${fmt(s.value)}</span>
           </div>
         `;
@@ -1229,6 +1262,78 @@ const App = {
     list.querySelectorAll('[data-budget]').forEach(el => {
       el.onclick = () => this.openBudgetModal(el.dataset.budget);
     });
+  },
+
+  renderHomeForecast() {
+    const wrap = $('#homeForecast');
+    if (!wrap) return;
+    const now = new Date();
+    const ym = now.toISOString().slice(0, 7);
+    const dayOfMonth = now.getDate();
+    const totalDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const remainDays = totalDays - dayOfMonth;
+    const monthLabel = `T${now.getMonth() + 1}`;
+
+    // Đã chi tháng này
+    const spent = this.state.transactions
+      .filter(t => t.type === 'expense' && t.date.startsWith(ym))
+      .reduce((s, t) => s + t.amount, 0);
+
+    // Cần ít nhất 2 ngày data + có chi mới dự báo có ý nghĩa
+    if (dayOfMonth < 2 || spent === 0) { wrap.style.display = 'none'; return; }
+
+    const avgPerDay = spent / dayOfMonth;
+    const forecast = Math.round(spent + avgPerDay * remainDays);
+
+    // Tháng trước (cùng cả tháng)
+    const lastDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastYm = lastDate.toISOString().slice(0, 7);
+    const lastSpent = this.state.transactions
+      .filter(t => t.type === 'expense' && t.date.startsWith(lastYm))
+      .reduce((s, t) => s + t.amount, 0);
+
+    // Compare
+    let trend = 'flat', cmpHtml = '';
+    if (lastSpent > 0) {
+      const diff = forecast - lastSpent;
+      const pct = Math.round(Math.abs(diff) / lastSpent * 100);
+      if (diff > lastSpent * 0.02) {
+        trend = 'up';
+        cmpHtml = `<span class="forecast-compare up">▲ +${pct}% so với T${lastDate.getMonth() + 1} (${fmt(lastSpent)} đ)</span>`;
+      } else if (diff < -lastSpent * 0.02) {
+        trend = 'down';
+        cmpHtml = `<span class="forecast-compare down">▼ -${pct}% so với T${lastDate.getMonth() + 1} (${fmt(lastSpent)} đ)</span>`;
+      } else {
+        cmpHtml = `<span class="forecast-compare flat">≈ tương đương T${lastDate.getMonth() + 1} (${fmt(lastSpent)} đ)</span>`;
+      }
+    } else {
+      cmpHtml = `<span class="forecast-compare flat">📊 Tháng trước chưa có dữ liệu để so sánh</span>`;
+    }
+
+    // Progress bar: đã chi (xanh) — marker ở vị trí % ngày đã qua
+    const dayPct = Math.round(dayOfMonth / totalDays * 100);
+    const spentPct = forecast > 0 ? Math.min(100, Math.round(spent / forecast * 100)) : 0;
+
+    wrap.style.display = 'block';
+    wrap.innerHTML = `
+      <div class="forecast-card ${trend}">
+        <div class="forecast-head">📊 Dự báo chi cuối ${monthLabel}</div>
+        <div class="forecast-amount ${trend}">~${fmt(forecast)} đ</div>
+        ${cmpHtml}
+        <div class="forecast-detail">
+          Đã chi <strong>${fmt(spent)} đ</strong> sau ${dayOfMonth}/${totalDays} ngày · trung bình <strong>${fmt(Math.round(avgPerDay))} đ/ngày</strong>
+        </div>
+        <div class="forecast-progress">
+          <div class="forecast-progress-spent" style="width:${spentPct}%"></div>
+          <div class="forecast-progress-marker" style="left:${dayPct}%" title="Hôm nay"></div>
+        </div>
+        <div class="forecast-progress-labels">
+          <span>Đầu ${monthLabel}</span>
+          <span>Hôm nay (${dayPct}%)</span>
+          <span>Cuối ${monthLabel}</span>
+        </div>
+      </div>
+    `;
   },
 
   renderHomeBudgets() {

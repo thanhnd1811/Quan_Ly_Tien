@@ -179,6 +179,24 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .legend-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface);border-radius:var(--rsm);margin-bottom:6px;border:1px solid var(--border);cursor:pointer}
 .legend-item:active{background:var(--surface2)}
 .legend-pct{font-size:11px;color:var(--text3);margin-left:6px;font-weight:500}
+/* Forecast (Dự báo cuối tháng) */
+.forecast-card{margin:14px 16px;padding:16px;border-radius:var(--r);border:1px solid var(--border);background:var(--surface);box-shadow:var(--sh)}
+.forecast-card.up{border-left:4px solid var(--danger);background:linear-gradient(135deg,#fff5f5 0%,var(--surface) 60%)}
+.forecast-card.down{border-left:4px solid var(--pos);background:linear-gradient(135deg,#f0fdf4 0%,var(--surface) 60%)}
+.forecast-card.flat{border-left:4px solid var(--text3)}
+.forecast-head{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text2);font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.forecast-amount{font-size:26px;font-weight:700;margin-top:6px;color:var(--text)}
+.forecast-amount.up{color:var(--danger)}
+.forecast-amount.down{color:var(--pos)}
+.forecast-detail{font-size:12px;color:var(--text3);margin-top:6px;line-height:1.5}
+.forecast-compare{display:inline-flex;align-items:center;gap:4px;font-weight:600;font-size:12px;margin-top:6px}
+.forecast-compare.up{color:var(--danger)}
+.forecast-compare.down{color:var(--pos)}
+.forecast-compare.flat{color:var(--text3)}
+.forecast-progress{height:6px;background:var(--border);border-radius:3px;margin-top:12px;overflow:hidden;position:relative}
+.forecast-progress-spent{height:100%;background:var(--accent);border-radius:3px}
+.forecast-progress-marker{position:absolute;top:-3px;width:2px;height:12px;background:var(--text2)}
+.forecast-progress-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:4px}
 /* Budgets (Ngân sách) */
 .budget-summary{padding:14px 16px;background:var(--book-accent);color:#fff}
 .budget-summary-month{font-size:12px;opacity:.85;margin-bottom:8px}
@@ -257,6 +275,11 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .home-loan-card-info{flex:1;min-width:0}
 .home-loan-card-label{font-size:11px;color:var(--text3)}
 .home-loan-card-val{font-size:14px;font-weight:700;color:var(--text);margin-top:2px}
+.cmp-tag{font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;margin-left:4px;white-space:nowrap;display:inline-block}
+.cmp-tag.up{background:#fee2e2;color:#b91c1c}
+.cmp-tag.down{background:#d1fae5;color:#047857}
+.cmp-tag.flat{background:var(--surface2);color:var(--text3)}
+.cmp-tag.new{background:#dbeafe;color:#1e40af}
 .top5-list{display:flex;flex-direction:column;gap:8px}
 .top5-row{display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--surface2);border-radius:var(--rsm);border:1px solid var(--border);cursor:pointer}
 .top5-row:active{background:var(--acl)}
@@ -486,6 +509,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
     </div>
     <div id="homeWallets"></div>
+    <div id="homeForecast" style="display:none"></div>
     <div id="homeBudgetWidget" style="display:none"></div>
     <div id="homeLoanShortcut" style="display:none"></div>
     <div class="section">
