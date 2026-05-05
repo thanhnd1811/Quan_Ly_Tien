@@ -242,10 +242,17 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 .icon-grid-empty{grid-column:1/-1;text-align:center;padding:30px 10px;color:var(--text3);font-size:13px}
 .emoji-icon{display:inline-flex;align-items:center;justify-content:center;font-size:1.4em;line-height:1;font-style:normal}
 .icon-pick .emoji-icon{font-size:24px}
-.icon-emoji-row{display:flex;align-items:center;gap:8px;background:var(--surface2);padding:10px 12px;border-radius:var(--rsm);border:1px dashed var(--border)}
-.icon-emoji-row label{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;flex-shrink:0}
-.icon-emoji-row input{flex:1;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:18px;text-align:center;outline:none}
-.icon-emoji-row input:focus{border-color:var(--accent)}
+.icon-emoji-section{background:var(--surface2);padding:12px;border-radius:var(--rsm);border:1px dashed var(--border);margin-top:4px}
+.icon-emoji-title{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.icon-emoji-hint{font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.4}
+.icon-emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin-bottom:10px}
+.icon-emoji-pick{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;background:var(--surface);border:1.5px solid var(--border);border-radius:50%;cursor:pointer;font-size:20px;line-height:1}
+.icon-emoji-pick:active{transform:scale(.92)}
+.icon-emoji-pick.on{background:var(--acl);border-color:var(--accent)}
+.icon-emoji-input-row{display:flex;align-items:center;gap:8px}
+.icon-emoji-input-row label{font-size:11px;color:var(--text2);flex-shrink:0}
+.icon-emoji-input-row input{flex:1;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:18px;text-align:center;outline:none}
+.icon-emoji-input-row input:focus{border-color:var(--accent)}
 
 /* Buttons */
 .btn{padding:13px;border-radius:var(--rsm);font-size:15px;font-weight:600;cursor:pointer;flex:1}

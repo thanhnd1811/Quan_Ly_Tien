@@ -1292,14 +1292,36 @@ const App = {
 
     const showEmoji = opts.allowEmoji !== false;
 
+    // Bộ emoji gợi ý — bấm chọn nhanh, không cần mở bàn phím emoji
+    const EMOJI_SUGGEST = [
+      '🍜', '☕', '🍔', '🍕', '🍺', '🍷', '🍰', '🍦',
+      '🛒', '👕', '💎', '🎁', '⚡', '💧', '📶', '📱',
+      '🚗', '🏍️', '✈️', '⛽', '🚕', '🚌', '🅿️', '🗺️',
+      '💊', '🏥', '💉', '🛡️', '🏋️', '🎬', '🎵', '🎮',
+      '🎤', '🎉', '✈️', '📚', '🎓', '🏠', '🛋️', '🛏️',
+      '🔑', '💡', '📺', '👨‍👩‍👧', '👶', '❤️', '🐶', '🐱',
+      '✂️', '💄', '💼', '💰', '💵', '💳', '📈', '🏆',
+      '💻', '🏪', '🏢', '🪙', '⭐', '🚩', '🎯', '🔖'
+    ];
+
     container.innerHTML = `
       <input class="icon-search" type="text" placeholder="Tìm icon (vd: xe, ăn, điện)...">
       <div class="icon-tabs"></div>
       <div class="icon-grid"></div>
       ${showEmoji ? `
-        <div class="icon-emoji-row">
-          <label>Emoji</label>
-          <input type="text" placeholder="🍜 ☕ 🚗 ..." maxlength="4" value="${this.escapeHtml(initEmoji)}">
+        <div class="icon-emoji-section">
+          <div class="icon-emoji-title">🎉 Hoặc dùng emoji</div>
+          <div class="icon-emoji-hint">Bấm 1 emoji bên dưới để chọn — hoặc gõ emoji bất kỳ ở ô dưới cùng.</div>
+          <div class="icon-emoji-grid">
+            ${EMOJI_SUGGEST.map(e => {
+              const on = ('emoji:' + e) === opts.currentIcon;
+              return `<div class="icon-emoji-pick ${on ? 'on' : ''}" data-emoji="${e}">${e}</div>`;
+            }).join('')}
+          </div>
+          <div class="icon-emoji-input-row">
+            <label>Tự gõ:</label>
+            <input type="text" placeholder="Vd: 🍜" maxlength="4" value="${this.escapeHtml(initEmoji)}">
+          </div>
         </div>
       ` : ''}
     `;
@@ -1307,7 +1329,31 @@ const App = {
     const searchInput = container.querySelector('.icon-search');
     const tabsEl = container.querySelector('.icon-tabs');
     const gridEl = container.querySelector('.icon-grid');
-    const emojiInput = container.querySelector('.icon-emoji-row input');
+    const emojiSection = container.querySelector('.icon-emoji-section');
+    const emojiGrid = container.querySelector('.icon-emoji-grid');
+    const emojiInput = container.querySelector('.icon-emoji-input-row input');
+
+    const setEmojiPicked = (emoji) => {
+      // Highlight emoji đã chọn trong grid + clear svg pick + clear input nếu khác
+      if (emojiGrid) {
+        emojiGrid.querySelectorAll('.icon-emoji-pick').forEach(x => {
+          x.classList.toggle('on', x.dataset.emoji === emoji);
+        });
+      }
+      gridEl.querySelectorAll('.icon-pick').forEach(x => x.classList.remove('on'));
+    };
+
+    if (emojiGrid) {
+      emojiGrid.querySelectorAll('.icon-emoji-pick').forEach(el => {
+        el.onclick = () => {
+          const e = el.dataset.emoji;
+          opts.currentIcon = 'emoji:' + e;
+          setEmojiPicked(e);
+          if (emojiInput) emojiInput.value = '';
+          if (opts.onPick) opts.onPick(opts.currentIcon);
+        };
+      });
+    }
 
     // Bỏ dấu tiếng Việt cho search (regex unicode escape — không phụ thuộc encoding file)
     const norm = (s) => String(s || '').toLowerCase()
@@ -1355,7 +1401,9 @@ const App = {
           opts.currentIcon = el.dataset.icon;
           gridEl.querySelectorAll('.icon-pick').forEach(x => x.classList.remove('on'));
           el.classList.add('on');
+          // Bỏ chọn emoji (cả grid lẫn input) khi pick icon SVG
           if (emojiInput) emojiInput.value = '';
+          if (emojiGrid) emojiGrid.querySelectorAll('.icon-emoji-pick').forEach(x => x.classList.remove('on'));
           if (opts.onPick) opts.onPick(opts.currentIcon);
         };
       });
@@ -1374,7 +1422,7 @@ const App = {
         const v = e.target.value.trim();
         if (v) {
           opts.currentIcon = 'emoji:' + v;
-          gridEl.querySelectorAll('.icon-pick').forEach(x => x.classList.remove('on'));
+          setEmojiPicked(v);
           if (opts.onPick) opts.onPick(opts.currentIcon);
         }
       };
