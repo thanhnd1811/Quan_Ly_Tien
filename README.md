@@ -1,6 +1,12 @@
 # Quản Lý Tiền
 
+[![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](package.json)
+[![Platform](https://img.shields.io/badge/platform-PWA%20%7C%20Android-green.svg)](#)
+
 App quản lý thu chi cá nhân — chạy được như **PWA** (mở trong trình duyệt) và đóng gói thành **APK Android** qua Capacitor.
+
+> Phát triển bởi **Nguyễn Thanh** · Liên hệ: Zalo [0909683666](https://zalo.me/0909683666)
 
 ## Tính năng
 
@@ -82,3 +88,21 @@ Xem chi tiết trong [HUONG_DAN_BUILD_APK.md](HUONG_DAN_BUILD_APK.md). Tóm tắ
 - **Google Sign-In trên WebView (APK)**: cần thêm scheme `https://localhost` vào Authorized origins. Nếu vẫn lỗi, dùng plugin native `@codetrix-studio/capacitor-google-auth` (xem hướng dẫn nâng cao).
 - **Dữ liệu trên Drive** lưu trong `appDataFolder` — chỉ app này thấy, user xoá app thì có thể vẫn còn. Để xoá hoàn toàn, vào https://myaccount.google.com/permissions thu hồi quyền của app.
 - App không cần backend, không tốn chi phí server.
+
+## Bản quyền
+
+**© 2026 Nguyễn Thanh — All Rights Reserved.**
+
+Phần mềm này là tài sản trí tuệ độc quyền của Nguyễn Thanh. Người dùng cuối được cài đặt và sử dụng cho mục đích **phi thương mại cá nhân**. Nghiêm cấm:
+
+- Sao chép, chỉnh sửa, dịch ngược mã nguồn
+- Phân phối lại / đăng tải lên kho lưu trữ công cộng
+- Sử dụng để xây sản phẩm phái sinh hoặc cạnh tranh
+- Loại bỏ thông tin tác giả khỏi giao diện và file xuất
+
+Xem chi tiết trong [LICENSE](LICENSE).
+
+**Liên hệ xin phép sử dụng / báo lỗi / góp ý:**
+
+- 👤 Tác giả: Nguyễn Thanh
+- 💬 Zalo: [0909683666](https://zalo.me/0909683666)

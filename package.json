@@ -2,6 +2,12 @@
   "name": "quan-ly-tien",
   "version": "1.0.0",
   "description": "App quản lý thu chi cá nhân - PWA + APK Android, đa người dùng, đồng bộ Google Drive",
+  "author": {
+    "name": "Nguyễn Thanh",
+    "url": "https://zalo.me/0909683666"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "copyright": "© 2026 Nguyễn Thanh. All Rights Reserved.",
   "main": "www/index.html",
   "scripts": {
     "init-android": "npx cap add android",

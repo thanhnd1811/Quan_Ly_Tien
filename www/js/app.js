@@ -2032,7 +2032,10 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
       }).join('')}
     </table>
   </section>` : ''}
-  <footer>Xuất từ app Quản Lý Tiền · ${exportedAt}</footer>
+  <footer>
+    <div>Xuất từ app <strong>Quản Lý Tiền</strong> · ${exportedAt}</div>
+    <div style="margin-top:4px">© 2026 <strong>Nguyễn Thanh</strong> · Mọi quyền được bảo lưu · Liên hệ: Zalo 0909683666</div>
+  </footer>
 </div>
 </body>
 </html>`;
@@ -2093,6 +2096,10 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
         }
       }
     }
+
+    rows.push([]);
+    rows.push(['© 2026 Nguyễn Thanh — Mọi quyền được bảo lưu — Liên hệ: Zalo 0909683666']);
+    rows.push(['Xuất từ app Quản Lý Tiền']);
 
     const csv = '﻿' + rows.map(r => r.map(c => {
       const s = String(c == null ? '' : c).replace(/"/g, '""');
