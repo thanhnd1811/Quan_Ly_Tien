@@ -200,6 +200,7 @@ const App = {
     reminders: [],
     loans: [],
     budgets: [],
+    goals: [],
     currentTab: 'home',
     txFilter: { type: 'all', period: 'month', accountId: 'all', search: '' },
     chartPeriod: 'month',
@@ -214,7 +215,8 @@ const App = {
     editingReminder: null,
     editingBook: null,
     editingLoan: null,
-    editingBudget: null
+    editingBudget: null,
+    editingGoal: null
   },
 
   async init() {
@@ -263,6 +265,12 @@ const App = {
       try {
         for (const a of this.state.accounts.filter(a => this.isSavings(a) && a.maturityDate)) {
           await this.scheduleMaturityNotif(a);
+        }
+      } catch (_) {}
+      // Đặt lại notif cho mục tiêu tiết kiệm
+      try {
+        for (const g of this.state.goals.filter(g => g.status === 'active')) {
+          await this.scheduleGoalNotif(g);
         }
       } catch (_) {}
       this.render();
@@ -322,6 +330,7 @@ const App = {
     this.state.reminders = inBook(await window.QLT_Store.getAll('reminders'));
     this.state.loans = inBook(await window.QLT_Store.getAll('loans'));
     this.state.budgets = inBook(await window.QLT_Store.getAll('budgets'));
+    this.state.goals = inBook(await window.QLT_Store.getAll('goals'));
   },
 
   currentBook() {
@@ -469,6 +478,17 @@ const App = {
     $('#budgetAddFab').onclick = () => this.openBudgetModal(null);
     $('#budgetSave').onclick = () => this.saveBudget();
     $('#budgetDelete').onclick = () => this.deleteBudget();
+
+    // ----- Goals (Mục tiêu tiết kiệm) -----
+    $('#goalAddFab').onclick = () => this.openGoalModal(null);
+    $('#goalSave').onclick = () => this.saveGoal();
+    $('#goalDelete').onclick = () => this.deleteGoal();
+    $('#contribSave').onclick = () => this.saveContribution();
+    // Recalc plan hint khi đổi target/start/deadline
+    ['goalTarget', 'goalStart', 'goalDeadline'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', () => this.recalcGoalPlanHint());
+    });
 
     // ----- Loans (Cho vay / Nợ) -----
     $('#loanAddFab').onclick = () => this.openLoanModal(null);
@@ -639,6 +659,7 @@ const App = {
     else if (name === 'settings') this.renderSettings();
     else if (name === 'loans') this.renderLoans();
     else if (name === 'budgets') this.renderBudgets();
+    else if (name === 'goals') this.renderGoals();
   },
 
   // ============ HOME ============
@@ -737,6 +758,9 @@ const App = {
 
     // ----- Sổ tiết kiệm / Tài sản dài hạn -----
     this.renderHomeSavings(totalBalance, totalSavings);
+
+    // ----- Mục tiêu tiết kiệm -----
+    this.renderHomeGoals();
 
     // ----- Forecast cuối tháng -----
     this.renderHomeForecast();
@@ -1629,6 +1653,546 @@ const App = {
     this.renderBudgets();
     if (this.state.currentTab === 'home') this.renderHome();
     this.autoSync();
+  },
+
+  // ============ GOALS (Mục tiêu tiết kiệm) ============
+  goalContributed(g) {
+    return (g.contributions || []).reduce((s, c) => s + (c.amount || 0), 0);
+  },
+
+  goalContributedInMonth(g, ym) {
+    return (g.contributions || []).filter(c => c.date && c.date.startsWith(ym))
+      .reduce((s, c) => s + (c.amount || 0), 0);
+  },
+
+  // Số tháng giữa 2 ngày (start, end) — count of month boundaries crossed, ≥1
+  goalMonthsBetween(startDate, endDate) {
+    const s = new Date(startDate + 'T00:00:00');
+    const e = new Date(endDate + 'T00:00:00');
+    const months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
+    return Math.max(1, months);
+  },
+
+  // Ban đầu khi tạo: chia đều = target / plannedMonths
+  goalOriginalMonthly(g) {
+    return Math.round((g.targetAmount || 0) / Math.max(1, g.plannedMonths || 1));
+  },
+
+  // Tháng này phải đóng bao nhiêu (theo strategy)
+  goalMonthlyTarget(g) {
+    const contributed = this.goalContributed(g);
+    const remaining = Math.max(0, (g.targetAmount || 0) - contributed);
+    if (remaining === 0) return 0;
+
+    if (g.catchUpStrategy === 'extend') {
+      // Giữ số ban đầu — deadline tự dời
+      return this.goalOriginalMonthly(g);
+    }
+    // 'spread': chia đều phần còn lại cho số tháng còn lại tới deadline
+    const todayStr = today();
+    const deadline = g.targetDate || todayStr;
+    if (deadline <= todayStr) {
+      // Đã hết hạn → cần đóng nốt phần còn lại NGAY
+      return remaining;
+    }
+    const monthsLeft = this.goalMonthsBetween(todayStr.slice(0, 8) + '01', deadline);
+    return Math.round(remaining / Math.max(1, monthsLeft));
+  },
+
+  // Dự kiến hoàn thành (chỉ dùng khi 'extend')
+  goalForecastEnd(g) {
+    if (g.catchUpStrategy !== 'extend') return g.targetDate;
+    const remaining = Math.max(0, (g.targetAmount || 0) - this.goalContributed(g));
+    const monthly = this.goalOriginalMonthly(g);
+    if (monthly <= 0 || remaining === 0) return g.targetDate;
+    const monthsNeeded = Math.ceil(remaining / monthly);
+    const d = new Date();
+    d.setMonth(d.getMonth() + monthsNeeded);
+    return d.toISOString().slice(0, 10);
+  },
+
+  // Trạng thái tổng thể
+  goalStatus(g) {
+    const contributed = this.goalContributed(g);
+    if (contributed >= (g.targetAmount || 0)) return 'achieved';
+    const todayStr = today();
+    const deadline = g.targetDate || todayStr;
+    if (deadline < todayStr) return 'overdue';
+    // Tính tỉ lệ thời gian đã trôi vs tỉ lệ tiền đã đóng
+    const start = g.startDate || todayStr;
+    const totalDays = (new Date(deadline) - new Date(start)) / 86400000;
+    const passedDays = (new Date(todayStr) - new Date(start)) / 86400000;
+    const expectedPct = totalDays > 0 ? passedDays / totalDays : 0;
+    const actualPct = (g.targetAmount || 0) > 0 ? contributed / g.targetAmount : 0;
+    return actualPct >= expectedPct - 0.05 ? 'on-track' : 'behind';
+  },
+
+  // Trạng thái tháng hiện tại
+  goalMonthStatus(g) {
+    const ym = new Date().toISOString().slice(0, 7);
+    const contributedThisMonth = this.goalContributedInMonth(g, ym);
+    const target = this.goalMonthlyTarget(g);
+    if (target === 0) return { kind: 'achieved', label: '✅ Đã đạt mục tiêu', remain: 0, contributed: contributedThisMonth, target: 0 };
+    if (contributedThisMonth >= target) return { kind: 'done', label: '✅ Đã đóng đủ', remain: 0, contributed: contributedThisMonth, target };
+    // Chưa đủ — cảnh báo theo ngày trong tháng
+    const now = new Date();
+    const totalDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const dayOfMonth = now.getDate();
+    const dayPct = dayOfMonth / totalDays;
+    if (dayPct >= 0.85) return { kind: 'overdue', label: '🚨 Cuối tháng — cần đóng gấp', remain: target - contributedThisMonth, contributed: contributedThisMonth, target };
+    if (dayPct >= 0.5 || contributedThisMonth > 0) return { kind: 'behind', label: '⚠️ Còn thiếu tháng này', remain: target - contributedThisMonth, contributed: contributedThisMonth, target };
+    return { kind: 'upcoming', label: '🕐 Chưa đóng tháng này', remain: target, contributed: 0, target };
+  },
+
+  // Lên kế hoạch hint khi tạo/sửa goal
+  recalcGoalPlanHint() {
+    const target = readAmount($('#goalTarget'));
+    const start = $('#goalStart').value || today();
+    const deadline = $('#goalDeadline').value;
+    const hint = $('#goalPlanHint');
+    if (!target || !deadline) {
+      hint.innerHTML = '💡 Nhập số tiền + deadline để xem kế hoạch tháng.';
+      return;
+    }
+    if (deadline <= start) {
+      hint.innerHTML = '⚠️ Deadline phải SAU ngày bắt đầu.';
+      return;
+    }
+    const months = this.goalMonthsBetween(start, deadline);
+    const monthly = Math.round(target / months);
+    hint.innerHTML = `📊 Cần đóng <strong>${fmt(monthly)} đ/tháng</strong> trong <strong>${months} tháng</strong> (đến ${this.formatDate(deadline)}).`;
+  },
+
+  renderGoals() {
+    const goals = this.state.goals.filter(g => g.status !== 'cancelled');
+    goals.sort((a, b) => {
+      // 'achieved' xuống cuối
+      const aDone = this.goalContributed(a) >= a.targetAmount ? 1 : 0;
+      const bDone = this.goalContributed(b) >= b.targetAmount ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
+      return (a.targetDate || '').localeCompare(b.targetDate || '');
+    });
+
+    // Tổng cam kết / đã đóng tháng này
+    const ym = new Date().toISOString().slice(0, 7);
+    const totalCommit = goals.reduce((s, g) => s + this.goalMonthlyTarget(g), 0);
+    const totalDone = goals.reduce((s, g) => s + this.goalContributedInMonth(g, ym), 0);
+    const pct = totalCommit > 0 ? Math.min(100, Math.round(totalDone / totalCommit * 100)) : 0;
+    $('#goalMonthlyTotal').textContent = fmt(totalCommit) + ' đ';
+    $('#goalMonthlyDone').textContent = fmt(totalDone) + ' đ';
+    $('#goalMonthlyBarFill').style.width = pct + '%';
+
+    const list = $('#goalList');
+    if (!goals.length) {
+      list.innerHTML = `
+        <div class="empty-msg">
+          Chưa có mục tiêu nào.<br>
+          Bấm <strong>+</strong> để đặt mục tiêu đầu tiên — vd "Mua ô tô", "Du lịch Nhật"...
+        </div>`;
+      return;
+    }
+
+    list.innerHTML = goals.map(g => {
+      const contributed = this.goalContributed(g);
+      const totalPct = (g.targetAmount || 0) > 0 ? Math.min(100, Math.round(contributed / g.targetAmount * 100)) : 0;
+      const status = this.goalStatus(g);
+      const monthStatus = this.goalMonthStatus(g);
+      const remaining = Math.max(0, (g.targetAmount || 0) - contributed);
+
+      let metaText = '';
+      if (status === 'achieved') {
+        metaText = `🎉 Hoàn thành! Tổng ${fmt(g.targetAmount)} đ`;
+      } else {
+        const deadline = g.catchUpStrategy === 'extend' ? this.goalForecastEnd(g) : g.targetDate;
+        const monthly = this.goalMonthlyTarget(g);
+        const months = this.goalMonthsBetween(today().slice(0, 8) + '01', deadline);
+        metaText = `${fmt(monthly)} đ/tháng × ${months} tháng → ${this.formatDate(deadline)}${g.catchUpStrategy === 'extend' && deadline !== g.targetDate ? ' (gia hạn)' : ''}`;
+      }
+
+      const iconHtml = (g.icon || '').startsWith('emoji:') ? g.icon.slice(6) : '🏆';
+      let monthRowHtml = '';
+      if (status !== 'achieved') {
+        monthRowHtml = `
+          <div class="goal-item-month-row ${monthStatus.kind}">
+            <span class="goal-item-month-status ${monthStatus.kind}">${monthStatus.label}</span>
+            <span style="flex:1;color:var(--text2)">${fmt(monthStatus.contributed)} / ${fmt(monthStatus.target)} đ</span>
+            <span class="goal-item-month-cta" data-contrib="${g.id}">+ Đóng</span>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="goal-item" data-goal="${g.id}">
+          <div class="goal-item-head">
+            <div class="goal-item-icon" style="background:${(g.color || '#f59e0b') + '1a'};color:${g.color || '#f59e0b'}">${iconHtml}</div>
+            <div class="goal-item-info">
+              <div class="goal-item-name">${this.escapeHtml(g.name)}</div>
+              <div class="goal-item-meta">${this.escapeHtml(metaText)}</div>
+            </div>
+            <div class="goal-item-pct">${totalPct}%</div>
+          </div>
+          <div class="goal-item-bar"><div class="goal-item-bar-fill ${status}" style="width:${totalPct}%"></div></div>
+          <div class="goal-item-amts">
+            <span>${fmt(contributed)} đ đã đóng</span>
+            <span>còn ${fmt(remaining)} đ</span>
+          </div>
+          ${monthRowHtml}
+        </div>
+      `;
+    }).join('');
+
+    // Bấm dòng (nhưng tránh nút "Đóng")
+    list.querySelectorAll('[data-goal]').forEach(el => {
+      el.onclick = (e) => {
+        if (e.target.closest('[data-contrib]')) return;
+        this.openGoalModal(el.dataset.goal);
+      };
+    });
+    list.querySelectorAll('[data-contrib]').forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        this.openContribModal(el.dataset.contrib);
+      };
+    });
+  },
+
+  renderHomeGoals() {
+    const wrap = $('#homeGoals');
+    if (!wrap) return;
+    const goals = this.state.goals.filter(g => g.status !== 'cancelled' && this.goalContributed(g) < g.targetAmount);
+    if (!goals.length) { wrap.style.display = 'none'; return; }
+
+    // Sort: behind/overdue trước, on-track sau
+    goals.sort((a, b) => {
+      const order = { overdue: 0, behind: 1, 'on-track': 2, achieved: 3 };
+      return (order[this.goalStatus(a)] || 9) - (order[this.goalStatus(b)] || 9);
+    });
+
+    // Top 3 hiện trên Home
+    const top3 = goals.slice(0, 3);
+
+    wrap.style.display = 'block';
+    wrap.innerHTML = `
+      <div class="section">
+        <div class="sec-label">🏆 Mục tiêu tiết kiệm <span class="sec-action" onclick="QLT_App.switchTab('goals')">Xem tất cả</span></div>
+      </div>
+      <div class="home-goal-card" onclick="QLT_App.switchTab('goals')">
+        ${top3.map(g => {
+          const contributed = this.goalContributed(g);
+          const totalPct = (g.targetAmount || 0) > 0 ? Math.min(100, Math.round(contributed / g.targetAmount * 100)) : 0;
+          const status = this.goalStatus(g);
+          const monthStatus = this.goalMonthStatus(g);
+          return `
+            <div class="home-goal-row">
+              <div class="home-goal-row-top">
+                <span class="home-goal-row-name">${this.escapeHtml(g.name)}</span>
+                <span class="home-goal-row-pct">${totalPct}%</span>
+              </div>
+              <div class="home-goal-row-bar"><div class="home-goal-row-bar-fill ${status === 'on-track' ? 'ok' : status}" style="width:${totalPct}%"></div></div>
+              <div class="home-goal-row-meta">
+                <span>${fmt(contributed)} / ${fmt(g.targetAmount)} đ</span>
+                <span>${monthStatus.label}</span>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  },
+
+  openGoalModal(goalId) {
+    const isNew = !goalId;
+    let g;
+    if (isNew) {
+      const startStr = today();
+      const dl = new Date(); dl.setMonth(dl.getMonth() + 12);
+      g = {
+        id: null,
+        name: '',
+        targetAmount: 0,
+        startDate: startStr,
+        targetDate: dl.toISOString().slice(0, 10),
+        plannedMonths: 12,
+        reminderDay: 5,
+        catchUpStrategy: 'spread',
+        linkedAccountId: null,
+        contributions: [],
+        icon: 'emoji:🏆',
+        color: '#f59e0b',
+        status: 'active'
+      };
+    } else {
+      g = JSON.parse(JSON.stringify(this.state.goals.find(x => x.id === goalId) || {}));
+    }
+    this.state.editingGoal = g;
+
+    $('#goalModalTitle').textContent = isNew ? 'Thêm mục tiêu' : 'Sửa mục tiêu';
+    $('#goalDelete').style.display = isNew ? 'none' : 'block';
+
+    $('#goalName').value = g.name || '';
+    $('#goalTarget').value = fmt(g.targetAmount || 0);
+    $('#goalStart').value = g.startDate || today();
+    $('#goalDeadline').value = g.targetDate || '';
+    $('#goalReminderDay').value = String(g.reminderDay || 5);
+    $$('input[name="goalStrategy"]').forEach(r => { r.checked = (r.value === (g.catchUpStrategy || 'spread')); });
+
+    // Link account dropdown — chỉ ví savings hoặc payment đều OK
+    const accs = this.state.accounts;
+    $('#goalLinkAccount').innerHTML = '<option value="">— Không link (mục tiêu ảo, chỉ track) —</option>' +
+      accs.map(a => `<option value="${a.id}" ${a.id === g.linkedAccountId ? 'selected' : ''}>${this.escapeHtml(a.name)} (${this.isSavings(a) ? 'TK' : 'TT'})</option>`).join('');
+
+    this.recalcGoalPlanHint();
+
+    this.renderIconPicker({
+      containerId: 'goalIconGrid',
+      currentIcon: g.icon || 'emoji:🏆',
+      allowEmoji: true,
+      onPick: (icon) => { this.state.editingGoal.icon = icon; }
+    });
+
+    $('#goalModal').classList.add('open');
+  },
+
+  async saveGoal() {
+    const g = this.state.editingGoal;
+    if (!g) return;
+    g.name = $('#goalName').value.trim();
+    g.targetAmount = readAmount($('#goalTarget'));
+    g.startDate = $('#goalStart').value || today();
+    g.targetDate = $('#goalDeadline').value || '';
+    g.reminderDay = parseInt($('#goalReminderDay').value, 10) || 5;
+    const stratEl = $$('input[name="goalStrategy"]').find(r => r.checked);
+    g.catchUpStrategy = stratEl ? stratEl.value : 'spread';
+    g.linkedAccountId = $('#goalLinkAccount').value || null;
+    g.bookId = g.bookId || this.state.currentBookId;
+    g.contributions = g.contributions || [];
+
+    if (!g.name) { QLT_UI.toast('Nhập tên mục tiêu', { type: 'error' }); return; }
+    if (g.targetAmount <= 0) { QLT_UI.toast('Nhập số tiền cần', { type: 'error' }); return; }
+    if (!g.targetDate) { QLT_UI.toast('Chọn deadline', { type: 'error' }); return; }
+    if (g.targetDate <= g.startDate) { QLT_UI.toast('Deadline phải sau ngày bắt đầu', { type: 'error' }); return; }
+
+    // Tính plannedMonths — chỉ set lần đầu (giữ nguyên số tháng dự kiến ban đầu)
+    if (!g.plannedMonths) {
+      g.plannedMonths = this.goalMonthsBetween(g.startDate, g.targetDate);
+    }
+
+    if (!g.id) {
+      g.createdAt = Date.now();
+      g.status = 'active';
+    }
+
+    await window.QLT_Store.put('goals', g);
+    await this.scheduleGoalNotif(g);
+    await this.reload();
+    $('#goalModal').classList.remove('open');
+    this.renderGoals();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.autoSync();
+    QLT_UI.toast('Đã lưu mục tiêu', { type: 'success' });
+  },
+
+  async deleteGoal() {
+    const g = this.state.editingGoal;
+    if (!g?.id) return;
+    if (!await QLT_UI.confirm('Xoá mục tiêu này? Các giao dịch chuyển khoản đã tạo sẽ KHÔNG bị xoá.', { okLabel: 'Xoá', danger: true })) return;
+    if (window.Capacitor?.Plugins?.LocalNotifications) {
+      try {
+        const idNum = Math.abs(this.hashCode('goal_' + g.id)) % 2000000;
+        await window.Capacitor.Plugins.LocalNotifications.cancel({ notifications: [{ id: idNum }] });
+      } catch (_) {}
+    }
+    await window.QLT_Store.del('goals', g.id);
+    await this.reload();
+    $('#goalModal').classList.remove('open');
+    this.renderGoals();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.autoSync();
+  },
+
+  // ========= Đóng góp (contribution) =========
+  openContribModal(goalId) {
+    const g = this.state.goals.find(x => x.id === goalId);
+    if (!g) return;
+    this.state.editingGoal = g;
+
+    const monthStatus = this.goalMonthStatus(g);
+    const ym = new Date().toISOString().slice(0, 7);
+    const contributedThisMonth = this.goalContributedInMonth(g, ym);
+
+    $('#contribTitle').textContent = `+ Đóng góp: ${g.name}`;
+    $('#contribInfo').innerHTML = `
+      <div><strong>${this.escapeHtml(g.name)}</strong></div>
+      <div style="color:var(--text2)">Tháng này: ${fmt(contributedThisMonth)} / ${fmt(monthStatus.target)} đ — gợi ý đóng <strong>${fmt(monthStatus.remain)} đ</strong> nữa</div>
+    `;
+    $('#contribAmount').value = fmt(monthStatus.remain || monthStatus.target);
+    $('#contribDate').value = today();
+    $('#contribNote').value = '';
+
+    if (g.linkedAccountId) {
+      $('#contribLinkOptionWrap').style.display = 'block';
+      $('#contribCreateTx').checked = true;
+      $('#contribFromAccountWrap').style.display = 'block';
+      // Ví nguồn: chỉ payment account, không phải ví link
+      const sourceAccs = this.state.accounts.filter(a => this.isPayment(a) && a.id !== g.linkedAccountId);
+      $('#contribFromAccount').innerHTML = sourceAccs.map(a =>
+        `<option value="${a.id}">${this.escapeHtml(a.name)} (${fmt(a.balance)} đ)</option>`
+      ).join('');
+      $('#contribCreateTx').onchange = () => {
+        $('#contribFromAccountWrap').style.display = $('#contribCreateTx').checked ? 'block' : 'none';
+      };
+    } else {
+      $('#contribLinkOptionWrap').style.display = 'none';
+      $('#contribFromAccountWrap').style.display = 'none';
+    }
+
+    // Lịch sử đóng góp
+    this.renderContribHistory(g);
+
+    $('#contribModal').classList.add('open');
+  },
+
+  renderContribHistory(g) {
+    const wrap = $('#contribHistory');
+    const contribs = (g.contributions || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    if (!contribs.length) {
+      wrap.innerHTML = '';
+      return;
+    }
+    wrap.innerHTML = `
+      <div class="sec-label" style="padding:0;margin-bottom:8px">Lịch sử đóng góp (${contribs.length})</div>
+      ${contribs.map(c => `
+        <div class="contrib-row">
+          <div style="flex:1">
+            <div class="contrib-row-amt">+ ${fmt(c.amount)} đ</div>
+            <div class="contrib-row-date">${this.formatDate(c.date)}${c.note ? ' · ' + this.escapeHtml(c.note) : ''}${c.txId ? ' · 🔗 GD' : ''}</div>
+          </div>
+          <div class="contrib-row-del" data-contrib-del="${c.id}" title="Xoá">${svgIcon('trash')}</div>
+        </div>
+      `).join('')}
+    `;
+    wrap.querySelectorAll('[data-contrib-del]').forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        this.deleteContribution(el.dataset.contribDel);
+      };
+    });
+  },
+
+  async saveContribution() {
+    const g = this.state.editingGoal;
+    if (!g?.id) return;
+    const amount = readAmount($('#contribAmount'));
+    const date = $('#contribDate').value || today();
+    const note = $('#contribNote').value || '';
+
+    if (amount <= 0) { QLT_UI.toast('Nhập số tiền', { type: 'error' }); return; }
+
+    const contribution = {
+      id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      date, amount, note,
+      txId: null
+    };
+
+    // Nếu link account và user check 'create tx' → tạo transfer + lưu txId
+    const createTx = $('#contribCreateTx').checked && g.linkedAccountId && $('#contribFromAccountWrap').style.display !== 'none';
+    if (createTx) {
+      const fromId = $('#contribFromAccount').value;
+      if (!fromId) { QLT_UI.toast('Chọn ví nguồn', { type: 'error' }); return; }
+      const tx = {
+        type: 'transfer',
+        amount,
+        date,
+        accountId: fromId,
+        toAccountId: g.linkedAccountId,
+        categoryId: null,
+        note: note || `Đóng góp mục tiêu: ${g.name}`,
+        bookId: this.state.currentBookId
+      };
+      await this.applyBalanceDelta(tx, +1);
+      await window.QLT_Store.put('transactions', tx);
+      contribution.txId = tx.id;
+    }
+
+    g.contributions = g.contributions || [];
+    g.contributions.push(contribution);
+
+    // Auto-mark achieved
+    if (this.goalContributed(g) >= g.targetAmount && g.status !== 'achieved') {
+      g.status = 'achieved';
+      QLT_UI.toast(`🎉 Chúc mừng! Đã đạt mục tiêu "${g.name}"`, { type: 'success' });
+    }
+
+    await window.QLT_Store.put('goals', g);
+    await this.reload();
+    this.state.editingGoal = this.state.goals.find(x => x.id === g.id);
+
+    $('#contribModal').classList.remove('open');
+    this.renderGoals();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.autoSync();
+    QLT_UI.toast(`Đã ghi nhận đóng góp ${fmt(amount)} đ`, { type: 'success' });
+  },
+
+  async deleteContribution(contribId) {
+    const g = this.state.editingGoal;
+    if (!g?.id) return;
+    const c = (g.contributions || []).find(x => x.id === contribId);
+    if (!c) return;
+    if (!await QLT_UI.confirm('Xoá đóng góp này?' + (c.txId ? ' Giao dịch chuyển khoản tương ứng cũng sẽ bị xoá.' : ''), { okLabel: 'Xoá', danger: true })) return;
+
+    if (c.txId) {
+      const oldTx = this.state.transactions.find(t => t.id === c.txId);
+      if (oldTx) {
+        await this.applyBalanceDelta(oldTx, -1);
+        await window.QLT_Store.del('transactions', c.txId);
+      }
+    }
+    g.contributions = g.contributions.filter(x => x.id !== contribId);
+    if (this.goalContributed(g) < g.targetAmount && g.status === 'achieved') g.status = 'active';
+
+    await window.QLT_Store.put('goals', g);
+    await this.reload();
+    this.state.editingGoal = this.state.goals.find(x => x.id === g.id);
+    this.renderContribHistory(this.state.editingGoal);
+    this.renderGoals();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.autoSync();
+  },
+
+  // Notification: ngày X mỗi tháng (9h) + cảnh báo lần 2 ngày 25 nếu chưa đóng đủ
+  async scheduleGoalNotif(g) {
+    if (!window.Capacitor?.Plugins?.LocalNotifications) return;
+    if (g.status === 'achieved' || g.status === 'cancelled') return;
+    const LN = window.Capacitor.Plugins.LocalNotifications;
+    try {
+      await LN.requestPermissions();
+      const idMain = Math.abs(this.hashCode('goal_' + g.id)) % 2000000;
+      const idLate = Math.abs(this.hashCode('goal_late_' + g.id)) % 2000000;
+      try { await LN.cancel({ notifications: [{ id: idMain }, { id: idLate }] }); } catch (_) {}
+
+      const monthly = this.goalMonthlyTarget(g);
+      // Lần 1: ngày reminderDay hằng tháng
+      await LN.schedule({
+        notifications: [{
+          id: idMain,
+          title: `🏆 ${g.name}`,
+          body: `Đến lúc đóng ${fmt(monthly)} đ cho mục tiêu tháng này`,
+          schedule: { on: { day: g.reminderDay || 5, hour: 9, minute: 0 } },
+          sound: 'default'
+        }]
+      });
+      // Lần 2: ngày 26 nếu cuối tháng vẫn chưa đóng (nhắc nhẹ)
+      await LN.schedule({
+        notifications: [{
+          id: idLate,
+          title: `⚠️ ${g.name} — Còn ít ngày`,
+          body: `Cuối tháng rồi, kiểm tra xem đã đóng đủ chưa`,
+          schedule: { on: { day: 26, hour: 18, minute: 0 } },
+          sound: 'default'
+        }]
+      });
+    } catch (e) { console.warn('Goal notif lỗi:', e); }
   },
 
   // ============ LOANS (Cho vay / Đi vay) ============

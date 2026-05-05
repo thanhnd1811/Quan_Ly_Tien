@@ -206,6 +206,63 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .lock-key.fn:active{background:rgba(255,255,255,.18)}
 .lock-key.bio{font-size:30px}
 .lock-foot{font-size:12px;opacity:.75;margin-top:8px;text-align:center;max-width:280px;line-height:1.5}
+/* Goals (Mục tiêu tiết kiệm) */
+.goal-summary{padding:14px 16px;background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff}
+.goal-summary-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px}
+.goal-summary-label{font-size:11px;opacity:.85}
+.goal-summary-amount{font-size:18px;font-weight:700;margin-top:2px}
+.goal-summary-bar{height:6px;background:rgba(255,255,255,.25);border-radius:3px;overflow:hidden}
+.goal-summary-bar-fill{height:100%;background:#fff;border-radius:3px;transition:width .3s}
+.goal-item{padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border);cursor:pointer}
+.goal-item:active{background:var(--surface2)}
+.goal-item-head{display:flex;align-items:center;gap:12px}
+.goal-item-icon{width:48px;height:48px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;background:var(--acl);color:var(--accent)}
+.goal-item-info{flex:1;min-width:0}
+.goal-item-name{font-size:15px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.goal-item-meta{font-size:11px;color:var(--text3);margin-top:2px}
+.goal-item-pct{font-size:18px;font-weight:700;color:var(--accent);flex-shrink:0;text-align:right}
+.goal-item-bar{height:8px;background:var(--border);border-radius:4px;margin-top:10px;overflow:hidden}
+.goal-item-bar-fill{height:100%;border-radius:4px;background:var(--accent-light);transition:width .3s}
+.goal-item-bar-fill.behind{background:#f59e0b}
+.goal-item-bar-fill.overdue{background:var(--danger)}
+.goal-item-bar-fill.achieved{background:var(--pos)}
+.goal-item-amts{display:flex;justify-content:space-between;margin-top:6px;font-size:12px;color:var(--text2)}
+.goal-item-month-row{margin-top:10px;padding:8px 10px;background:var(--surface2);border-radius:8px;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.goal-item-month-row.done{background:#d1fae5}
+.goal-item-month-row.behind{background:#fef3c7}
+.goal-item-month-row.overdue{background:#fee2e2}
+.goal-item-month-status{font-weight:700;font-size:11px;flex-shrink:0;padding:3px 8px;border-radius:8px}
+.goal-item-month-status.done{background:#10b981;color:#fff}
+.goal-item-month-status.behind{background:#f59e0b;color:#fff}
+.goal-item-month-status.overdue{background:var(--danger);color:#fff}
+.goal-item-month-status.upcoming{background:var(--text2);color:#fff}
+.goal-item-month-cta{color:var(--accent);font-weight:700;font-size:12px;cursor:pointer;padding:4px 10px;background:#fff;border:1.5px solid var(--accent);border-radius:8px;flex-shrink:0}
+.goal-item-month-cta:active{background:var(--acl)}
+/* Goal strategy radio */
+.goal-strategy-row input[type=radio]{accent-color:var(--accent)}
+.goal-strategy-row:has(input:checked){border-color:var(--accent);background:var(--acl)}
+/* Goal contribution history */
+.contrib-row{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--surface2);border-radius:8px;margin-bottom:6px}
+.contrib-row-amt{font-weight:700;color:var(--pos);flex:1}
+.contrib-row-date{font-size:11px;color:var(--text3)}
+.contrib-row-del{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text3)}
+.contrib-row-del:active{background:var(--border)}
+.contrib-row-del svg{width:14px;height:14px}
+/* Home goal widget */
+.home-goal-card{margin:0 16px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;cursor:pointer;box-shadow:var(--sh)}
+.home-goal-card:active{background:var(--surface2)}
+.home-goal-row{padding:12px 14px;border-bottom:1px solid var(--border)}
+.home-goal-row:last-child{border-bottom:none}
+.home-goal-row-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.home-goal-row-name{font-size:14px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.home-goal-row-pct{font-size:14px;font-weight:700;color:var(--accent)}
+.home-goal-row-bar{height:6px;background:var(--border);border-radius:3px;margin-top:6px;overflow:hidden}
+.home-goal-row-bar-fill{height:100%;border-radius:3px}
+.home-goal-row-bar-fill.ok{background:var(--accent-light)}
+.home-goal-row-bar-fill.behind{background:#f59e0b}
+.home-goal-row-bar-fill.overdue{background:var(--danger)}
+.home-goal-row-bar-fill.achieved{background:var(--pos)}
+.home-goal-row-meta{font-size:11px;color:var(--text3);margin-top:4px;display:flex;justify-content:space-between}
 /* Savings (Tài sản dài hạn) */
 .balance-hero-extra{font-size:11px;opacity:.85;margin-top:8px;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
 .balance-hero-extra:active{opacity:.6}
@@ -565,6 +622,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     </div>
     <div id="homeWallets"></div>
     <div id="homeSavings" style="display:none"></div>
+    <div id="homeGoals" style="display:none"></div>
     <div id="homeForecast" style="display:none"></div>
     <div id="homeBudgetWidget" style="display:none"></div>
     <div id="homeLoanShortcut" style="display:none"></div>
@@ -654,6 +712,151 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       <canvas id="chartDonut" class="chart-canvas-donut"></canvas>
     </div>
     <div id="chartLegend" class="legend-list"></div>
+  </div>
+</div>
+
+<!-- ========== GOALS (Mục tiêu tiết kiệm) ========== -->
+<div id="screen-goals" class="screen">
+  <div class="topbar">
+    <div class="tb-row">
+      <div class="tb-back" data-icon="back" onclick="QLT_App.switchTab('home')"></div>
+      <div class="tb-title">Mục tiêu tiết kiệm</div>
+    </div>
+  </div>
+  <div class="goal-summary">
+    <div class="goal-summary-row">
+      <div>
+        <div class="goal-summary-label">Cam kết tháng này</div>
+        <div class="goal-summary-amount" id="goalMonthlyTotal">0 đ</div>
+      </div>
+      <div>
+        <div class="goal-summary-label">Đã đóng tháng này</div>
+        <div class="goal-summary-amount" id="goalMonthlyDone">0 đ</div>
+      </div>
+    </div>
+    <div class="goal-summary-bar"><div class="goal-summary-bar-fill" id="goalMonthlyBarFill"></div></div>
+  </div>
+  <div class="scroll-body">
+    <div id="goalList"></div>
+  </div>
+  <button id="goalAddFab" class="ni-fab" style="position:fixed;bottom:80px;right:16px;width:56px;height:56px;z-index:90;box-shadow:0 6px 18px rgba(45,106,79,.4)" data-icon="add"></button>
+</div>
+
+<!-- Modal: Tạo / sửa mục tiêu -->
+<div id="goalModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close data-icon="close"></button>
+      <h3 id="goalModalTitle">Mục tiêu</h3>
+      <button id="goalDelete" data-icon="trash" style="display:none"></button>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="fl">Tên mục tiêu <span style="color:var(--danger)">*</span></label>
+        <input id="goalName" class="fi" type="text" placeholder="Vd: Mua ô tô Camry">
+      </div>
+      <div class="fg">
+        <label class="fl">Số tiền cần (VND) <span style="color:var(--danger)">*</span></label>
+        <input id="goalTarget" class="fi qlt-amount" type="text" inputmode="numeric" placeholder="800.000.000">
+      </div>
+      <div class="fg">
+        <label class="fl">Ngày bắt đầu</label>
+        <input id="goalStart" class="fi" type="date">
+      </div>
+      <div class="fg">
+        <label class="fl">Ngày deadline (mục tiêu hoàn thành)</label>
+        <input id="goalDeadline" class="fi" type="date">
+      </div>
+      <div id="goalPlanHint" style="font-size:13px;background:var(--acl);color:var(--text);padding:10px 12px;border-radius:8px;margin:-4px 0 12px;line-height:1.6"></div>
+      <div class="fg">
+        <label class="fl">Ngày nhắc hàng tháng</label>
+        <select id="goalReminderDay" class="fi">
+          <option value="1">Ngày 1</option>
+          <option value="5" selected>Ngày 5</option>
+          <option value="10">Ngày 10</option>
+          <option value="15">Ngày 15</option>
+          <option value="20">Ngày 20</option>
+          <option value="25">Ngày 25</option>
+          <option value="28">Ngày 28</option>
+        </select>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">App sẽ nhắc đúng ngày này mỗi tháng. Cảnh báo lần 2 nếu cuối tháng chưa đóng.</div>
+      </div>
+      <div class="fg">
+        <label class="fl">Khi tháng nào thiếu, app sẽ:</label>
+        <div style="display:flex;gap:10px;margin-top:6px">
+          <label style="flex:1;display:flex;align-items:center;gap:8px;padding:10px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;cursor:pointer" class="goal-strategy-row">
+            <input type="radio" name="goalStrategy" value="spread" checked>
+            <div>
+              <div style="font-weight:600;font-size:13px">Trải đều</div>
+              <div style="font-size:11px;color:var(--text3)">Chia thiếu cho các tháng còn lại — đỡ stress</div>
+            </div>
+          </label>
+          <label style="flex:1;display:flex;align-items:center;gap:8px;padding:10px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;cursor:pointer" class="goal-strategy-row">
+            <input type="radio" name="goalStrategy" value="extend">
+            <div>
+              <div style="font-weight:600;font-size:13px">Gia hạn</div>
+              <div style="font-size:11px;color:var(--text3)">Giữ số/tháng, dời deadline trễ hơn</div>
+            </div>
+          </label>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Liên kết với ví / sổ TK</label>
+        <select id="goalLinkAccount" class="fi">
+          <option value="">— Không link (mục tiêu ảo, chỉ track) —</option>
+        </select>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">Nếu link 1 ví, app sẽ tự tạo "Chuyển khoản" mỗi lần đóng góp. Bỏ trống nếu bạn để dành ở chỗ khác.</div>
+      </div>
+      <div class="fg">
+        <label class="fl">Biểu tượng</label>
+        <div id="goalIconGrid" class="icon-picker"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close>Huỷ</button>
+      <button class="btn btn-primary" id="goalSave">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Ghi nhận đóng góp -->
+<div id="contribModal" class="modal" style="z-index:310">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close data-icon="close"></button>
+      <h3 id="contribTitle">Đóng góp</h3>
+    </div>
+    <div class="modal-body">
+      <div id="contribInfo" style="background:var(--surface2);padding:12px;border-radius:8px;margin-bottom:14px;font-size:13px;line-height:1.6"></div>
+      <div class="fg">
+        <label class="fl">Số tiền đóng góp (VND) <span style="color:var(--danger)">*</span></label>
+        <input id="contribAmount" class="fi qlt-amount" type="text" inputmode="numeric">
+      </div>
+      <div class="fg">
+        <label class="fl">Ngày</label>
+        <input id="contribDate" class="fi" type="date">
+      </div>
+      <div class="fg" id="contribFromAccountWrap" style="display:none">
+        <label class="fl">Trừ từ ví</label>
+        <select id="contribFromAccount" class="fi"></select>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">App sẽ tạo "Chuyển khoản" từ ví này → ví liên kết với mục tiêu.</div>
+      </div>
+      <div class="fg" id="contribLinkOptionWrap" style="display:none">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="contribCreateTx" checked>
+          <span>Tự tạo "Chuyển khoản" trong app (bỏ chọn nếu bạn đã chuyển ngoài app)</span>
+        </label>
+      </div>
+      <div class="fg">
+        <label class="fl">Ghi chú</label>
+        <input id="contribNote" class="fi" type="text" placeholder="Tuỳ chọn">
+      </div>
+      <div id="contribHistory" style="margin-top:18px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close>Huỷ</button>
+      <button class="btn btn-primary" id="contribSave">Ghi nhận</button>
+    </div>
   </div>
 </div>
 
@@ -990,6 +1193,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     <div class="dr-item" data-action="reminders"><span data-icon="bell"></span> Nhắc nhở</div>
     <div class="dr-item" data-action="loans"><span style="font-size:18px">🤝</span> Cho vay / Nợ</div>
     <div class="dr-item" data-action="budgets"><span style="font-size:18px">🎯</span> Ngân sách tháng</div>
+    <div class="dr-item" data-action="goals"><span style="font-size:18px">🏆</span> Mục tiêu tiết kiệm</div>
     <div class="dr-item" data-action="settings"><span data-icon="settings"></span> Cài đặt</div>
     <div class="dr-item" id="syncItem" data-action="sync" style="display:none"><span data-icon="cloud"></span> Đồng bộ Drive</div>
     <div class="dr-item" id="loginItem" data-action="login"><span data-icon="user"></span> Đăng nhập Google</div>

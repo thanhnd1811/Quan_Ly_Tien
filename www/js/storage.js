@@ -2,8 +2,8 @@
 // Mỗi user (Google email hoặc 'guest') có namespace riêng, mỗi user có thể có nhiều SỔ.
 
 (function () {
-  const DB_VERSION = 4;
-  const STORES = ['accounts', 'categories', 'transactions', 'reminders', 'meta', 'books', 'loans', 'budgets'];
+  const DB_VERSION = 5;
+  const STORES = ['accounts', 'categories', 'transactions', 'reminders', 'meta', 'books', 'loans', 'budgets', 'goals'];
 
   function dbName(userKey) {
     return 'qltien_' + (userKey || 'guest').replace(/[^a-zA-Z0-9_]/g, '_');
@@ -128,7 +128,7 @@
 
     // Xoá sổ + toàn bộ dữ liệu trong sổ đó
     async deleteBook(bookId) {
-      for (const s of ['accounts', 'categories', 'transactions', 'reminders', 'loans', 'budgets']) {
+      for (const s of ['accounts', 'categories', 'transactions', 'reminders', 'loans', 'budgets', 'goals']) {
         const all = await this.getAll(s);
         for (const r of all) {
           if (r.bookId === bookId) await this.del(s, r.id);
