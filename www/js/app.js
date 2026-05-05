@@ -758,26 +758,13 @@ const App = {
     $('#setExport').onclick = () => this.doExport();
     $('#setImport').onclick = () => this.doImport();
 
-    // Trên APK Android: Google Sign-In Web không hoạt động trong WebView (Google chặn từ 2021)
-    // → Ẩn các nút Google, hiện banner hướng dẫn dùng Sao lưu/Khôi phục JSON
-    const isNative = !!(window.Capacitor && (window.Capacitor.isNativePlatform?.() || window.Capacitor.isNative));
-    if (isNative) {
-      $('#setLogin').style.display = 'none';
-      $('#setLogout').style.display = 'none';
-      $('#setSync').style.display = 'none';
-      const acctSection = $('#setLogin').parentElement;
-      if (acctSection && !$('#setNativeNote')) {
-        const note = document.createElement('div');
-        note.id = 'setNativeNote';
-        note.style.cssText = 'background:#fff8e0;border:1px solid #f4d77c;color:#856404;padding:12px 14px;border-radius:8px;font-size:13px;line-height:1.55';
-        note.innerHTML = '<strong>Đăng nhập Google chưa hỗ trợ trên app Android.</strong><br>Để chuyển dữ liệu giữa các máy, dùng <strong>Sao lưu / Khôi phục JSON</strong> ở dưới: bên này bấm "Xuất ra file JSON" → gửi qua Zalo / Email → bên kia bấm "Nhập từ file JSON".';
-        acctSection.insertBefore(note, $('#setLogin'));
-      }
-    } else {
-      $('#setLogin').style.display = window.QLT_Auth.user ? 'none' : 'block';
-      $('#setLogout').style.display = window.QLT_Auth.user ? 'block' : 'none';
-      $('#setSync').style.display = window.QLT_Auth.user ? 'block' : 'none';
-    }
+    // Gỡ banner cũ nếu còn (từ phiên bản trước hide login trên native)
+    const oldNote = $('#setNativeNote');
+    if (oldNote) oldNote.remove();
+
+    $('#setLogin').style.display = window.QLT_Auth.user ? 'none' : 'block';
+    $('#setLogout').style.display = window.QLT_Auth.user ? 'block' : 'none';
+    $('#setSync').style.display = window.QLT_Auth.user ? 'block' : 'none';
   },
 
   // ============ MODAL: TRANSACTION ============

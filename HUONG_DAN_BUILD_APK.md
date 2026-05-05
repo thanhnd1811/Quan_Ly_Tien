@@ -2,9 +2,55 @@
 
 App này là PWA + Capacitor, đóng gói thành APK Android cài trực tiếp lên điện thoại.
 
-## TRƯỚC TIÊN: Lấy Google Client ID
+> **APK build qua GitHub Actions là APK đã ký bằng release keystore của bạn** — bắt buộc vì Google Sign-In trên Android ràng buộc theo SHA-1 của certificate. Phải làm xong **3 bước setup một lần** ở dưới trước khi build, nếu không CI sẽ fail.
 
-App cần đăng nhập Google để đồng bộ Drive. Xem [README.md](README.md) phần "Bước 1 — Lấy Google Client ID". Sau khi có Client ID, mở `www/js/config.js` và dán vào.
+## SETUP 1 LẦN (bắt buộc trước khi build APK)
+
+### Bước A — Tạo release keystore
+PowerShell trên máy bạn:
+```powershell
+keytool -genkey -v -keystore "$env:USERPROFILE\quanlytien-release.jks" -alias quanlytien -keyalg RSA -keysize 2048 -validity 10000
+```
+Đặt mật khẩu mạnh, **ghi nhớ kỹ**. Mất keystore → không update APK được nữa, người dùng phải gỡ + cài mới (mất data nếu chưa sao lưu).
+
+### Bước B — Lấy SHA-1 và đăng ký Google Console
+```powershell
+keytool -list -v -keystore "$env:USERPROFILE\quanlytien-release.jks" -alias quanlytien
+```
+Copy dòng `SHA1: XX:XX:...` ra.
+
+Vào [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials):
+1. **Create Credentials → OAuth client ID**
+2. Application type: **Android**
+3. Name: `Quan Ly Tien Android`
+4. Package name: `com.thanh.quanlytien` (khớp với `capacitor.config.json`)
+5. SHA-1 certificate fingerprint: dán SHA-1 vừa lấy
+6. **Create**
+
+> KHÔNG cần dùng Client ID Android này trong code — chỉ cần đăng ký để Google biết APK với SHA-1 này được phép gọi đến project. Code vẫn dùng **Web Client ID** (đã có sẵn trong `www/js/config.js` và `capacitor.config.json`).
+
+### Bước C — Upload keystore lên GitHub Secrets
+Encode keystore sang base64:
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("$env:USERPROFILE\quanlytien-release.jks")) | Set-Clipboard
+```
+(Đã copy vào clipboard.)
+
+Vào repo GitHub → **Settings → Secrets and variables → Actions → New repository secret**, tạo 4 secret:
+| Tên | Giá trị |
+|---|---|
+| `KEYSTORE_BASE64` | Paste (Ctrl+V) chuỗi base64 vừa copy |
+| `KEYSTORE_PASSWORD` | Mật khẩu keystore lúc tạo |
+| `KEY_ALIAS` | `quanlytien` |
+| `KEY_PASSWORD` | Mật khẩu key (thường giống keystore password nếu lúc tạo bấm Enter) |
+
+⚠️ KHÔNG commit file `.jks` vào git. KHÔNG paste mật khẩu vào code/issue/chat.
+
+---
+
+## TRƯỚC TIÊN: Lấy Google Client ID (Web)
+
+App cần đăng nhập Google để đồng bộ Drive. Xem [README.md](README.md) phần "Bước 1 — Lấy Google Client ID" — tạo OAuth Client ID kiểu **Web application**. Sau khi có, mở `www/js/config.js` và dán vào (cũng phải dán vào `capacitor.config.json` mục `plugins.GoogleAuth.serverClientId`).
 
 > Nếu chưa có Client ID, app vẫn build được và hoạt động ở chế độ offline (mỗi máy tự lưu, không đồng bộ).
 
@@ -14,16 +60,17 @@ App cần đăng nhập Google để đồng bộ Drive. Xem [README.md](README.
 
 ### Cần
 - 1 tài khoản GitHub miễn phí
+- Đã hoàn tất 3 bước SETUP ở trên
 
 ### Các bước
 1. Vào [github.com/new](https://github.com/new) → tạo repo mới (private cũng được), tên `quan-ly-tien` (hoặc tuỳ ý).
 2. Trong repo mới, bấm **Add file → Upload files**, kéo thả TOÀN BỘ nội dung trong thư mục `Quan_Ly_Tien/` (bao gồm cả `.github/workflows/build-apk.yml`).
 3. Commit. GitHub Actions sẽ tự chạy build.
 4. Vào tab **Actions** trong repo, chờ ~5-7 phút thấy job "Build APK" xong (✅ xanh).
-5. Bấm vào job → kéo xuống dưới mục **Artifacts** → tải `QuanLyTien-debug-apk.zip`.
-6. Giải nén → có file `app-debug.apk`. Copy vào điện thoại, tap để cài đặt.
+5. Bấm vào job → kéo xuống dưới mục **Artifacts** → tải `QuanLyTien-release-apk.zip`.
+6. Giải nén → có file `app-release.apk`. Copy vào điện thoại, tap để cài đặt.
 
-> Mỗi lần bạn thay đổi code rồi push lên GitHub → APK mới được build tự động.
+> Mỗi lần bạn thay đổi code rồi push lên GitHub → APK mới được build tự động (vẫn dùng cùng keystore từ Secrets, SHA-1 không đổi).
 
 ---
 

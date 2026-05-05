@@ -13,6 +13,15 @@
     },
     "Camera": {
       "androidScale": 1.0
+    },
+    "GoogleAuth": {
+      "scopes": [
+        "profile",
+        "email",
+        "https://www.googleapis.com/auth/drive.appdata"
+      ],
+      "serverClientId": "923307129135-c5b3o8qcjhr2ueetenb2bpa3i2il29h6.apps.googleusercontent.com",
+      "forceCodeForRefreshToken": true
     }
   },
   "android": {

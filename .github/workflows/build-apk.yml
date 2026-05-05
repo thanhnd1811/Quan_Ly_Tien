@@ -39,10 +39,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y imagemagick
           SRC=www/icons/icon-512.png
-          # Xoá adaptive icon XML để Android dùng PNG mới (tránh icon X xanh dương mặc định)
           rm -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml || true
           rm -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml || true
-          # Resize icon vào tất cả density
           for entry in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
             density=${entry%%:*}
             size=${entry##*:}
@@ -52,17 +50,75 @@ jobs:
             convert "$SRC" -resize ${size}x${size} "$DIR/ic_launcher_round.png"
             convert "$SRC" -resize ${size}x${size} "$DIR/ic_launcher_foreground.png"
           done
-          echo "Done — listing icon files:"
-          find android/app/src/main/res -name "ic_launcher*" | head -20
 
-      - name: Build debug APK
+      - name: Decode release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Thiếu secret KEYSTORE_BASE64. Xem HUONG_DAN_BUILD_APK.md để upload keystore."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+          echo "Keystore decoded: $(stat -c%s android/app/release.keystore) bytes"
+
+      - name: Inject signing config into build.gradle
+        run: |
+          python3 - <<'PY'
+          import re, sys
+          path = 'android/app/build.gradle'
+          with open(path, 'r') as f:
+              g = f.read()
+
+          signing_block = '''
+              signingConfigs {
+                  release {
+                      storeFile file("release.keystore")
+                      storePassword System.getenv("KEYSTORE_PASSWORD")
+                      keyAlias System.getenv("KEY_ALIAS")
+                      keyPassword System.getenv("KEY_PASSWORD")
+                  }
+              }
+          '''
+
+          if 'signingConfigs' not in g:
+              # Chèn signingConfigs ngay trước buildTypes
+              g_new, n = re.subn(r'(\n\s*buildTypes\s*\{)', signing_block + r'\1', g, count=1)
+              if n == 0:
+                  print('::error::Không tìm thấy buildTypes trong build.gradle', file=sys.stderr)
+                  sys.exit(1)
+              g = g_new
+
+          # Gắn signingConfig vào release block (chỉ thêm 1 lần)
+          if 'signingConfig signingConfigs.release' not in g:
+              g_new, n = re.subn(
+                  r'(buildTypes\s*\{\s*release\s*\{)',
+                  r'\1\n            signingConfig signingConfigs.release',
+                  g, count=1
+              )
+              if n == 0:
+                  print('::error::Không tìm thấy buildTypes.release trong build.gradle', file=sys.stderr)
+                  sys.exit(1)
+              g = g_new
+
+          with open(path, 'w') as f:
+              f.write(g)
+          print('Đã inject signing config:')
+          print(g)
+          PY
+
+      - name: Build release APK
         working-directory: android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: QuanLyTien-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: QuanLyTien-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
