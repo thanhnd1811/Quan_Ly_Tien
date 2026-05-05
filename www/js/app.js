@@ -112,11 +112,38 @@ const fmtAmount = v => {
   return Number.isFinite(n) && n > 0 ? n.toLocaleString('vi-VN') : '';
 };
 
-// Gắn auto-format dấu chấm khi user gõ số vào input
+// Tính nhanh biểu thức số học an toàn (chỉ cho phép 0-9 + - * / . ( ) space)
+// Ví dụ: '45000+12000+8500' → 65500
+// Trả null nếu biểu thức không hợp lệ
+function evalAmountExpr(expr) {
+  if (!expr) return null;
+  // Bỏ khoảng trắng + dấu chấm phân cách (vi-VN dùng . làm thousand sep)
+  // Quy ước: dấu chấm KHÔNG phải toán tử thập phân ở app này (VND không có lẻ)
+  const clean = String(expr).replace(/\s+/g, '').replace(/\./g, '');
+  if (!clean) return null;
+  // Chỉ chấp nhận ký tự an toàn
+  if (!/^[0-9+\-*/()]+$/.test(clean)) return null;
+  // Không cho phép operator dính nhau (vd: ++, **) ngoài dấu - đứng đầu
+  if (/[+*/]{2}|\d-\d-/.test(clean)) {/* allow */}
+  try {
+    // eslint-disable-next-line no-new-func
+    const r = Function('"use strict";return (' + clean + ')')();
+    if (typeof r !== 'number' || !isFinite(r)) return null;
+    return Math.round(r);
+  } catch (_) { return null; }
+}
+
+// Gắn auto-format dấu chấm + hỗ trợ biểu thức (45+12+8.5) khi user gõ số vào input
 function attachAmountFormatting(el) {
   if (!el || el._qltFmt) return;
   el._qltFmt = true;
+
+  // Có chứa toán tử ngoài chữ số? → đang trong "chế độ biểu thức"
+  const hasOp = (s) => /[+\-*/()]/.test(s || '');
+
   el.addEventListener('input', () => {
+    // Nếu user đang gõ biểu thức → KHÔNG format, để nguyên cho user thấy
+    if (hasOp(el.value)) return;
     const cursor = el.selectionStart || 0;
     const before = el.value.slice(0, cursor);
     const digitsBefore = before.replace(/\D/g, '').length;
@@ -131,11 +158,35 @@ function attachAmountFormatting(el) {
     }
     try { el.setSelectionRange(newPos, newPos); } catch (_) {}
   });
+
+  // Tính & format khi rời khỏi ô hoặc bấm Enter
+  const evaluate = () => {
+    if (!hasOp(el.value)) return;
+    const result = evalAmountExpr(el.value);
+    if (result !== null && result >= 0) {
+      el.value = Number(result).toLocaleString('vi-VN');
+      el.classList.remove('amount-error');
+    } else {
+      el.classList.add('amount-error');
+    }
+  };
+  el.addEventListener('blur', evaluate);
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === '=') {
+      e.preventDefault();
+      evaluate();
+    }
+  });
 }
 
-// Đọc số nguyên từ input đã format
+// Đọc số nguyên từ input đã format (xử lý cả biểu thức nếu user chưa blur)
 function readAmount(el) {
-  const v = (el.value || '').toString().replace(/\D/g, '');
+  const raw = (el.value || '').toString();
+  if (/[+\-*/()]/.test(raw)) {
+    const r = evalAmountExpr(raw);
+    return r !== null && r > 0 ? r : 0;
+  }
+  const v = raw.replace(/\D/g, '');
   return v ? parseInt(v, 10) : 0;
 }
 
@@ -150,7 +201,7 @@ const App = {
     loans: [],
     budgets: [],
     currentTab: 'home',
-    txFilter: { type: 'all', period: 'month', accountId: 'all' },
+    txFilter: { type: 'all', period: 'month', accountId: 'all', search: '' },
     chartPeriod: 'month',
     chartFrom: '',
     chartTo: '',
@@ -727,6 +778,29 @@ const App = {
 
   // ============ TRANSACTIONS ============
   renderTransactions() {
+    // Render search input — đồng bộ value với state
+    const searchInput = $('#txSearch');
+    if (searchInput) {
+      if (searchInput.value !== this.state.txFilter.search) searchInput.value = this.state.txFilter.search || '';
+      $('#txSearchClear').style.display = this.state.txFilter.search ? 'flex' : 'none';
+      if (!searchInput._qltBound) {
+        searchInput._qltBound = true;
+        let debounce;
+        searchInput.oninput = () => {
+          clearTimeout(debounce);
+          debounce = setTimeout(() => {
+            this.state.txFilter.search = searchInput.value.trim();
+            this.renderTransactions();
+          }, 200);
+        };
+        $('#txSearchClear').onclick = () => {
+          searchInput.value = '';
+          this.state.txFilter.search = '';
+          this.renderTransactions();
+        };
+      }
+    }
+
     // Render account filter row
     const accFilterRow = $('#txAccountFilterRow');
     if (accFilterRow) {
@@ -755,10 +829,32 @@ const App = {
       const aid = this.state.txFilter.accountId;
       txs = txs.filter(t => t.accountId === aid || t.toAccountId === aid);
     }
+    // Search: ghi chú / tên danh mục / tên ví / số tiền / ngày
+    const searchTerm = (this.state.txFilter.search || '').trim();
+    if (searchTerm) {
+      const norm = (s) => String(s || '').toLowerCase()
+        .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
+      const term = norm(searchTerm);
+      const termDigits = searchTerm.replace(/\D/g, '');
+      txs = txs.filter(t => {
+        const cat = this.state.categories.find(c => c.id === t.categoryId);
+        const acc = this.state.accounts.find(a => a.id === t.accountId);
+        const toAcc = this.state.accounts.find(a => a.id === t.toAccountId);
+        const haystack = norm([t.note, cat?.name, acc?.name, toAcc?.name, t.date, this.formatDate(t.date)].filter(Boolean).join(' '));
+        if (haystack.includes(term)) return true;
+        // Match số tiền: nếu term có chữ số, so sánh với amount
+        if (termDigits && String(t.amount).includes(termDigits)) return true;
+        return false;
+      });
+    }
     txs.sort((a, b) => (b.date + b._updatedAt).localeCompare(a.date + a._updatedAt));
 
     if (txs.length === 0) {
-      list.innerHTML = '<div class="empty-msg">Không có giao dịch phù hợp</div>';
+      if (searchTerm) {
+        list.innerHTML = `<div class="tx-search-empty">Không có giao dịch nào khớp với <strong>"${this.escapeHtml(searchTerm)}"</strong>.<br>Thử bỏ bớt filter hoặc xoá ô tìm kiếm.</div>`;
+      } else {
+        list.innerHTML = '<div class="empty-msg">Không có giao dịch phù hợp</div>';
+      }
     } else {
       // Group theo ngày
       const groups = {};
