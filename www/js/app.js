@@ -159,26 +159,46 @@ const App = {
   },
 
   async init() {
-    // Service worker
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    try {
+      // Service worker — bỏ qua trên file:// hoặc Capacitor (không cần)
+      if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      }
+
+      // Auth init không await sâu — luôn return nhanh để app render
+      try {
+        await window.QLT_Auth.init();
+      } catch (e) {
+        console.warn('Auth init lỗi (bỏ qua):', e);
+      }
+      window.QLT_Auth.onChange(u => this.onAuthChange(u));
+
+      if (window.QLT_Auth.user) {
+        window.QLT_Store.setUser(window.QLT_Auth.user.email);
+      } else {
+        window.QLT_Store.setUser('guest');
+      }
+
+      await window.QLT_Store.initDefaults();
+      await this.reload();
+      this.render();
+      this.bindEvents();
+      $$('.qlt-amount').forEach(attachAmountFormatting);
+      this.switchTab('home');
+    } catch (e) {
+      console.error('App init lỗi:', e);
+      // Hiện lỗi cho user (không phải màn trắng vô vọng)
+      const body = document.body;
+      if (body) {
+        const err = document.createElement('div');
+        err.style.cssText = 'position:fixed;inset:0;background:#fff;color:#1a2a1f;padding:24px;font-family:sans-serif;font-size:14px;line-height:1.6;z-index:99999;overflow:auto';
+        err.innerHTML = `<h2 style="color:#e63946;margin-bottom:12px">Ứng dụng gặp lỗi khi khởi động</h2>
+          <p>Vui lòng chụp màn hình và gửi cho dev:</p>
+          <pre style="background:#f4f4f4;padding:12px;border-radius:8px;white-space:pre-wrap;word-break:break-word;font-size:12px;margin-top:8px">${(e && e.stack) || e}</pre>
+          <button onclick="location.reload()" style="margin-top:16px;padding:10px 20px;background:#2d6a4f;color:#fff;border:none;border-radius:8px;font-weight:600">Tải lại</button>`;
+        body.appendChild(err);
+      }
     }
-
-    await window.QLT_Auth.init();
-    window.QLT_Auth.onChange(u => this.onAuthChange(u));
-
-    if (window.QLT_Auth.user) {
-      window.QLT_Store.setUser(window.QLT_Auth.user.email);
-    } else {
-      window.QLT_Store.setUser('guest');
-    }
-
-    await window.QLT_Store.initDefaults();
-    await this.reload();
-    this.render();
-    this.bindEvents();
-    $$('.qlt-amount').forEach(attachAmountFormatting);
-    this.switchTab('home');
   },
 
   async reload() {
@@ -1838,7 +1858,6 @@ const App = {
       pct: totOut > 0 ? (val / totOut * 100).toFixed(1) : '0'
     })).sort((a, b) => b.value - a.value);
 
-    const userName = window.QLT_Auth.user ? (window.QLT_Auth.user.name || window.QLT_Auth.user.email) : 'Khách';
     const exportedAt = new Date().toLocaleString('vi-VN');
     const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const settlement = includeSettlement ? await this.calculateSettlement(bookId) : null;
@@ -1930,7 +1949,7 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
 <div class="report">
   <header>
     <h1>${esc(book.name)}</h1>
-    <div class="meta">Báo cáo xuất ${exportedAt} · ${esc(userName)} · ${allTxs.length} giao dịch</div>
+    <div class="meta">Báo cáo xuất ${exportedAt} · ${allTxs.length} giao dịch</div>
     <div class="meta" style="margin-top:6px;display:inline-block;background:rgba(255,255,255,.18);padding:3px 10px;border-radius:12px;font-weight:600;font-size:11px;letter-spacing:.5px">${reportType}</div>
   </header>
   <section>
@@ -2013,7 +2032,10 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
       }).join('')}
     </table>
   </section>` : ''}
-  <footer>Xuất từ app Quản Lý Tiền · ${exportedAt}</footer>
+  <footer>
+    <div>Xuất từ app <strong>Quản Lý Tiền</strong> · ${exportedAt}</div>
+    <div style="margin-top:4px">© 2026 <strong>Nguyễn Thanh</strong> · Mọi quyền được bảo lưu · Liên hệ: Zalo 0909683666</div>
+  </footer>
 </div>
 </body>
 </html>`;
@@ -2074,6 +2096,10 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
         }
       }
     }
+
+    rows.push([]);
+    rows.push(['© 2026 Nguyễn Thanh — Mọi quyền được bảo lưu — Liên hệ: Zalo 0909683666']);
+    rows.push(['Xuất từ app Quản Lý Tiền']);
 
     const csv = '﻿' + rows.map(r => r.map(c => {
       const s = String(c == null ? '' : c).replace(/"/g, '""');
