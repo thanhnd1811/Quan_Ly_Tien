@@ -895,9 +895,12 @@ const App = {
     // Mồ côi: có parentId nhưng parent không tồn tại (vd cha bị xoá ở máy khác qua sync) → coi như top-level
     const orphans = cats.filter(c => c.parentId && !cats.find(x => x.id === c.parentId));
 
+    if (!this.state.expandedCats) this.state.expandedCats = new Set();
+    const expanded = this.state.expandedCats;
+
     const grid = $('#catGrid');
 
-    const renderItem = (c, isChild = false) => `
+    const renderLeaf = (c, isChild = false) => `
       <div class="cat-item ${isChild ? 'cat-child' : ''}" data-cat="${c.id}">
         <div class="cat-circle" style="background:${c.color}">${svgIcon(c.icon)}</div>
         <div class="cat-name">${this.escapeHtml(c.name)}</div>
@@ -907,20 +910,27 @@ const App = {
     let html = '';
     [...parents, ...orphans].forEach(p => {
       const children = childrenByParent[p.id] || [];
-      // Render parent
+      if (children.length === 0) {
+        // Cha không có con → tap mở edit như danh mục thường
+        html += renderLeaf(p);
+        return;
+      }
+      const isExpanded = expanded.has(p.id);
+      // Cha có con → tap thẻ để mở/đóng; nút ✏️ riêng để sửa cha
       html += `
-        <div class="cat-item ${children.length ? 'cat-parent' : ''}" data-cat="${p.id}">
+        <div class="cat-item cat-parent ${isExpanded ? 'expanded' : ''}" data-cat-toggle="${p.id}">
+          <button class="cat-edit-btn" data-cat-edit="${p.id}" title="Sửa danh mục cha">✏️</button>
           <div class="cat-circle" style="background:${p.color}">
             ${svgIcon(p.icon)}
-            ${children.length ? `<span class="cat-children-badge">${children.length}</span>` : ''}
+            <span class="cat-children-badge">${children.length}</span>
           </div>
-          <div class="cat-name">${this.escapeHtml(p.name)}</div>
+          <div class="cat-name">${this.escapeHtml(p.name)} ${isExpanded ? '▾' : '▸'}</div>
         </div>
       `;
-      // Render children — indent visually
-      children.forEach(ch => {
-        html += renderItem(ch, true);
-      });
+      // Chỉ render con khi cha đang mở
+      if (isExpanded) {
+        children.forEach(ch => { html += renderLeaf(ch, true); });
+      }
     });
 
     html += `
@@ -931,6 +941,25 @@ const App = {
     `;
 
     grid.innerHTML = html;
+
+    // Tap thẻ cha → toggle mở/đóng (không đụng vào nút ✏️)
+    grid.querySelectorAll('[data-cat-toggle]').forEach(el => {
+      el.onclick = (e) => {
+        if (e.target.closest('[data-cat-edit]')) return;
+        const id = el.dataset.catToggle;
+        if (expanded.has(id)) expanded.delete(id);
+        else expanded.add(id);
+        this.renderCategories();
+      };
+    });
+    // Nút ✏️ trên thẻ cha → mở edit
+    grid.querySelectorAll('[data-cat-edit]').forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        this.openCatModal(el.dataset.catEdit);
+      };
+    });
+    // Thẻ con / cha-không-con / 'Tạo' → mở edit hoặc tạo mới
     grid.querySelectorAll('[data-cat]').forEach(el => {
       el.onclick = () => {
         const id = el.dataset.cat;
