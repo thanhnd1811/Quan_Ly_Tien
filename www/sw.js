@@ -1,4 +1,4 @@
-const CACHE = 'qltien-v11';
+const CACHE = 'qltien-v12';
 const ASSETS = [
   './',
   './index.html',
