@@ -113,82 +113,188 @@ const fmtAmount = v => {
   return Number.isFinite(n) && n > 0 ? n.toLocaleString('vi-VN') : '';
 };
 
-// Tính nhanh biểu thức số học an toàn (chỉ cho phép 0-9 + - * / . ( ) space)
-// Ví dụ: '45000+12000+8500' → 65500
-// Trả null nếu biểu thức không hợp lệ
-function evalAmountExpr(expr) {
-  if (!expr) return null;
-  // Bỏ khoảng trắng + dấu chấm phân cách (vi-VN dùng . làm thousand sep)
-  // Quy ước: dấu chấm KHÔNG phải toán tử thập phân ở app này (VND không có lẻ)
-  const clean = String(expr).replace(/\s+/g, '').replace(/\./g, '');
-  if (!clean) return null;
-  // Chỉ chấp nhận ký tự an toàn
-  if (!/^[0-9+\-*/()]+$/.test(clean)) return null;
-  // Không cho phép operator dính nhau (vd: ++, **) ngoài dấu - đứng đầu
-  if (/[+*/]{2}|\d-\d-/.test(clean)) {/* allow */}
-  try {
-    // eslint-disable-next-line no-new-func
-    const r = Function('"use strict";return (' + clean + ')')();
-    if (typeof r !== 'number' || !isFinite(r)) return null;
-    return Math.round(r);
-  } catch (_) { return null; }
+// Đọc số nguyên từ input đã format (giữ tương thích — bỏ qua dấu chấm phân cách vi-VN)
+function readAmount(el) {
+  const raw = (el?.value || '').toString();
+  const v = raw.replace(/\D/g, '');
+  return v ? parseInt(v, 10) : 0;
 }
 
-// Gắn auto-format dấu chấm + hỗ trợ biểu thức (45+12+8.5) khi user gõ số vào input
+// ============ POPUP CALCULATOR ============
+// Một bàn phím số chuyên dụng (như Money Lover/MISA): tap input số tiền → mở popup
+// keypad. Người dùng nhập, có thể +,−,×,÷,%,±,⌫,C. Bấm "=" → kết quả ghi lại input.
+const QLT_Calc = (() => {
+  let _input = null;
+  let display = '0';     // chuỗi raw (chỉ chữ số, có thể có '-' đầu)
+  let prevExpr = '';     // ký tự nhỏ phía trên
+  let firstOp = null;    // số đầu (Number) đã commit
+  let op = null;         // toán tử đã commit ('+'|'−'|'×'|'÷')
+  let lastWasOp = false; // sau khi bấm op, digit kế tiếp thay thế display
+  let justCalc = false;  // sau khi bấm =, digit kế tiếp thay thế display
+
+  function fmt(s) {
+    if (s == null) return '0';
+    const str = String(s);
+    const sign = str.startsWith('-') ? '-' : '';
+    const digits = str.replace(/^-/, '').replace(/\D/g, '');
+    if (!digits) return sign || '0';
+    return sign + Number(digits).toLocaleString('vi-VN');
+  }
+
+  function refresh() {
+    const cur = document.getElementById('calcCurrent');
+    const prv = document.getElementById('calcPrev');
+    if (cur) cur.textContent = fmt(display);
+    if (prv) prv.textContent = prevExpr;
+  }
+
+  function compute(a, oper, b) {
+    const A = Number(a), B = Number(b);
+    if (oper === '+') return A + B;
+    if (oper === '−' || oper === '-') return A - B;
+    if (oper === '×' || oper === '*') return A * B;
+    if (oper === '÷' || oper === '/') return B === 0 ? 0 : Math.round(A / B);
+    return B;
+  }
+
+  function press(key) {
+    if (key === 'C') {
+      display = '0'; prevExpr = ''; firstOp = null; op = null; lastWasOp = false; justCalc = false;
+    } else if (key === '⌫') {
+      if (justCalc) { display = '0'; justCalc = false; }
+      else if (lastWasOp) { op = null; prevExpr = ''; lastWasOp = false; }
+      else {
+        const sign = display.startsWith('-') ? '-' : '';
+        const rest = display.replace(/^-/, '').slice(0, -1);
+        display = (sign + rest) || '0';
+        if (display === '-' || display === '') display = '0';
+      }
+    } else if (key === '±') {
+      if (display === '0') return;
+      display = display.startsWith('-') ? display.slice(1) : '-' + display;
+    } else if (key === '%') {
+      if (firstOp !== null && op !== null) {
+        // 1.000.000 + 10% → cộng 10% của 1.000.000
+        display = String(Math.round(Number(firstOp) * Number(display) / 100));
+      } else {
+        display = String(Math.round(Number(display) / 100));
+      }
+      lastWasOp = false; justCalc = true;
+    } else if (key === '+' || key === '−' || key === '×' || key === '÷') {
+      const cur = Number(display);
+      if (firstOp !== null && op !== null && !lastWasOp) {
+        const res = compute(firstOp, op, cur);
+        firstOp = res;
+        display = String(res);
+      } else if (lastWasOp) {
+        // Đổi op khi vừa bấm op trước đó
+      } else {
+        firstOp = cur;
+      }
+      op = key;
+      prevExpr = fmt(String(firstOp)) + ' ' + key;
+      lastWasOp = true;
+      justCalc = false;
+    } else if (key === '=') {
+      if (firstOp !== null && op !== null) {
+        const cur = Number(display);
+        const res = compute(firstOp, op, cur);
+        prevExpr = fmt(String(firstOp)) + ' ' + op + ' ' + fmt(String(cur)) + ' =';
+        display = String(res);
+        firstOp = null; op = null;
+        justCalc = true; lastWasOp = false;
+      }
+      // Cam kết kết quả ngay khi bấm =
+      const final = Math.max(0, Math.round(Math.abs(Number(display) || 0)));
+      if (_input) {
+        _input.value = final ? Number(final).toLocaleString('vi-VN') : '';
+        try {
+          _input.dispatchEvent(new Event('input', { bubbles: true }));
+          _input.dispatchEvent(new Event('change', { bubbles: true }));
+        } catch (_) {}
+      }
+      close();
+      return;
+    } else if (key === '000') {
+      // Phím tắt 3 số 0 — rất tiện cho VND (1tr → 1000000 = 1 + 000 + 000)
+      if (justCalc || lastWasOp) {
+        display = '0'; justCalc = false; lastWasOp = false;
+      }
+      if (display !== '0' && display.replace(/^-/, '').length < 10) {
+        display = display + '000';
+      }
+    } else if (/^[0-9]$/.test(key)) {
+      if (justCalc || lastWasOp) {
+        display = key; justCalc = false; lastWasOp = false;
+      } else if (display === '0') {
+        display = key;
+      } else if (display === '-0') {
+        display = '-' + key;
+      } else if (display.replace(/^-/, '').length < 12) {
+        display = display + key;
+      }
+    }
+    refresh();
+  }
+
+  function open(input) {
+    _input = input;
+    const raw = (input?.value || '').toString().replace(/[^\d]/g, '');
+    display = (raw && Number(raw)) ? raw : '0';
+    prevExpr = '';
+    firstOp = null; op = null; lastWasOp = false; justCalc = true;
+    document.getElementById('calcModal').classList.add('open');
+    refresh();
+  }
+
+  function close() {
+    document.getElementById('calcModal').classList.remove('open');
+    _input = null;
+  }
+
+  function bind() {
+    const grid = document.getElementById('calcKeys');
+    if (!grid) return;
+    grid.querySelectorAll('[data-key]').forEach(el => {
+      el.onclick = () => press(el.dataset.key);
+    });
+    const closeBtn = document.getElementById('calcClose');
+    if (closeBtn) closeBtn.onclick = close;
+    const modal = document.getElementById('calcModal');
+    if (modal) modal.addEventListener('click', e => { if (e.target === modal) close(); });
+    // Bàn phím vật lý (web/desktop test)
+    document.addEventListener('keydown', e => {
+      if (!document.getElementById('calcModal')?.classList.contains('open')) return;
+      const k = e.key;
+      if (/^[0-9]$/.test(k)) press(k);
+      else if (k === '+') press('+');
+      else if (k === '-') press('−');
+      else if (k === '*') press('×');
+      else if (k === '/') press('÷');
+      else if (k === '%') press('%');
+      else if (k === 'Enter' || k === '=') press('=');
+      else if (k === 'Backspace') press('⌫');
+      else if (k === 'Escape') close();
+      else return;
+      e.preventDefault();
+    });
+  }
+  document.addEventListener('DOMContentLoaded', bind);
+
+  return { open, close, press };
+})();
+window.QLT_Calc = QLT_Calc;
+
+// Gắn handler "tap-to-open-calculator" cho mọi ô .qlt-amount
 function attachAmountFormatting(el) {
   if (!el || el._qltFmt) return;
   el._qltFmt = true;
-
-  // Có chứa toán tử ngoài chữ số? → đang trong "chế độ biểu thức"
-  const hasOp = (s) => /[+\-*/()]/.test(s || '');
-
-  el.addEventListener('input', () => {
-    // Nếu user đang gõ biểu thức → KHÔNG format, để nguyên cho user thấy
-    if (hasOp(el.value)) return;
-    const cursor = el.selectionStart || 0;
-    const before = el.value.slice(0, cursor);
-    const digitsBefore = before.replace(/\D/g, '').length;
-    const allDigits = el.value.replace(/\D/g, '');
-    const formatted = allDigits ? Number(allDigits).toLocaleString('vi-VN') : '';
-    if (formatted === el.value) return;
-    el.value = formatted;
-    let newPos = 0, count = 0;
-    while (newPos < formatted.length && count < digitsBefore) {
-      if (/\d/.test(formatted[newPos])) count++;
-      newPos++;
-    }
-    try { el.setSelectionRange(newPos, newPos); } catch (_) {}
+  el.setAttribute('readonly', 'readonly');
+  el.setAttribute('inputmode', 'none');
+  el.addEventListener('click', (e) => {
+    e.preventDefault();
+    QLT_Calc.open(el);
   });
-
-  // Tính & format khi rời khỏi ô hoặc bấm Enter
-  const evaluate = () => {
-    if (!hasOp(el.value)) return;
-    const result = evalAmountExpr(el.value);
-    if (result !== null && result >= 0) {
-      el.value = Number(result).toLocaleString('vi-VN');
-      el.classList.remove('amount-error');
-    } else {
-      el.classList.add('amount-error');
-    }
-  };
-  el.addEventListener('blur', evaluate);
-  el.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === '=') {
-      e.preventDefault();
-      evaluate();
-    }
-  });
-}
-
-// Đọc số nguyên từ input đã format (xử lý cả biểu thức nếu user chưa blur)
-function readAmount(el) {
-  const raw = (el.value || '').toString();
-  if (/[+\-*/()]/.test(raw)) {
-    const r = evalAmountExpr(raw);
-    return r !== null && r > 0 ? r : 0;
-  }
-  const v = raw.replace(/\D/g, '');
-  return v ? parseInt(v, 10) : 0;
 }
 
 const App = {

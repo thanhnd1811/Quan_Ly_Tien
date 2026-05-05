@@ -541,6 +541,29 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 .member-del:active{background:#ffd0d0}
 .member-del svg{width:14px;height:14px}
 
+/* Calculator modal — popup keypad nhập tiền */
+.calc-modal{align-items:flex-end;z-index:500}
+.calc-card{background:var(--bg);width:100%;max-width:480px;border-radius:22px 22px 0 0;display:flex;flex-direction:column;animation:slideUp .22s ease;box-shadow:0 -10px 40px rgba(0,0,0,.18)}
+.calc-head{display:flex;align-items:center;gap:12px;padding:14px 16px 8px;background:var(--accent);color:#fff;border-radius:22px 22px 0 0}
+.calc-close{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.18);color:#fff;border:none;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
+.calc-close:active{background:rgba(255,255,255,.32)}
+.calc-title{font-size:17px;font-weight:600}
+.calc-display{padding:18px 22px 14px;text-align:right;background:linear-gradient(180deg,var(--accent),var(--accent-light,#52b788));color:#fff;min-height:96px;display:flex;flex-direction:column;justify-content:flex-end}
+.calc-prev{font-size:15px;color:rgba(255,255,255,.78);min-height:20px;font-weight:500}
+.calc-current{font-size:38px;font-weight:700;letter-spacing:.5px;line-height:1.1;word-break:break-all}
+.calc-keys{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px;padding-bottom:max(12px,env(safe-area-inset-bottom))}
+.calc-key{height:60px;border:none;border-radius:14px;background:var(--surface);color:var(--accent);font-size:22px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .06s,background .15s}
+.calc-key:active{transform:scale(.96);background:var(--surface2,#ecf2ed)}
+.calc-key.calc-fn{color:var(--text2);font-size:20px}
+.calc-key.calc-op{background:#f6f7f5;color:var(--accent);font-size:24px;font-weight:700}
+.calc-key.calc-eq{background:#f4b942;color:#fff;font-size:26px;font-weight:700}
+.calc-key.calc-eq:active{background:#e0a82e}
+.calc-key.calc-zero3{font-size:18px;font-weight:700}
+@media (max-width:380px){
+  .calc-key{height:54px;font-size:20px}
+  .calc-current{font-size:32px}
+}
+
 /* Lightbox */
 .lightbox{position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:400;display:none;align-items:center;justify-content:center;padding:20px}
 .lightbox.open{display:flex;animation:fadeIn .15s}
@@ -761,7 +784,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
       <div class="fg">
         <label class="fl">Số tiền cần (VND) <span style="color:var(--danger)">*</span></label>
-        <input id="goalTarget" class="fi qlt-amount" type="text" inputmode="numeric" placeholder="800.000.000">
+        <input id="goalTarget" class="fi qlt-amount" type="text" inputmode="none" readonly placeholder="800.000.000">
       </div>
       <div class="fg">
         <label class="fl">Ngày bắt đầu</label>
@@ -834,7 +857,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       <div id="contribInfo" style="background:var(--surface2);padding:12px;border-radius:8px;margin-bottom:14px;font-size:13px;line-height:1.6"></div>
       <div class="fg">
         <label class="fl">Số tiền đóng góp (VND) <span style="color:var(--danger)">*</span></label>
-        <input id="contribAmount" class="fi qlt-amount" type="text" inputmode="numeric">
+        <input id="contribAmount" class="fi qlt-amount" type="text" inputmode="none" readonly>
       </div>
       <div class="fg">
         <label class="fl">Ngày</label>
@@ -944,7 +967,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
       <div class="fg">
         <label class="fl">Hạn mức / tháng <span style="color:var(--danger)">*</span></label>
-        <input type="text" inputmode="numeric" id="budgetAmount" class="fi qlt-amount" placeholder="0">
+        <input type="text" inputmode="none" readonly id="budgetAmount" class="fi qlt-amount" placeholder="0">
         <div style="font-size:11px;color:var(--text3);margin-top:6px">App sẽ cảnh báo cam khi vượt 80%, đỏ khi vượt 100%.</div>
       </div>
     </div>
@@ -974,7 +997,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
       <div class="fg">
         <label class="fl">Số tiền <span style="color:var(--danger)">*</span></label>
-        <input type="text" inputmode="numeric" id="loanPrincipal" class="fi qlt-amount" placeholder="0">
+        <input type="text" inputmode="none" readonly id="loanPrincipal" class="fi qlt-amount" placeholder="0">
       </div>
       <div class="fg">
         <label class="fl">Ví liên quan <span style="color:var(--danger)">*</span></label>
@@ -1016,7 +1039,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     <div class="modal-body">
       <div class="fg">
         <label class="fl">Số tiền <span style="color:var(--danger)">*</span></label>
-        <input type="text" inputmode="numeric" id="paymentAmount" class="fi qlt-amount" placeholder="0">
+        <input type="text" inputmode="none" readonly id="paymentAmount" class="fi qlt-amount" placeholder="0">
       </div>
       <div class="fg">
         <label class="fl">Ngày <span style="color:var(--danger)">*</span></label>
@@ -1233,8 +1256,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
       <div class="fg">
         <label class="fl">Số tiền (VND)</label>
-        <input id="txAmount" class="fi fi-amount qlt-amount" type="text" inputmode="text" placeholder="0 (có thể gõ 45+12+8 → tính)">
-        <div style="font-size:11px;color:var(--text3);margin-top:6px;text-align:center">💡 Hỗ trợ phép tính: +, −, ×, ÷ — bấm Enter để ra kết quả</div>
+        <input id="txAmount" class="fi fi-amount qlt-amount" type="text" inputmode="none" readonly placeholder="Chạm để mở máy tính →">
       </div>
       <div class="fg">
         <label class="fl">Ngày</label>
@@ -1284,6 +1306,46 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 <div id="lightboxModal" class="lightbox">
   <button class="lightbox-close" data-close><span data-icon="close"></span></button>
   <img id="lightboxImg" src="" alt="">
+</div>
+
+<!-- ========== CALCULATOR MODAL (popup máy tính nhập tiền) ========== -->
+<div id="calcModal" class="modal calc-modal">
+  <div class="calc-card">
+    <div class="calc-head">
+      <button id="calcClose" class="calc-close" title="Đóng">←</button>
+      <div class="calc-title">Máy tính</div>
+    </div>
+    <div class="calc-display">
+      <div id="calcPrev" class="calc-prev"></div>
+      <div id="calcCurrent" class="calc-current">0</div>
+    </div>
+    <div id="calcKeys" class="calc-keys">
+      <button class="calc-key calc-fn" data-key="C">C</button>
+      <button class="calc-key calc-fn" data-key="±">±</button>
+      <button class="calc-key calc-fn" data-key="%">%</button>
+      <button class="calc-key calc-op" data-key="÷">÷</button>
+
+      <button class="calc-key" data-key="7">7</button>
+      <button class="calc-key" data-key="8">8</button>
+      <button class="calc-key" data-key="9">9</button>
+      <button class="calc-key calc-op" data-key="×">×</button>
+
+      <button class="calc-key" data-key="4">4</button>
+      <button class="calc-key" data-key="5">5</button>
+      <button class="calc-key" data-key="6">6</button>
+      <button class="calc-key calc-op" data-key="−">−</button>
+
+      <button class="calc-key" data-key="1">1</button>
+      <button class="calc-key" data-key="2">2</button>
+      <button class="calc-key" data-key="3">3</button>
+      <button class="calc-key calc-op" data-key="+">+</button>
+
+      <button class="calc-key calc-zero3" data-key="000">000</button>
+      <button class="calc-key" data-key="0">0</button>
+      <button class="calc-key calc-fn" data-key="⌫">⌫</button>
+      <button class="calc-key calc-eq" data-key="=">=</button>
+    </div>
+  </div>
 </div>
 
 <!-- ========== CATEGORY MODAL ========== -->
@@ -1347,7 +1409,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
       <div class="fg">
         <label class="fl" id="accBalanceLabel">Số dư ban đầu (VND)</label>
-        <input id="accBalance" class="fi qlt-amount" type="text" inputmode="numeric" placeholder="0">
+        <input id="accBalance" class="fi qlt-amount" type="text" inputmode="none" readonly placeholder="0">
       </div>
       <div id="accSavingsFields" style="display:none">
         <div class="fg">
@@ -1406,7 +1468,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       <div id="maturityInfo" style="background:var(--surface2);padding:14px;border-radius:var(--rsm);margin-bottom:14px;line-height:1.7;font-size:13px"></div>
       <div class="fg">
         <label class="fl">Lãi nhận được (gợi ý đã tính sẵn)</label>
-        <input id="maturityInterest" class="fi qlt-amount" type="text" inputmode="numeric">
+        <input id="maturityInterest" class="fi qlt-amount" type="text" inputmode="none" readonly>
       </div>
       <div class="fg">
         <label class="fl">Chuyển gốc + lãi vào ví</label>
@@ -1487,7 +1549,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
       <div class="fg">
         <label class="fl">Số tiền (VND)</label>
-        <input id="remAmount" class="fi qlt-amount" type="text" inputmode="numeric" placeholder="0">
+        <input id="remAmount" class="fi qlt-amount" type="text" inputmode="none" readonly placeholder="0">
       </div>
       <div class="fg">
         <label class="fl">Ghi chú</label>
@@ -1515,7 +1577,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       </div>
       <div class="fg">
         <label class="fl">Mỗi người góp (VND) — có thể bỏ trống</label>
-        <input id="addManyAmount" class="fi qlt-amount" type="text" inputmode="numeric" placeholder="0">
+        <input id="addManyAmount" class="fi qlt-amount" type="text" inputmode="none" readonly placeholder="0">
       </div>
       <div style="font-size:12px;color:var(--text3);line-height:1.5;background:var(--surface2);padding:10px;border-radius:8px">
         Để trống ô <strong>Mỗi người góp</strong> nếu mỗi người đóng số khác nhau — bạn sẽ điền tay sau cho từng người.<br>
