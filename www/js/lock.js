@@ -24,16 +24,16 @@
     return sha256Hex(salt + ':' + pin);
   }
 
-  // ============ Plugin biometric (nếu có) ============
+  // ============ Plugin biometric (capacitor-native-biometric) ============
   function getBio() {
-    return window.Capacitor?.Plugins?.BiometricAuth || null;
+    return window.Capacitor?.Plugins?.NativeBiometric || null;
   }
 
   async function bioAvailable() {
     const B = getBio();
     if (!B) return { available: false, type: null };
     try {
-      const r = await B.checkBiometry();
+      const r = await B.isAvailable();
       return { available: !!r.isAvailable, type: r.biometryType || 'unknown' };
     } catch (_) {
       return { available: false, type: null };
@@ -43,13 +43,11 @@
   async function bioAuthenticate() {
     const B = getBio();
     if (!B) throw new Error('NO_PLUGIN');
-    await B.authenticate({
+    await B.verifyIdentity({
       reason: 'Mở khoá Quản Lý Tiền',
-      cancelTitle: 'Huỷ',
-      androidTitle: 'Quản Lý Tiền',
-      androidSubtitle: 'Xác thực để mở khoá',
-      androidConfirmationRequired: false,
-      allowDeviceCredential: false
+      title: 'Quản Lý Tiền',
+      subtitle: 'Xác thực để mở khoá',
+      description: 'Sử dụng vân tay hoặc khuôn mặt'
     });
   }
 
