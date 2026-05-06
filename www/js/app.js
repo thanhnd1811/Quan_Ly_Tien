@@ -8565,57 +8565,63 @@ const App = {
   },
 
   // ============ EXPORT BOOK ============
-  // In/PDF báo cáo: dùng iframe ẩn để chạy print() trong context app
-  // → mở Print dialog của hệ thống (Android: chọn "Save as PDF" hoặc máy in)
-  // Tránh window.open vì Capacitor WebView thường block popup.
+  // Tạo và tải PDF trực tiếp bằng html2pdf.js (lazy-load CDN ~150KB)
+  // → user nhận file .pdf thực sự, không phụ thuộc Print dialog của WebView
   async exportBookPDF(bookId, includeSettlement = false, includePhotos = false) {
-    let html = await this._buildBookReportHTML(bookId, includeSettlement, includePhotos);
+    const html = await this._buildBookReportHTML(bookId, includeSettlement, includePhotos);
     if (!html) return;
 
-    // Inject print CSS: A4 portrait, ảnh thu nhỏ
-    const printCss = `
-      <style>
-        @media print {
-          @page { size:A4; margin:14mm }
-          body{background:#fff !important;color:#000;padding:0;margin:0;font-size:11pt}
-          .container,article,section{box-shadow:none !important;page-break-inside:avoid}
-          table{page-break-inside:auto}
-          tr{page-break-inside:avoid;page-break-after:auto}
-          .no-print{display:none !important}
-          .tx-photo a img{max-width:60px;max-height:60px}
-        }
-      </style>`;
-    html = html.replace('</head>', printCss + '</head>');
-
-    // Tạo iframe ẩn, load HTML, sau khi render xong gọi print()
-    const old = document.getElementById('qltPrintFrame');
-    if (old) old.remove();
-    const frame = document.createElement('iframe');
-    frame.id = 'qltPrintFrame';
-    frame.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;height:1123px;border:0;visibility:hidden';
-    document.body.appendChild(frame);
-
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    frame.src = url;
-
-    let printed = false;
-    const tryPrint = () => {
-      if (printed) return;
-      printed = true;
+    // Lazy-load html2pdf.js
+    if (!window.html2pdf) {
+      QLT_UI.toast('⏳ Đang tải thư viện PDF (~150KB)...', { duration: 2500 });
       try {
-        frame.contentWindow.focus();
-        frame.contentWindow.print();
-        QLT_UI.toast('🖨️ Mở dialog In — chọn "Save as PDF" để xuất file', { type: 'info', duration: 3000 });
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+          s.onload = resolve;
+          s.onerror = () => reject(new Error('Không tải được — kiểm tra mạng'));
+          document.head.appendChild(s);
+          setTimeout(() => reject(new Error('Hết thời gian — kiểm tra mạng')), 15000);
+        });
       } catch (e) {
-        QLT_UI.alert('Trình duyệt/WebView này không hỗ trợ in trực tiếp.\n\nThay vào đó: bấm "HTML" để tải file về, mở file bằng Chrome → menu ⋮ → In / Lưu PDF.', { title: 'Không in được' });
+        QLT_UI.alert('Không tải được thư viện: ' + e.message + '\n\nThay vào đó bấm "HTML" để tải file rồi mở bằng Chrome → menu ⋮ → In/Lưu PDF.', { title: 'Lỗi' });
+        return;
       }
-    };
-    frame.onload = () => setTimeout(tryPrint, 600);  // chờ ảnh render
-    setTimeout(tryPrint, 3000);  // safety timeout
+    }
 
-    // Cleanup sau 1 phút
-    setTimeout(() => { try { frame.remove(); URL.revokeObjectURL(url); } catch (_) {} }, 60000);
+    // Extract body + style từ HTML report → render trong main document
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const stylesHtml = Array.from(doc.querySelectorAll('style')).map(s => s.outerHTML).join('');
+    const bodyHtml = doc.body.innerHTML;
+
+    const container = document.createElement('div');
+    container.innerHTML = stylesHtml + bodyHtml;
+    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;color:#000;font-family:DM Sans,sans-serif';
+    document.body.appendChild(container);
+
+    const book = this.state.books.find(b => b.id === bookId);
+    const suffix = includeSettlement ? 'ket-thuc' : 'trong-dot';
+    const filename = `qlt-${this._safe(book?.name || 'so')}-${suffix}-${today()}.pdf`;
+
+    QLT_UI.toast('📄 Đang tạo PDF... (vài giây)', { duration: 8000 });
+
+    try {
+      await window.html2pdf().set({
+        margin: [10, 10, 12, 10],
+        filename,
+        image: { type: 'jpeg', quality: 0.85 },
+        html2canvas: { scale: 1.3, useCORS: true, logging: false, letterRendering: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
+        pagebreak: { mode: ['css', 'legacy'] }
+      }).from(container).save();
+      QLT_UI.toast('✓ Đã tải PDF: ' + filename, { type: 'success', duration: 4000 });
+    } catch (e) {
+      console.error('PDF gen lỗi:', e);
+      QLT_UI.alert('Lỗi tạo PDF: ' + (e?.message || e) + '\n\nBấm "HTML" để tải file thay thế.', { title: 'Lỗi PDF' });
+    } finally {
+      container.remove();
+    }
   },
 
   async exportBookHTML(bookId, includeSettlement = false, includePhotos = false) {
