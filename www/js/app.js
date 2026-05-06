@@ -544,14 +544,45 @@ const App = {
     editingGoal: null
   },
 
+  // ============ THEME (Dark/Light mode) ============
+  // Lưu pref trong localStorage. Mode: 'light' | 'dark' | 'auto' (theo OS)
+  getThemePref() {
+    return localStorage.getItem('qlt_theme') || 'auto';
+  },
+  setThemePref(mode) {
+    localStorage.setItem('qlt_theme', mode);
+    this.applyTheme();
+  },
+  applyTheme() {
+    const mode = this.getThemePref();
+    let isDark;
+    if (mode === 'dark') isDark = true;
+    else if (mode === 'light') isDark = false;
+    else isDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches || false;
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+    // Cập nhật status bar theme nếu có
+    try {
+      const SB = window.Capacitor?.Plugins?.StatusBar;
+      if (SB?.setStyle) SB.setStyle({ style: isDark ? 'DARK' : 'LIGHT' });
+    } catch (_) {}
+  },
+
   async init() {
     try {
+      // Áp theme NGAY khi init để tránh flash trắng
+      this.applyTheme();
+      // Lắng nghe thay đổi system theme khi đang ở mode 'auto'
+      try {
+        window.matchMedia?.('(prefers-color-scheme: dark)')?.addEventListener('change', () => {
+          if (this.getThemePref() === 'auto') this.applyTheme();
+        });
+      } catch (_) {}
+
       // Edge-to-edge: WebView vẽ tràn ra sau status bar để màu topbar phủ kín lên trên
       const SB = window.Capacitor?.Plugins?.StatusBar;
       if (SB) {
         try {
           await SB.setOverlaysWebView({ overlay: true });
-          await SB.setStyle({ style: 'LIGHT' });
         } catch (e) { /* web/PWA bỏ qua */ }
       }
 
@@ -3141,6 +3172,36 @@ const App = {
 
     // Hiển thị widget Trang chủ
     this.renderHomeWidgetSettings();
+
+    // Theme toggle (Dark mode + Auto)
+    const cur = this.getThemePref();
+    const dark = $('#setDarkMode');
+    const auto = $('#setAutoTheme');
+    if (dark && auto) {
+      dark.checked = cur === 'dark';
+      auto.checked = cur === 'auto';
+      // Khi auto bật: dark hiệu lực = OS preference; UI checkbox dark hiển thị state hiện tại
+      const refreshDarkUI = () => {
+        const m = this.getThemePref();
+        if (m === 'auto') {
+          dark.disabled = true;
+          dark.checked = window.matchMedia?.('(prefers-color-scheme: dark)').matches || false;
+        } else {
+          dark.disabled = false;
+          dark.checked = m === 'dark';
+        }
+      };
+      refreshDarkUI();
+      dark.onchange = (e) => {
+        this.setThemePref(e.target.checked ? 'dark' : 'light');
+        auto.checked = false;
+      };
+      auto.onchange = (e) => {
+        if (e.target.checked) this.setThemePref('auto');
+        else this.setThemePref(window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        refreshDarkUI();
+      };
+    }
   },
 
   renderHomeWidgetSettings() {

@@ -19,6 +19,30 @@
   /* Theme theo sổ hiện tại — JS cập nhật khi đổi sổ. Mặc định = brand green */
   --book-accent:#2d6a4f; --book-accent-light:#52b788;
 }
+/* DARK THEME — kích hoạt khi <html data-theme="dark"> */
+html[data-theme="dark"] {
+  --bg:#0f1714; --surface:#172621; --surface2:#1f2f29; --border:#2c3d36;
+  --accent:#52b788; --accent-light:#74c69d; --acl:#1f3a2c; --accent2:#f4a261;
+  --warn:#f4a261; --danger:#ff6b6b; --pos:#52b788;
+  --text:#e8efe9; --text2:#a8b3ac; --text3:#6e7972;
+  --sh:0 2px 10px rgba(0,0,0,0.4); --shlg:0 8px 28px rgba(0,0,0,0.6);
+  --book-accent:#1f3a2c; --book-accent-light:#2d6a4f;
+}
+html[data-theme="dark"] body{background:var(--bg)}
+html[data-theme="dark"] .lock-screen{background:linear-gradient(135deg,#0f1714,#172621)}
+html[data-theme="dark"] img.dr-avatar{filter:none}
+/* Override các background:#fff hardcoded trong light mode để fit dark */
+html[data-theme="dark"] .fuel-type-pill.on,
+html[data-theme="dark"] .maint-type-pill.on,
+html[data-theme="dark"] .acc-type-pill.on{background:var(--surface) !important;color:var(--accent-light) !important}
+html[data-theme="dark"] .goal-item-month-cta{background:var(--surface);color:var(--accent-light);border-color:var(--accent-light)}
+html[data-theme="dark"] .btn-google{background:var(--surface);color:var(--text);border-color:var(--border)}
+html[data-theme="dark"] .qlt-dialog{background:rgba(0,0,0,0.75)}
+html[data-theme="dark"] .savings-summary{background:linear-gradient(135deg,#0f1f17,#1a3a2a)}
+html[data-theme="dark"] .calc-display{background:linear-gradient(180deg,var(--accent),var(--accent-light))}
+html[data-theme="dark"] .fuel-oil-warning{background:#3a2f1a;color:#f4d77c;border-left-color:#f4b942}
+html[data-theme="dark"] .fuel-oil-warning.urgent{background:#3a1a1a;color:#ffaaa7}
+html[data-theme="dark"] .lightbox{background:rgba(0,0,0,0.96)}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html{overscroll-behavior:none;touch-action:pan-y}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);max-width:480px;margin:0 auto;min-height:100vh;overflow-x:hidden}
@@ -1485,6 +1509,24 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       <button id="setLockEnable" class="btn btn-primary btn-block">Bật khoá PIN</button>
       <button id="setLockChangePin" class="btn btn-secondary btn-block" style="display:none">Đổi PIN</button>
       <button id="setLockDisable" class="btn btn-secondary btn-block" style="display:none;color:var(--danger);border-color:var(--danger)">Tắt khoá PIN</button>
+    </div>
+
+    <div class="section">
+      <div class="sec-label">🎨 Giao diện</div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Chế độ tối (Dark mode)</span>
+      <label class="qlt-switch">
+        <input type="checkbox" id="setDarkMode">
+        <span class="qlt-switch-slider"></span>
+      </label>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Theo hệ thống (Auto)</span>
+      <label class="qlt-switch">
+        <input type="checkbox" id="setAutoTheme">
+        <span class="qlt-switch-slider"></span>
+      </label>
     </div>
 
     <div class="section">
