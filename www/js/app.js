@@ -839,6 +839,10 @@ const App = {
     $('#bookExportHTML').onclick = () => {
       if (this.state.editingBook?.id) this.exportBookHTML(this.state.editingBook.id, false, photosOpt());
     };
+    const exportPDFBtn = $('#bookExportPDF');
+    if (exportPDFBtn) exportPDFBtn.onclick = () => {
+      if (this.state.editingBook?.id) this.exportBookPDF(this.state.editingBook.id, false, photosOpt());
+    };
     $('#bookExportCSV').onclick = () => {
       if (this.state.editingBook?.id) this.exportBookCSV(this.state.editingBook.id, false);
     };
@@ -3335,6 +3339,12 @@ const App = {
     $('#setImport').onclick = () => this.doImport();
     const diagBtn = $('#setDiagBalance');
     if (diagBtn) diagBtn.onclick = () => this.showBalanceDiagnosis();
+    const showOnb = $('#setShowOnboard');
+    if (showOnb) showOnb.onclick = () => this.showOnboarding();
+    const showFaq = $('#setShowFAQ');
+    if (showFaq) showFaq.onclick = () => $('#faqModal').classList.add('open');
+    const showPriv = $('#setShowPrivacy');
+    if (showPriv) showPriv.onclick = () => $('#privacyModal').classList.add('open');
 
     // Gỡ banner cũ nếu còn (từ phiên bản trước hide login trên native)
     const oldNote = $('#setNativeNote');
@@ -6898,6 +6908,37 @@ const App = {
   },
 
   // ============ EXPORT BOOK ============
+  // Mở báo cáo HTML trong window mới + chèn print-CSS + gọi window.print()
+  // → user chọn 'Save as PDF' trong dialog in của Android/Chrome.
+  async exportBookPDF(bookId, includeSettlement = false, includePhotos = false) {
+    let html = await this._buildBookReportHTML(bookId, includeSettlement, includePhotos);
+    // Inject print CSS để PDF gọn hơn (bỏ bóng đổ, padding nhỏ lại, A4 portrait)
+    const printCss = `
+      <style>
+        @media print {
+          @page { size:A4; margin:14mm }
+          body{background:#fff !important;color:#000;padding:0;margin:0;font-size:11pt}
+          .container,article,section{box-shadow:none !important;page-break-inside:avoid}
+          table{page-break-inside:auto}
+          tr{page-break-inside:avoid;page-break-after:auto}
+          .no-print,.tx-photo a img{max-width:60px;max-height:60px}
+        }
+      </style>`;
+    html = html.replace('</head>', printCss + '</head>');
+    // Chèn auto-print khi load (delay nhỏ để images render)
+    const autoPrint = `<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),500));<\/script>`;
+    html = html.replace('</body>', autoPrint + '</body>');
+
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const w = window.open(url, '_blank');
+    if (!w) {
+      // Native WebView có thể block popup → fallback: thay current navigation
+      QLT_UI.toast('Không mở được tab mới. Hãy bấm "Xuất HTML" rồi mở file để in.', { type: 'error', duration: 4000 });
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  },
+
   async exportBookHTML(bookId, includeSettlement = false, includePhotos = false) {
     const book = this.state.books.find(b => b.id === bookId);
     if (!book) return null;

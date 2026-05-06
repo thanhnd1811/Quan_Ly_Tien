@@ -1746,6 +1746,15 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     </div>
 
     <div class="section">
+      <div class="sec-label">❓ Trợ giúp</div>
+    </div>
+    <div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:10px">
+      <button id="setShowOnboard" class="btn btn-secondary btn-block">📚 Xem lại hướng dẫn</button>
+      <button id="setShowFAQ" class="btn btn-secondary btn-block">💡 Câu hỏi thường gặp (FAQ)</button>
+      <button id="setShowPrivacy" class="btn btn-secondary btn-block">🔒 Chính sách bảo mật</button>
+    </div>
+
+    <div class="section">
       <div class="sec-label">Về ứng dụng</div>
     </div>
     <div style="padding:20px 16px;background:var(--surface);border-bottom:1px solid var(--border);text-align:center">
@@ -1823,6 +1832,104 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
   </div>
 </div>
 <div id="drawerOverlay" class="drawer-overlay"></div>
+
+<!-- Modal: FAQ -->
+<div id="faqModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3>💡 Câu hỏi thường gặp</h3>
+    </div>
+    <div class="modal-body">
+      <div class="faq-item">
+        <div class="faq-q">▸ Làm sao thêm giao dịch nhanh?</div>
+        <div class="faq-a">Bấm dấu <strong>+</strong> ở giữa thanh dưới. Có 3 cách điền: gõ tay, bấm <strong>📷</strong> chụp hoá đơn (OCR tự đọc), hoặc bấm <strong>🎙️</strong> nói "cà phê 50 nghìn".</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">▸ Tôi mất PIN, làm sao mở khoá?</div>
+        <div class="faq-a">Trên màn khoá có nút <strong>"🔓 Quên PIN — mở khoá qua Google"</strong>. Đăng nhập bằng tài khoản Google đã từng dùng → app sẽ tắt PIN cũ và mở khoá. Sau đó vào Cài đặt đặt PIN mới nếu muốn.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">▸ Số dư ví không khớp với giao dịch?</div>
+        <div class="faq-a">Vào Cài đặt → "🔎 Kiểm tra số dư ví theo giao dịch" → app hiện báo cáo so sánh. Nếu lệch, mở Tài khoản → bấm ví → nút "⚖️ Điều chỉnh số dư" để app tạo giao dịch điều chỉnh.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">▸ Sao lưu dữ liệu thế nào?</div>
+        <div class="faq-a">Cài đặt → "Đăng nhập Google" → bấm "Đồng bộ với Google Drive". Dữ liệu lưu trong appDataFolder của Drive (chỉ app này thấy được). Đổi máy vẫn còn nguyên.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">▸ Giao dịch lặp lại (lương, tiền nhà) thì sao?</div>
+        <div class="faq-a">Menu trái → Tài chính → "🔄 Giao dịch định kỳ" → tạo quy tắc. App tự tạo giao dịch khi đến hạn, miễn là bạn mở app sau ngày đó.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">▸ Sổ tiết kiệm — đáo hạn thế nào?</div>
+        <div class="faq-a">Mở sổ → bấm "📅 Đáo hạn" → chọn 1 trong 3: rút hết về ví, gia hạn cộng lãi (compound), hoặc gia hạn rút lãi. Sổ đã đóng vẫn lưu lịch sử trong tab "Đã đóng".</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">▸ Cho người ta vay — sao theo dõi?</div>
+        <div class="faq-a">Menu → Tài chính → "🤝 Cho vay / Nợ" → tạo khoản. App tự sinh giao dịch chi tiêu (cho vay = tiền ra). Mỗi lần đối tác trả → bấm "+ Ghi nhận trả tiền" → tự tạo giao dịch thu nhập.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">▸ App có hoạt động offline không?</div>
+        <div class="faq-a">Có — toàn bộ dữ liệu lưu trên IndexedDB của thiết bị. Chỉ cần internet khi: đăng nhập Google, đồng bộ Drive, dùng OCR (cloud) hoặc Voice (Google STT).</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Privacy + About -->
+<div id="privacyModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3>🔒 Chính sách bảo mật & Về ứng dụng</h3>
+    </div>
+    <div class="modal-body" style="font-size:13px;line-height:1.7;color:var(--text2)">
+      <h4 style="color:var(--text);font-size:15px;margin-bottom:8px">Quản Lý Tiền — Phiên bản 1.0</h4>
+      <p>Phát triển bởi <strong>Nguyễn Thanh</strong>. © 2026. Mọi quyền được bảo lưu.</p>
+
+      <h4 style="color:var(--text);font-size:14px;margin:16px 0 6px">📦 Dữ liệu của bạn được lưu ở đâu?</h4>
+      <ul style="padding-left:20px;margin-bottom:10px">
+        <li><strong>Thiết bị</strong> — IndexedDB (sandbox của app, không app khác đọc được)</li>
+        <li><strong>Google Drive</strong> — chỉ khi bạn chủ động bấm Đồng bộ. File lưu trong <code>appDataFolder</code> của Drive cá nhân (chỉ app này thấy)</li>
+      </ul>
+
+      <h4 style="color:var(--text);font-size:14px;margin:16px 0 6px">🚫 Chúng tôi KHÔNG thu thập</h4>
+      <ul style="padding-left:20px;margin-bottom:10px">
+        <li>Dữ liệu giao dịch, số dư của bạn — không có server</li>
+        <li>Vị trí GPS, danh bạ, SMS</li>
+        <li>Quảng cáo / Analytics bên thứ 3</li>
+      </ul>
+
+      <h4 style="color:var(--text);font-size:14px;margin:16px 0 6px">🔑 Quyền app yêu cầu</h4>
+      <ul style="padding-left:20px;margin-bottom:10px">
+        <li><strong>Camera</strong> — chỉ khi bạn chủ động chụp hoá đơn / minh chứng. Ảnh lưu trên thiết bị, không upload server.</li>
+        <li><strong>Microphone</strong> — chỉ khi bạn bấm 🎙️ Voice input. Audio gửi đến Google STT cloud (chỉ trong lúc dùng tính năng), KHÔNG lưu lại.</li>
+        <li><strong>Internet</strong> — cho đồng bộ Drive + OCR + Voice (tuỳ chọn).</li>
+        <li><strong>Notifications</strong> — nhắc thanh toán, đáo hạn, mục tiêu (tuỳ chọn).</li>
+        <li><strong>Sinh trắc</strong> — vân tay/Face để mở khoá app (tuỳ chọn).</li>
+      </ul>
+
+      <h4 style="color:var(--text);font-size:14px;margin:16px 0 6px">🌐 Bên thứ 3</h4>
+      <ul style="padding-left:20px;margin-bottom:10px">
+        <li>Google Sign-In (đăng nhập)</li>
+        <li>Google Drive API (đồng bộ — chỉ appDataFolder)</li>
+        <li>Google ML Kit (OCR offline trên thiết bị)</li>
+        <li>Google Speech Recognition (cloud — khi dùng Voice)</li>
+      </ul>
+
+      <h4 style="color:var(--text);font-size:14px;margin:16px 0 6px">📞 Liên hệ</h4>
+      <p>Mọi thắc mắc / báo lỗi: <a href="https://zalo.me/0909683666" style="color:var(--accent)" target="_blank">Zalo 0909683666</a></p>
+    </div>
+  </div>
+</div>
+
+<style>
+.faq-item{padding:12px 0;border-bottom:1px solid var(--border)}
+.faq-q{font-weight:600;color:var(--text);cursor:pointer;font-size:14px;line-height:1.5}
+.faq-q:active{color:var(--accent)}
+.faq-a{font-size:13px;color:var(--text2);line-height:1.7;margin-top:8px;padding-left:14px}
+</style>
 
 <!-- ========== ONBOARDING TOUR (first launch) ========== -->
 <div id="onboardModal" class="onboard">
@@ -2320,14 +2427,18 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
           <span>Kèm ảnh hoá đơn / minh chứng vào báo cáo</span>
         </label>
         <label class="fl">Báo cáo trong đợt (chưa chốt chia tiền)</label>
-        <div style="display:flex;gap:8px">
-          <button id="bookExportHTML" class="btn btn-secondary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="bookExportHTML" class="btn btn-secondary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-width:90px">
             <span data-icon="download" style="display:inline-flex;width:18px;height:18px"></span>
             <span>HTML</span>
           </button>
-          <button id="bookExportCSV" class="btn btn-secondary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1">
+          <button id="bookExportPDF" class="btn btn-secondary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-width:90px">
+            <span style="font-size:14px">🖨️</span>
+            <span>In / PDF</span>
+          </button>
+          <button id="bookExportCSV" class="btn btn-secondary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-width:90px">
             <span data-icon="download" style="display:inline-flex;width:18px;height:18px"></span>
-            <span>CSV (Excel)</span>
+            <span>CSV</span>
           </button>
         </div>
         <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">
