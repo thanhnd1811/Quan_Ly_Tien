@@ -4,8 +4,8 @@
         android:shortcutId="add_expense"
         android:enabled="true"
         android:icon="@mipmap/ic_launcher"
-        android:shortLabel="Thêm chi"
-        android:longLabel="Thêm khoản chi tiêu">
+        android:shortLabel="@string/sc_add_expense_short"
+        android:longLabel="@string/sc_add_expense_long">
         <intent
             android:action="android.intent.action.VIEW"
             android:data="qltien://add?type=expense"
@@ -16,8 +16,8 @@
         android:shortcutId="add_income"
         android:enabled="true"
         android:icon="@mipmap/ic_launcher"
-        android:shortLabel="Thêm thu"
-        android:longLabel="Thêm khoản thu nhập">
+        android:shortLabel="@string/sc_add_income_short"
+        android:longLabel="@string/sc_add_income_long">
         <intent
             android:action="android.intent.action.VIEW"
             android:data="qltien://add?type=income"
@@ -28,8 +28,8 @@
         android:shortcutId="add_voice"
         android:enabled="true"
         android:icon="@mipmap/ic_launcher"
-        android:shortLabel="Voice"
-        android:longLabel="Thêm bằng giọng nói">
+        android:shortLabel="@string/sc_voice_short"
+        android:longLabel="@string/sc_voice_long">
         <intent
             android:action="android.intent.action.VIEW"
             android:data="qltien://voice"
@@ -40,8 +40,8 @@
         android:shortcutId="charts"
         android:enabled="true"
         android:icon="@mipmap/ic_launcher"
-        android:shortLabel="Biểu đồ"
-        android:longLabel="Xem biểu đồ chi tiêu">
+        android:shortLabel="@string/sc_charts_short"
+        android:longLabel="@string/sc_charts_long">
         <intent
             android:action="android.intent.action.VIEW"
             android:data="qltien://charts"

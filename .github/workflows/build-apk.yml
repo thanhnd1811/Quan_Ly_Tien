@@ -54,7 +54,9 @@ jobs:
       - name: Inject App Shortcuts (long-press icon menu)
         run: |
           mkdir -p android/app/src/main/res/xml
+          mkdir -p android/app/src/main/res/values
           cp .github/shortcuts.xml android/app/src/main/res/xml/shortcuts.xml
+          cp .github/shortcut_strings.xml android/app/src/main/res/values/shortcut_strings.xml
           python3 - <<'PY'
           import re, sys
           path = 'android/app/src/main/AndroidManifest.xml'
