@@ -350,6 +350,70 @@ const QLT_Voice = (() => {
 })();
 window.QLT_Voice = QLT_Voice;
 
+// ============ GEOLOCATION (capture + reverse geocode) ============
+const QLT_Geo = (() => {
+  function pluginGeo() { return window.Capacitor?.Plugins?.Geolocation || null; }
+
+  return {
+    isEnabled() { return localStorage.getItem('qlt_geo_enabled') === '1'; },
+    setEnabled(v) {
+      if (v) localStorage.setItem('qlt_geo_enabled', '1');
+      else localStorage.removeItem('qlt_geo_enabled');
+    },
+
+    // Lấy toạ độ hiện tại — timeout 8s, độ chính xác cao
+    async getCurrentPosition() {
+      const G = pluginGeo();
+      if (G) {
+        // Plugin Capacitor — auto xin quyền + dùng Fused Location Provider Android
+        try {
+          const perm = await G.checkPermissions();
+          if (perm.location !== 'granted') {
+            const r = await G.requestPermissions();
+            if (r.location !== 'granted') throw new Error('Cần quyền truy cập vị trí');
+          }
+          const pos = await G.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+          return { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
+        } catch (e) { throw e; }
+      }
+      // Web fallback
+      if (!navigator.geolocation) throw new Error('Trình duyệt không hỗ trợ vị trí');
+      return new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+          (err) => reject(new Error(err.message || 'Không lấy được vị trí')),
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+        );
+      });
+    },
+
+    // Reverse geocode qua OSM Nominatim — miễn phí, tiếng Việt
+    // Rate limit 1 req/s — đủ cho dùng cá nhân (1 GD ~ 1 geocode)
+    async reverseGeocode(lat, lng) {
+      try {
+        const r = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=vi&zoom=16`,
+          { headers: { 'User-Agent': 'QuanLyTien/1.0 (personal-finance-app)' } }
+        );
+        if (!r.ok) return null;
+        const data = await r.json();
+        // Format ngắn: "Phường X, Quận Y, TP.Z"
+        const a = data.address || {};
+        const parts = [];
+        if (a.suburb || a.quarter || a.neighbourhood) parts.push(a.suburb || a.quarter || a.neighbourhood);
+        if (a.city_district || a.district) parts.push(a.city_district || a.district);
+        if (a.city || a.town || a.village) parts.push(a.city || a.town || a.village);
+        const short = parts.length > 0 ? parts.join(', ') : (data.display_name || '').split(',').slice(0, 3).join(',');
+        return { address: short, full: data.display_name || '' };
+      } catch (e) {
+        console.warn('Reverse geocode lỗi:', e);
+        return null;
+      }
+    }
+  };
+})();
+window.QLT_Geo = QLT_Geo;
+
 // ============ POPUP CALCULATOR ============
 // Một bàn phím số chuyên dụng (như Money Lover/MISA): tap input số tiền → mở popup
 // keypad. Người dùng nhập, có thể +,−,×,÷,%,±,⌫,C. Bấm "=" → kết quả ghi lại input.
@@ -1796,7 +1860,11 @@ const App = {
     } else {
       recentEl.innerHTML = recent.map(t => this.renderTxItem(t)).join('');
       recentEl.querySelectorAll('[data-tx]').forEach(el => {
-        el.onclick = () => this.openTxModal(el.dataset.tx);
+        el.onclick = (e) => {
+          const lb = e.target.closest('[data-tx-loc]');
+          if (lb) { e.stopPropagation(); this.openTxLocation(lb.dataset.txLoc); return; }
+          this.openTxModal(el.dataset.tx);
+        };
       });
     }
   },
@@ -1830,6 +1898,9 @@ const App = {
     const tagsHtml = (Array.isArray(t.tags) && t.tags.length > 0)
       ? ' ' + t.tags.slice(0, 3).map(tg => `<span class="tx-tag-display">${this.escapeHtml(tg)}</span>`).join('')
       : '';
+    const locHtml = t.location?.address
+      ? ` <span class="tx-loc-badge" data-tx-loc="${t.id}" title="${this.escapeHtml(t.location.fullAddress || t.location.address)}">📍 ${this.escapeHtml(t.location.address)}</span>`
+      : '';
     return `
       <div class="tx-item" data-tx="${t.id}">
         <div class="tx-icon" style="background:${cat.color || '#888'}1a;color:${cat.color || '#888'}">
@@ -1837,11 +1908,20 @@ const App = {
         </div>
         <div class="tx-info">
           <div class="tx-cat">${cat.name || 'Không rõ'} ${photoBadge}${tagsHtml}</div>
-          <div class="tx-meta">${this.formatDate(t.date)} · ${acc.name || ''} ${t.note ? '· ' + this.escapeHtml(t.note) : ''}</div>
+          <div class="tx-meta">${this.formatDate(t.date)} · ${acc.name || ''} ${t.note ? '· ' + this.escapeHtml(t.note) : ''}${locHtml}</div>
         </div>
         <div class="tx-amount ${colorClass}">${sign}${fmt(t.amount)}</div>
       </div>
     `;
+  },
+
+  // Mở Google Maps native với toạ độ tx
+  openTxLocation(txId) {
+    const tx = this.state.transactions.find(x => x.id === txId);
+    if (!tx?.location) return;
+    const { lat, lng } = tx.location;
+    const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    window.open(url, '_blank');
   },
 
   formatDate(d) {
@@ -2133,7 +2213,16 @@ const App = {
           if (this.state.bulkSelected.has(el.dataset.tx)) el.classList.add('selected');
           el.onclick = () => this._bulkToggle(el.dataset.tx, el);
         } else {
-          el.onclick = () => this.openTxModal(el.dataset.tx);
+          el.onclick = (e) => {
+            // Bấm vào badge vị trí → mở Maps, không mở edit modal
+            const locBadge = e.target.closest('[data-tx-loc]');
+            if (locBadge) {
+              e.stopPropagation();
+              this.openTxLocation(locBadge.dataset.txLoc);
+              return;
+            }
+            this.openTxModal(el.dataset.tx);
+          };
         }
       });
     }
@@ -4047,6 +4136,46 @@ const App = {
     // Storage info — đếm tx, photos, size data
     this.renderStorageInfo();
 
+    // Geolocation toggle
+    const geoEnabled = $('#setGeoEnabled');
+    if (geoEnabled) {
+      geoEnabled.checked = QLT_Geo.isEnabled();
+      geoEnabled.onchange = async (e) => {
+        if (e.target.checked) {
+          // Lần đầu enable — confirm + xin quyền
+          const ok = await QLT_UI.confirm(
+            '📍 BẬT lưu vị trí giao dịch?\n\n• Mỗi GD tạo MỚI sẽ ghi toạ độ GPS + địa chỉ\n• Dữ liệu lưu LOCAL trên máy bạn — KHÔNG gửi server\n• Địa chỉ tra qua OpenStreetMap miễn phí\n• Tắt bất cứ lúc nào, dữ liệu cũ vẫn còn',
+            { title: '🔒 Quyền riêng tư', okLabel: 'Bật', cancelLabel: 'Huỷ' }
+          );
+          if (!ok) { e.target.checked = false; return; }
+          // Test thử xin quyền GPS
+          try {
+            await QLT_Geo.getCurrentPosition();
+            QLT_Geo.setEnabled(true);
+            QLT_UI.toast('Đã bật ghi vị trí', { type: 'success' });
+          } catch (err) {
+            e.target.checked = false;
+            QLT_UI.alert('Không xin được quyền GPS: ' + (err?.message || err) + '\n\nVào Cài đặt Android → Apps → Quản Lý Tiền → Permissions → bật Location.', { title: 'Lỗi quyền' });
+          }
+        } else {
+          QLT_Geo.setEnabled(false);
+          QLT_UI.toast('Đã tắt ghi vị trí', { type: 'success' });
+        }
+      };
+    }
+    const geoClear = $('#setGeoClear');
+    if (geoClear) geoClear.onclick = async () => {
+      if (!await QLT_UI.confirm('Xoá vị trí GPS đã lưu trên TẤT CẢ giao dịch? Hành động không thể hoàn tác.', { okLabel: 'Xoá hết', danger: true })) return;
+      const all = await window.QLT_Store.getAll('transactions');
+      let n = 0;
+      for (const t of all) {
+        if (t.location) { delete t.location; await window.QLT_Store.put('transactions', t); n++; }
+      }
+      await this.reload();
+      QLT_UI.toast(`Đã xoá vị trí khỏi ${n} giao dịch`, { type: 'success' });
+      this.autoSync();
+    };
+
     const dailyNotif = $('#setDailyNotif');
     if (dailyNotif) {
       dailyNotif.checked = localStorage.getItem('qlt_daily_notif_off') !== '1';
@@ -4522,7 +4651,15 @@ const App = {
     // Áp giao dịch mới
     await this.applyBalanceDelta(t, +1);
 
-    await window.QLT_Store.put('transactions', t);
+    const saved = await window.QLT_Store.put('transactions', t);
+
+    // Capture vị trí GPS — CHỈ với tx tạo MỚI + user đã bật toggle
+    // Async (không block save) — tx đã saved, location được patch sau
+    const isNewTx = !oldTx;
+    if (isNewTx && QLT_Geo.isEnabled() && t.type !== 'transfer') {
+      this._captureLocationAsync(saved.id);
+    }
+
     await this.reload();
     $('#txModal').classList.remove('open');
     this.switchTab(this.state.currentTab);
@@ -4538,6 +4675,34 @@ const App = {
     }
 
     this.autoSync();
+  },
+
+  // Capture GPS + reverse geocode async, patch tx.location sau khi xong
+  async _captureLocationAsync(txId) {
+    try {
+      const pos = await QLT_Geo.getCurrentPosition();
+      if (!pos) return;
+      const tx = await window.QLT_Store.get('transactions', txId);
+      if (!tx) return;
+      tx.location = { lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy };
+      await window.QLT_Store.put('transactions', tx);
+
+      // Reverse geocode async (không chặn nếu offline)
+      const geo = await QLT_Geo.reverseGeocode(pos.lat, pos.lng);
+      if (geo) {
+        tx.location.address = geo.address;
+        tx.location.fullAddress = geo.full;
+        await window.QLT_Store.put('transactions', tx);
+      }
+
+      // Re-render nếu user đang xem tab cùng
+      await this.reload();
+      if (this.state.currentTab === 'home') this.renderHome();
+      if (this.state.currentTab === 'transactions') this.renderTransactions();
+    } catch (e) {
+      console.warn('Capture location lỗi:', e?.message || e);
+      // Không hiện toast (tránh spam) — chỉ log
+    }
   },
 
   // Học từ khoá từ câu nói: trích từ "đặc trưng" (key term không phải số/đơn vị/connector)
@@ -4744,6 +4909,18 @@ const App = {
       accountId = accIdxs[0]?.id || null;
     }
 
+    // 3.5) Tags từ câu nói: pattern "thẻ X" / "thẻ X thẻ Y"
+    // Bắt cụm sau "thẻ" (1-2 từ) cho đến khi gặp "thẻ" tiếp / số tiền / hết câu
+    const tags = [];
+    const tagRegex = /\bthe\s+([a-z0-9 ]{2,30}?)(?=\s+the\b|\s+\d|\s*$)/g;
+    let tm;
+    while ((tm = tagRegex.exec(norm)) !== null) {
+      const raw = tm[1].trim();
+      // Cắt tối đa 2 từ
+      const words = raw.split(/\s+/).slice(0, 2).join(' ');
+      if (words && !tags.includes('#' + words)) tags.push('#' + words);
+    }
+
     // 4) Danh mục — chỉ với expense/income, match trong cùng type
     let categoryId = null;
     if (type !== 'transfer') {
@@ -4832,7 +5009,7 @@ const App = {
       categoryId = best?.id || null;
     }
 
-    return { type, amount, accountId, toAccountId, categoryId, note: text.trim() };
+    return { type, amount, accountId, toAccountId, categoryId, tags, note: text.trim() };
   },
 
   async voiceInput() {
@@ -4898,6 +5075,16 @@ const App = {
             if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
             QLT_UI.toast('Chọn danh mục cho giao dịch (không tìm thấy danh mục phù hợp từ câu nói)', { type: 'info', duration: 3000 });
           }, 600);
+        }
+
+        // Tags từ câu nói (pattern "thẻ X")
+        if (Array.isArray(parsed.tags) && parsed.tags.length > 0) {
+          this.state.editingTx.tags = this.state.editingTx.tags || [];
+          for (const t of parsed.tags) {
+            if (!this.state.editingTx.tags.includes(t)) this.state.editingTx.tags.push(t);
+          }
+          // Re-render chips
+          this.renderTxTags();
         }
 
         // Ghi chú = câu nói gốc

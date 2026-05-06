@@ -1796,6 +1796,22 @@ html[data-theme="dark"] .rec-type-pill.on{
     </div>
 
     <div class="section">
+      <div class="sec-label">🔒 Quyền riêng tư</div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label" style="line-height:1.5">📍 Lưu vị trí giao dịch
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">Khi bật, mỗi GD tạo MỚI sẽ ghi toạ độ + địa chỉ. Lưu local, không gửi server.</div>
+      </span>
+      <label class="qlt-switch">
+        <input type="checkbox" id="setGeoEnabled">
+        <span class="qlt-switch-slider"></span>
+      </label>
+    </div>
+    <div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:10px">
+      <button id="setGeoClear" class="btn btn-secondary btn-block">🗑️ Xoá toàn bộ vị trí đã lưu</button>
+    </div>
+
+    <div class="section">
       <div class="sec-label">🏠 Hiển thị trên Trang chủ</div>
     </div>
     <div id="setHomeWidgets"></div>
@@ -2028,6 +2044,9 @@ html[data-theme="dark"] .cat-kw-chip{background:#3a2f1a;color:#f4d77c;border-col
 .tx-tag-suggestion{padding:4px 10px;border-radius:14px;background:var(--surface2);color:var(--text2);font-size:11px;cursor:pointer;border:1px dashed var(--border)}
 .tx-tag-suggestion:active{background:var(--acl);color:var(--accent)}
 .tx-tag-display{display:inline-flex;align-items:center;background:var(--acl);color:var(--accent);padding:1px 7px;border-radius:8px;font-size:10px;font-weight:600;margin-right:3px}
+.tx-loc-badge{display:inline-flex;align-items:center;background:#e8f4fd;color:#0a558c;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;cursor:pointer;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tx-loc-badge:active{background:#cfe5fa}
+html[data-theme="dark"] .tx-loc-badge{background:#1a3a5c;color:#7eb6e8}
 
 /* Streak badge ở home */
 .streak-badge{display:inline-flex;align-items:center;gap:4px;background:linear-gradient(135deg,#ff6b35,#f7931e);color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;margin-left:6px;box-shadow:0 1px 4px rgba(255,107,53,.4)}
