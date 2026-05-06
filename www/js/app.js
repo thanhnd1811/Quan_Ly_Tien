@@ -528,7 +528,7 @@ const App = {
     maintenanceLogs: [],
     recurringRules: [],
     currentTab: 'home',
-    txFilter: { type: 'all', period: 'month', accountId: 'all', search: '', categoryId: 'all', amountMin: 0, amountMax: 0, photoOnly: false, dateFrom: '', dateTo: '' },
+    txFilter: { type: 'all', period: 'month', accountId: 'all', search: '', categoryId: 'all', amountMin: 0, amountMax: 0, photoOnly: false, dateFrom: '', dateTo: '', tags: [] },
     chartPeriod: 'month',
     chartFrom: '',
     chartTo: '',
@@ -543,6 +543,126 @@ const App = {
     editingLoan: null,
     editingBudget: null,
     editingGoal: null
+  },
+
+  // ====== TAGS cho giao dịch ======
+  // Lấy distinct tags từ tất cả transactions (sort theo tần suất giảm dần)
+  getAllTags() {
+    const counter = {};
+    for (const t of this.state.transactions) {
+      if (Array.isArray(t.tags)) {
+        for (const tag of t.tags) {
+          if (tag && typeof tag === 'string') counter[tag] = (counter[tag] || 0) + 1;
+        }
+      }
+    }
+    return Object.entries(counter).sort((a, b) => b[1] - a[1]).map(x => x[0]);
+  },
+
+  renderTxTags() {
+    const wrap = $('#txTagsWrap');
+    const sugWrap = $('#txTagSuggestions');
+    const input = $('#txTagInput');
+    if (!wrap || !input) return;
+
+    const tx = this.state.editingTx;
+    const renderChips = () => {
+      wrap.innerHTML = (tx.tags || []).map(t =>
+        `<span class="tx-tag-chip">${this.escapeHtml(t)} <span class="tx-tag-x" data-tag-rm="${this.escapeHtml(t)}">✕</span></span>`
+      ).join('');
+      wrap.querySelectorAll('[data-tag-rm]').forEach(el => {
+        el.onclick = () => {
+          tx.tags = tx.tags.filter(x => x !== el.dataset.tagRm);
+          renderChips();
+        };
+      });
+    };
+    renderChips();
+
+    // Suggestions: tags đã có trừ tags đang chọn, top 8
+    const all = this.getAllTags().filter(x => !tx.tags.includes(x)).slice(0, 8);
+    sugWrap.innerHTML = all.map(t =>
+      `<span class="tx-tag-suggestion" data-tag-add="${this.escapeHtml(t)}">+ ${this.escapeHtml(t)}</span>`
+    ).join('');
+    sugWrap.querySelectorAll('[data-tag-add]').forEach(el => {
+      el.onclick = () => {
+        const v = el.dataset.tagAdd;
+        if (!tx.tags.includes(v)) tx.tags.push(v);
+        renderChips();
+        const newAll = this.getAllTags().filter(x => !tx.tags.includes(x)).slice(0, 8);
+        sugWrap.innerHTML = newAll.map(t =>
+          `<span class="tx-tag-suggestion" data-tag-add="${this.escapeHtml(t)}">+ ${this.escapeHtml(t)}</span>`
+        ).join('');
+        sugWrap.querySelectorAll('[data-tag-add]').forEach(e => e.onclick = el.onclick);
+      };
+    });
+
+    // Enter để thêm tag mới từ input
+    input.value = '';
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ',') {
+        e.preventDefault();
+        let v = input.value.trim().replace(/^#/, '');
+        if (!v) return;
+        if (!v.startsWith('#')) v = '#' + v;
+        if (!tx.tags.includes(v)) tx.tags.push(v);
+        input.value = '';
+        renderChips();
+      }
+    };
+  },
+
+  // ====== SEARCH HISTORY (auto-suggest note) ======
+  saveSearchHistory(term) {
+    if (!term || term.length < 2) return;
+    let hist = JSON.parse(localStorage.getItem('qlt_search_hist') || '[]');
+    hist = hist.filter(x => x !== term);
+    hist.unshift(term);
+    hist = hist.slice(0, 10);
+    localStorage.setItem('qlt_search_hist', JSON.stringify(hist));
+  },
+  getSearchHistory() {
+    try { return JSON.parse(localStorage.getItem('qlt_search_hist') || '[]'); }
+    catch (_) { return []; }
+  },
+
+  _renderSearchHistorySuggest(hide = false) {
+    let el = document.getElementById('txSearchHistory');
+    if (hide) { if (el) el.remove(); return; }
+    const hist = this.getSearchHistory();
+    if (hist.length === 0) return;
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'txSearchHistory';
+      el.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:12px;margin:6px 16px 0;padding:8px;box-shadow:0 4px 12px rgba(0,0,0,.08)';
+      $('#screen-transactions .tx-search-row').after(el);
+    }
+    el.innerHTML = '<div style="font-size:11px;color:var(--text3);margin-bottom:6px;padding:0 4px">📚 Từ khoá đã tìm gần đây</div>' +
+      hist.map(h => `<span class="tx-tag-suggestion" data-hist="${this.escapeHtml(h)}" style="display:inline-block;margin:2px">${this.escapeHtml(h)}</span>`).join('');
+    el.querySelectorAll('[data-hist]').forEach(b => {
+      b.onclick = () => {
+        const search = $('#txSearch');
+        search.value = b.dataset.hist;
+        this.state.txFilter.search = b.dataset.hist;
+        this.renderTransactions();
+        this._renderSearchHistorySuggest(true);
+      };
+    });
+  },
+
+  // ====== STREAK — số ngày liên tiếp ghi giao dịch ======
+  computeStreak() {
+    const dates = new Set(this.state.transactions.map(t => t.date));
+    let streak = 0;
+    const d = new Date();
+    // Cho phép ngày HÔM NAY chưa có giao dịch (streak vẫn tính từ hôm qua trở về)
+    if (!dates.has(d.toISOString().slice(0, 10))) d.setDate(d.getDate() - 1);
+    while (dates.has(d.toISOString().slice(0, 10))) {
+      streak++;
+      d.setDate(d.getDate() - 1);
+      if (streak > 365) break;
+    }
+    return streak;
   },
 
   // Auto backup hằng tuần lên Drive — chạy khi mở app nếu cần
@@ -1376,7 +1496,10 @@ const App = {
     }
     $('#homeIncome').textContent = fmt(inc) + ' đ';
     $('#homeExpense').textContent = fmt(exp) + ' đ';
-    $('#homeMonth').textContent = `Tháng ${now.getMonth() + 1}/${now.getFullYear()}`;
+    // Streak badge (nếu ≥3 ngày liên tiếp)
+    const streak = this.computeStreak();
+    const streakHtml = streak >= 3 ? `<span class="streak-badge">🔥 ${streak} ngày liên tiếp</span>` : '';
+    $('#homeMonth').innerHTML = `Tháng ${now.getMonth() + 1}/${now.getFullYear()}${streakHtml}`;
 
     // ----- Số dư từng ví (CHỈ payment) -----
     const walletEl = $('#homeWallets');
@@ -1491,13 +1614,16 @@ const App = {
     const cat = this.state.categories.find(c => c.id === t.categoryId) || {};
     const sign = t.type === 'income' ? '+' : '-';
     const colorClass = t.type === 'income' ? 'amount-pos' : 'amount-neg';
+    const tagsHtml = (Array.isArray(t.tags) && t.tags.length > 0)
+      ? ' ' + t.tags.slice(0, 3).map(tg => `<span class="tx-tag-display">${this.escapeHtml(tg)}</span>`).join('')
+      : '';
     return `
       <div class="tx-item" data-tx="${t.id}">
         <div class="tx-icon" style="background:${cat.color || '#888'}1a;color:${cat.color || '#888'}">
           ${svgIcon(cat.icon || 'other')}
         </div>
         <div class="tx-info">
-          <div class="tx-cat">${cat.name || 'Không rõ'} ${photoBadge}</div>
+          <div class="tx-cat">${cat.name || 'Không rõ'} ${photoBadge}${tagsHtml}</div>
           <div class="tx-meta">${this.formatDate(t.date)} · ${acc.name || ''} ${t.note ? '· ' + this.escapeHtml(t.note) : ''}</div>
         </div>
         <div class="tx-amount ${colorClass}">${sign}${fmt(t.amount)}</div>
@@ -1672,10 +1798,17 @@ const App = {
         searchInput.oninput = () => {
           clearTimeout(debounce);
           debounce = setTimeout(() => {
-            this.state.txFilter.search = searchInput.value.trim();
+            const v = searchInput.value.trim();
+            this.state.txFilter.search = v;
+            if (v.length >= 2) this.saveSearchHistory(v);
             this.renderTransactions();
           }, 200);
         };
+        // Hiện history khi focus + ô trống
+        searchInput.onfocus = () => {
+          if (!searchInput.value.trim()) this._renderSearchHistorySuggest();
+        };
+        searchInput.onblur = () => setTimeout(() => this._renderSearchHistorySuggest(true), 200);
         $('#txSearchClear').onclick = () => {
           searchInput.value = '';
           this.state.txFilter.search = '';
@@ -1720,6 +1853,10 @@ const App = {
     if (f.amountMax > 0) txs = txs.filter(t => (t.amount || 0) <= f.amountMax);
     // Filter photo only
     if (f.photoOnly) txs = txs.filter(t => this.getTxPhotos(t).length > 0);
+    // Filter tags (OR logic — match nếu có ÍT NHẤT 1 tag)
+    if (Array.isArray(f.tags) && f.tags.length > 0) {
+      txs = txs.filter(t => Array.isArray(t.tags) && t.tags.some(tg => f.tags.includes(tg)));
+    }
     // Filter date range
     const range = this._computeDateRange(f);
     if (range.from) txs = txs.filter(t => t.date >= range.from);
@@ -3748,6 +3885,9 @@ const App = {
     // Chuẩn hoá photos cho editingTx (giữ tương thích schema cũ tx.photo)
     this.state.editingTx = { ...tx, photos: this.getTxPhotos(tx) };
     delete this.state.editingTx.photo;
+    // Init tags array
+    if (!Array.isArray(this.state.editingTx.tags)) this.state.editingTx.tags = [];
+    this.renderTxTags();
     $('#txForm').dataset.type = tx.type;
     $$('.tx-type-pill').forEach(el => {
       el.classList.toggle('on', el.dataset.type === tx.type);
@@ -5810,6 +5950,34 @@ const App = {
     $('#txFilterCategory').innerHTML = '<option value="all">Tất cả danh mục</option>' +
       cats.map(c => `<option value="${c.id}">${c.type === 'expense' ? '📤' : c.type === 'income' ? '📥' : ''} ${this.escapeHtml(c.name)}</option>`).join('');
     if (f.categoryId) $('#txFilterCategory').value = f.categoryId;
+
+    // Tags toggle pills
+    const tagsWrap = $('#txFilterTagsWrap');
+    const allTags = this.getAllTags();
+    if (tagsWrap) {
+      if (allTags.length === 0) {
+        tagsWrap.innerHTML = '<span style="color:var(--text3);font-size:12px;font-style:italic">Chưa có thẻ nào</span>';
+      } else {
+        tagsWrap.innerHTML = allTags.map(t => {
+          const on = (f.tags || []).includes(t);
+          return `<span class="pill ${on ? 'on' : ''}" data-tag-toggle="${this.escapeHtml(t)}">${this.escapeHtml(t)}</span>`;
+        }).join('');
+        tagsWrap.querySelectorAll('[data-tag-toggle]').forEach(el => {
+          el.onclick = () => {
+            const t = el.dataset.tagToggle;
+            this.state.txFilter.tags = this.state.txFilter.tags || [];
+            if (this.state.txFilter.tags.includes(t)) {
+              this.state.txFilter.tags = this.state.txFilter.tags.filter(x => x !== t);
+              el.classList.remove('on');
+            } else {
+              this.state.txFilter.tags.push(t);
+              el.classList.add('on');
+            }
+          };
+        });
+      }
+    }
+
     $('#txFilterModal').classList.add('open');
   },
 
@@ -5827,7 +5995,7 @@ const App = {
   },
 
   resetTxFilter() {
-    this.state.txFilter = { type: 'all', period: 'month', accountId: 'all', search: '', categoryId: 'all', amountMin: 0, amountMax: 0, photoOnly: false, dateFrom: '', dateTo: '' };
+    this.state.txFilter = { type: 'all', period: 'month', accountId: 'all', search: '', categoryId: 'all', amountMin: 0, amountMax: 0, photoOnly: false, dateFrom: '', dateTo: '', tags: [] };
     $('#txFilterModal').classList.remove('open');
     this.renderTransactions();
   },
