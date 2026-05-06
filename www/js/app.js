@@ -529,6 +529,8 @@ const App = {
     recurringRules: [],
     currentTab: 'home',
     txFilter: { type: 'all', period: 'month', accountId: 'all', search: '', categoryId: 'all', amountMin: 0, amountMax: 0, photoOnly: false, dateFrom: '', dateTo: '', tags: [] },
+    bulkMode: false,
+    bulkSelected: new Set(),
     chartPeriod: 'month',
     chartFrom: '',
     chartTo: '',
@@ -543,6 +545,102 @@ const App = {
     editingLoan: null,
     editingBudget: null,
     editingGoal: null
+  },
+
+  // ====== BULK SELECT ======
+  _bulkToggle(txId, el) {
+    if (this.state.bulkSelected.has(txId)) {
+      this.state.bulkSelected.delete(txId);
+      el.classList.remove('selected');
+    } else {
+      this.state.bulkSelected.add(txId);
+      el.classList.add('selected');
+    }
+    $('#txBulkCount').textContent = this.state.bulkSelected.size + ' đã chọn';
+  },
+  _enterBulkMode() {
+    this.state.bulkMode = true;
+    this.state.bulkSelected = new Set();
+    this.renderTransactions();
+  },
+  _exitBulkMode() {
+    this.state.bulkMode = false;
+    this.state.bulkSelected = new Set();
+    this.renderTransactions();
+  },
+  async _bulkDelete() {
+    const ids = Array.from(this.state.bulkSelected);
+    if (ids.length === 0) { QLT_UI.toast('Chưa chọn giao dịch nào', { type: 'error' }); return; }
+    if (!await QLT_UI.confirm(`Xoá ${ids.length} giao dịch đã chọn? Hành động này áp dụng applyBalanceDelta cho từng cái.`, { okLabel: 'Xoá', danger: true })) return;
+    const snapshots = [];
+    for (const id of ids) {
+      const t = this.state.transactions.find(x => x.id === id);
+      if (!t) continue;
+      snapshots.push(JSON.parse(JSON.stringify(t)));
+      await this.applyBalanceDelta(t, -1);
+      await window.QLT_Store.del('transactions', id);
+    }
+    this._exitBulkMode();
+    await this.reload();
+    this.renderTransactions();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.showUndoToast(`🗑️ Đã xoá ${snapshots.length} giao dịch`, async () => {
+      for (const s of snapshots) {
+        await this.applyBalanceDelta(s, +1);
+        await window.QLT_Store.put('transactions', s);
+      }
+      await this.reload();
+      this.renderTransactions();
+      if (this.state.currentTab === 'home') this.renderHome();
+      QLT_UI.toast('Đã khôi phục', { type: 'success' });
+      this.autoSync();
+    });
+    this.autoSync();
+  },
+  async _bulkChangeCategory() {
+    const ids = Array.from(this.state.bulkSelected);
+    if (ids.length === 0) { QLT_UI.toast('Chưa chọn giao dịch nào', { type: 'error' }); return; }
+    // Tạo chooser đơn giản: prompt với danh sách category
+    const txs = ids.map(id => this.state.transactions.find(x => x.id === id)).filter(Boolean);
+    // Chỉ áp dụng cho expense/income — skip transfer
+    const types = new Set(txs.map(t => t.type));
+    if (types.size > 1 || types.has('transfer')) {
+      QLT_UI.alert('Chỉ áp dụng được khi tất cả giao dịch chọn cùng loại Chi hoặc Thu (không hỗ trợ Chuyển khoản).', { title: 'Không áp dụng được' });
+      return;
+    }
+    const type = [...types][0];
+    const cats = this.state.categories.filter(c => c.type === type);
+    if (cats.length === 0) { QLT_UI.toast('Không có danh mục phù hợp', { type: 'error' }); return; }
+    const html = `<div style="text-align:left;font-size:13px;line-height:1.6">Chọn danh mục mới cho <strong>${ids.length}</strong> giao dịch ${type === 'expense' ? 'Chi' : 'Thu'}:</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;max-height:300px;overflow-y:auto">
+        ${cats.map(c => `<span class="pill" data-cat-pick="${c.id}" style="cursor:pointer">${this.escapeHtml(c.name)}</span>`).join('')}
+      </div>`;
+    // Custom modal — dùng existing dialog
+    const dlg = document.getElementById('qltDialog');
+    document.getElementById('qltDialogTitle').textContent = '🏷️ Đổi danh mục';
+    document.getElementById('qltDialogTitle').style.display = 'block';
+    document.getElementById('qltDialogMsg').innerHTML = html;
+    document.getElementById('qltDialogActions').innerHTML = '<button class="qlt-dialog-btn" id="bulkCatCancel">Huỷ</button>';
+    dlg.classList.add('open');
+    document.getElementById('bulkCatCancel').onclick = () => dlg.classList.remove('open');
+    dlg.querySelectorAll('[data-cat-pick]').forEach(el => {
+      el.onclick = async () => {
+        const newCat = el.dataset.catPick;
+        dlg.classList.remove('open');
+        for (const id of ids) {
+          const t = this.state.transactions.find(x => x.id === id);
+          if (t) {
+            t.categoryId = newCat;
+            await window.QLT_Store.put('transactions', t);
+          }
+        }
+        this._exitBulkMode();
+        await this.reload();
+        this.renderTransactions();
+        QLT_UI.toast(`Đã đổi danh mục cho ${ids.length} giao dịch`, { type: 'success' });
+        this.autoSync();
+      };
+    });
   },
 
   // ====== TAGS cho giao dịch ======
@@ -1097,6 +1195,12 @@ const App = {
     // Tx filter modal
     const txfApply = $('#txFilterApply'); if (txfApply) txfApply.onclick = () => this.applyTxFilter();
     const txfReset = $('#txFilterReset'); if (txfReset) txfReset.onclick = () => this.resetTxFilter();
+
+    // Bulk select
+    const bEnter = $('#txEnterBulkBtn'); if (bEnter) bEnter.onclick = () => this._enterBulkMode();
+    const bCancel = $('#txBulkCancel'); if (bCancel) bCancel.onclick = () => this._exitBulkMode();
+    const bDel = $('#txBulkDelete'); if (bDel) bDel.onclick = () => this._bulkDelete();
+    const bCat = $('#txBulkChangeCat'); if (bCat) bCat.onclick = () => this._bulkChangeCategory();
 
     // Category form
     $('#catSave').onclick = () => this.saveCat();
@@ -1941,9 +2045,24 @@ const App = {
       }).join('');
 
       list.querySelectorAll('[data-tx]').forEach(el => {
-        el.onclick = () => this.openTxModal(el.dataset.tx);
+        if (this.state.bulkMode) {
+          el.classList.add('bulk-mode');
+          if (this.state.bulkSelected.has(el.dataset.tx)) el.classList.add('selected');
+          el.onclick = () => this._bulkToggle(el.dataset.tx, el);
+        } else {
+          el.onclick = () => this.openTxModal(el.dataset.tx);
+        }
       });
     }
+
+    // Bulk bar visibility
+    const bar = $('#txBulkBar');
+    if (bar) {
+      bar.classList.toggle('open', this.state.bulkMode);
+      $('#txBulkCount').textContent = this.state.bulkSelected.size + ' đã chọn';
+    }
+    const enterBtn = $('#txEnterBulkBtn');
+    if (enterBtn) enterBtn.style.display = this.state.bulkMode ? 'none' : 'inline-block';
 
     $$('#screen-transactions .tx-filter-pill').forEach(el => {
       el.onclick = () => {

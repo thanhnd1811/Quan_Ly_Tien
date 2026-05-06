@@ -895,7 +895,16 @@ html[data-theme="dark"] .insights-head{color:#f4d77c}
     </div>
     <div class="pill-row" id="txAccountFilterRow"></div>
     <div id="txActiveFilters" style="display:none;padding:0 16px 8px"></div>
+    <div id="txBulkBar" style="display:none;background:var(--accent);color:#fff;padding:10px 16px;align-items:center;gap:10px;position:sticky;top:0;z-index:5">
+      <button id="txBulkCancel" style="background:rgba(255,255,255,.18);color:#fff;border:none;padding:6px 12px;border-radius:14px;font-size:12px;font-weight:600">✕ Huỷ</button>
+      <span id="txBulkCount" style="flex:1;font-size:13px;font-weight:600">0 đã chọn</span>
+      <button id="txBulkChangeCat" style="background:rgba(255,255,255,.18);color:#fff;border:none;padding:6px 12px;border-radius:14px;font-size:12px;font-weight:600">🏷️ Đổi DM</button>
+      <button id="txBulkDelete" style="background:#e63946;color:#fff;border:none;padding:6px 12px;border-radius:14px;font-size:12px;font-weight:600">🗑️ Xoá</button>
+    </div>
     <div id="txList"></div>
+    <div style="padding:10px 16px;text-align:center">
+      <button id="txEnterBulkBtn" style="background:transparent;border:1px dashed var(--border);color:var(--text2);padding:8px 14px;border-radius:14px;font-size:12px;cursor:pointer">☑ Chọn nhiều</button>
+    </div>
   </div>
 </div>
 
@@ -1947,6 +1956,13 @@ html[data-theme="dark"] .insights-head{color:#f4d77c}
 </div>
 
 <style>
+/* Bulk select mode */
+.tx-item.bulk-mode{padding-left:46px;position:relative}
+.tx-item.bulk-mode::before{content:'';position:absolute;left:14px;top:50%;transform:translateY(-50%);width:22px;height:22px;border:2px solid var(--border);border-radius:50%;background:var(--surface)}
+.tx-item.bulk-mode.selected::before{background:var(--accent);border-color:var(--accent);content:'✓';color:#fff;font-weight:700;font-size:14px;text-align:center;line-height:18px}
+#txBulkBar{display:none}
+#txBulkBar.open{display:flex}
+
 /* Tx tags chip + suggestion */
 .tx-tag-chip{display:inline-flex;align-items:center;gap:4px;background:var(--acl);color:var(--accent);padding:4px 10px;border-radius:14px;font-size:12px;font-weight:600}
 .tx-tag-chip .tx-tag-x{cursor:pointer;font-weight:700;opacity:.7;padding:0 2px}
