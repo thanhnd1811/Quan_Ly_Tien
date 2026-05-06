@@ -57,14 +57,12 @@ jobs:
 
           # 2) Thêm intent-filter cho deeplink qltien:// (cho shortcuts trỏ tới)
           if 'android:scheme="qltien"' not in m:
-              filter_tag = '''
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="qltien" />
-            </intent-filter>
-'''
+              filter_tag = ('\n            <intent-filter>'
+                            '\n                <action android:name="android.intent.action.VIEW" />'
+                            '\n                <category android:name="android.intent.category.DEFAULT" />'
+                            '\n                <category android:name="android.intent.category.BROWSABLE" />'
+                            '\n                <data android:scheme="qltien" />'
+                            '\n            </intent-filter>\n')
               m_new, n = re.subn(r'(</intent-filter>)(\s*</activity>)', r'\1' + filter_tag + r'\2', m, count=1)
               if n == 0:
                   print('::warning::Không thêm được intent-filter qltien://')
