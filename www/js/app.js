@@ -120,6 +120,166 @@ function readAmount(el) {
   return v ? parseInt(v, 10) : 0;
 }
 
+// ============ VOICE INPUT (đọc giọng nói tiếng Việt → giao dịch) ============
+// Bỏ dấu để so khớp keyword không phụ thuộc dấu (đ → d)
+function normalizeVi(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd');
+}
+
+// Map từ chữ → số (cho cụm "một triệu", "hai trăm nghìn", v.v.)
+const VI_DIGIT_WORDS = {
+  'khong': 0, 'mot': 1, 'hai': 2, 'ba': 3, 'bon': 4, 'tu': 4,
+  'nam': 5, 'sau': 6, 'bay': 7, 'tam': 8, 'chin': 9, 'muoi': 10,
+  'tram': 100, 'nghin': 1000, 'ngan': 1000, 'trieu': 1000000, 'ty': 1000000000
+};
+
+// Trích số tiền từ câu nói tiếng Việt
+// Hỗ trợ: "50 nghìn", "80k", "1tr2", "1 triệu 200", "200000", "một triệu hai"
+function parseVoiceAmount(text) {
+  const t = normalizeVi(text).replace(/,/g, '.');
+
+  // 1) "Xtr Y" hoặc "X triệu Y" — Y là số trăm-nghìn (1tr2 = 1.200.000)
+  let m = t.match(/(\d+(?:\.\d+)?)\s*(?:tr|trieu)\s*(\d)\b/);
+  if (m) return Math.round(parseFloat(m[1]) * 1e6 + parseInt(m[2], 10) * 1e5);
+
+  // 2) "X tr Y nghìn" / "X triệu Y trăm nghìn" (vd: "1 triệu 200 nghìn")
+  m = t.match(/(\d+(?:\.\d+)?)\s*(?:tr|trieu)\s*(\d+(?:\.\d+)?)\s*(?:k|nghin|ngan)/);
+  if (m) return Math.round(parseFloat(m[1]) * 1e6 + parseFloat(m[2]) * 1000);
+
+  // 3) Cụm số + đơn vị đơn lẻ
+  m = t.match(/(\d+(?:\.\d+)?)\s*(tr|trieu|nghin|ngan|k|ty|dong|d)\b/);
+  if (m) {
+    const x = parseFloat(m[1]);
+    const u = m[2];
+    if (u === 'k' || u === 'nghin' || u === 'ngan') return Math.round(x * 1000);
+    if (u === 'tr' || u === 'trieu') return Math.round(x * 1e6);
+    if (u === 'ty') return Math.round(x * 1e9);
+    return Math.round(x);
+  }
+
+  // 4) Cụm bằng chữ: "một triệu hai", "hai trăm nghìn"
+  // Tách từ, scan tuần tự, tích luỹ
+  const words = t.split(/[\s,.]+/).filter(Boolean);
+  let total = 0, current = 0, anyDigit = false;
+  for (const w of words) {
+    if (VI_DIGIT_WORDS[w] != null) {
+      const v = VI_DIGIT_WORDS[w];
+      anyDigit = true;
+      if (v < 10) {
+        current = current === 0 ? v : current + v;
+      } else if (v === 100) {
+        current = (current || 1) * 100;
+      } else {
+        // 1000, 1e6, 1e9 — đẩy current vào total nhân với multiplier
+        total += (current || 1) * v;
+        current = 0;
+      }
+    } else if (/^\d+$/.test(w)) {
+      anyDigit = true;
+      current += parseInt(w, 10);
+    }
+  }
+  if (anyDigit && (total + current) > 0) return total + current;
+
+  // 5) Số trần
+  m = t.match(/\d{4,}/);
+  if (m) return parseInt(m[0], 10);
+
+  return 0;
+}
+
+// Wrapper plugin native (Capacitor) + Web Speech API fallback
+const QLT_Voice = (() => {
+  function nativePlugin() {
+    return window.Capacitor?.Plugins?.SpeechRecognition || null;
+  }
+
+  return {
+    available() {
+      return !!nativePlugin() ||
+             !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    },
+
+    async listen({ lang = 'vi-VN', onPartial, onResult, onError, onEnd } = {}) {
+      const SR = nativePlugin();
+      try {
+        if (SR) {
+          // Xin quyền RECORD_AUDIO nếu chưa có
+          try {
+            const perm = await SR.checkPermissions();
+            const ok = perm?.speechRecognition === 'granted' || perm?.permission === 'granted';
+            if (!ok) {
+              const req = await SR.requestPermissions();
+              const ok2 = req?.speechRecognition === 'granted' || req?.permission === 'granted';
+              if (!ok2) { onError?.(new Error('Bạn cần cấp quyền microphone')); onEnd?.(); return; }
+            }
+          } catch (_) { /* một số impl không có check; bỏ qua */ }
+
+          let final = '';
+          let partListener = null;
+          try {
+            partListener = await SR.addListener('partialResults', ({ matches }) => {
+              const text = matches?.[0] || '';
+              if (text) { final = text; onPartial?.(text); }
+            });
+          } catch (_) {}
+
+          try {
+            const r = await SR.start({
+              language: lang,
+              maxResults: 1,
+              partialResults: true,
+              popup: false
+            });
+            const text = (r?.matches?.[0]) || final;
+            if (text) onResult?.(text);
+          } finally {
+            try { partListener?.remove?.(); } catch (_) {}
+            onEnd?.();
+          }
+          return;
+        }
+
+        // Fallback web/PWA
+        const W = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!W) { onError?.(new Error('Thiết bị không hỗ trợ nhận giọng nói')); onEnd?.(); return; }
+        const rec = new W();
+        rec.lang = lang;
+        rec.interimResults = true;
+        rec.continuous = false;
+        rec.maxAlternatives = 1;
+        let finalText = '';
+        rec.onresult = (e) => {
+          for (let i = e.resultIndex; i < e.results.length; i++) {
+            const r = e.results[i];
+            if (r.isFinal) finalText = r[0].transcript;
+            else onPartial?.(r[0].transcript);
+          }
+        };
+        rec.onerror = (e) => onError?.(new Error(e.error || 'Lỗi nhận giọng nói'));
+        rec.onend = () => {
+          if (finalText) onResult?.(finalText);
+          onEnd?.();
+        };
+        rec.start();
+      } catch (e) {
+        onError?.(e);
+        onEnd?.();
+      }
+    },
+
+    async stop() {
+      const SR = nativePlugin();
+      if (SR) { try { await SR.stop(); } catch (_) {} }
+    }
+  };
+})();
+window.QLT_Voice = QLT_Voice;
+
 // ============ POPUP CALCULATOR ============
 // Một bàn phím số chuyên dụng (như Money Lover/MISA): tap input số tiền → mở popup
 // keypad. Người dùng nhập, có thể +,−,×,÷,%,±,⌫,C. Bấm "=" → kết quả ghi lại input.
@@ -532,6 +692,8 @@ const App = {
       };
     });
     $('#txCamera').onclick = () => this.scanReceipt();
+    const micBtn = $('#txMic');
+    if (micBtn) micBtn.onclick = () => this.voiceInput();
 
     // Category form
     $('#catSave').onclick = () => this.saveCat();
@@ -3319,6 +3481,140 @@ const App = {
     if (Array.isArray(t.photos)) return t.photos.filter(Boolean);
     if (t.photo) return [t.photo];
     return [];
+  },
+
+  // Phân tích câu nói tiếng Việt → {type, amount, accountId, toAccountId, categoryId, note}
+  parseVoiceTransaction(text) {
+    const norm = normalizeVi(text);
+
+    // 1) Detect type — keyword "chuyển" mạnh nhất, sau đó "thu/lương/nhận", còn lại expense
+    let type = 'expense';
+    if (/\bchuyen\b/.test(norm)) type = 'transfer';
+    else if (/\b(thu nhap|thu nhập|thu|nhan|luong|tien luong|thưởng|thuong)\b/.test(norm)) {
+      // Tránh nhầm "thu" trong "thu phí" hay "đi thu" → ưu tiên cụm rõ ràng;
+      // ở đây nếu có 'thu' đứng riêng thì coi là income.
+      type = 'income';
+    }
+
+    // 2) Số tiền
+    const amount = parseVoiceAmount(text);
+
+    // 3) Tìm các ví xuất hiện trong câu (theo thứ tự)
+    const accIdxs = [];
+    for (const a of this.state.accounts) {
+      const an = normalizeVi(a.name);
+      if (!an) continue;
+      const idx = norm.indexOf(an);
+      if (idx >= 0) accIdxs.push({ id: a.id, idx, name: an });
+    }
+    accIdxs.sort((a, b) => a.idx - b.idx);
+
+    let accountId = null;
+    let toAccountId = null;
+
+    if (type === 'transfer') {
+      // Pattern "từ X" / "sang Y" / "đến Y" / "qua Y" / "tới Y"
+      const tuM = /\btu\s+([^.,;]{1,40})/.exec(norm);
+      const sangM = /\b(sang|den|qua|toi)\s+([^.,;]{1,40})/.exec(norm);
+      if (tuM) {
+        const found = accIdxs.find(m => tuM[1].includes(m.name));
+        if (found) accountId = found.id;
+      }
+      if (sangM) {
+        const found = accIdxs.find(m => sangM[2].includes(m.name));
+        if (found) toAccountId = found.id;
+      }
+      // Fallback: 2 ví xuất hiện theo thứ tự
+      if (!accountId && accIdxs[0]) accountId = accIdxs[0].id;
+      if (!toAccountId && accIdxs.length >= 2) {
+        toAccountId = accIdxs.find(m => m.id !== accountId)?.id || null;
+      }
+    } else {
+      accountId = accIdxs[0]?.id || null;
+    }
+
+    // 4) Danh mục — chỉ với expense/income, match trong cùng type
+    let categoryId = null;
+    if (type !== 'transfer') {
+      const cands = this.state.categories.filter(c => c.type === type);
+      // Tìm match dài nhất để tránh "ăn" trùng "ăn vặt" thay vì "ăn uống"
+      let best = null, bestLen = 0;
+      for (const c of cands) {
+        const cn = normalizeVi(c.name);
+        if (cn && cn.length > bestLen && norm.includes(cn)) {
+          best = c; bestLen = cn.length;
+        }
+      }
+      categoryId = best?.id || null;
+    }
+
+    return { type, amount, accountId, toAccountId, categoryId, note: text.trim() };
+  },
+
+  async voiceInput() {
+    if (!QLT_Voice.available()) {
+      QLT_UI.alert('Thiết bị này không hỗ trợ nhận giọng nói. Trên Android cần cài bản APK có plugin Speech Recognition (build mới nhất).', { title: 'Không khả dụng' });
+      return;
+    }
+    const status = $('#txOcrStatus');
+    status.style.display = 'block';
+    status.style.color = '';
+    status.textContent = '🎙️ Đang nghe... nói "cà phê 50 nghìn", "lương 10 triệu", "chuyển 500k VCB sang MB"...';
+
+    QLT_Voice.listen({
+      lang: 'vi-VN',
+      onPartial: (p) => { status.textContent = '🎙️ ' + p; },
+      onResult: (text) => {
+        const parsed = this.parseVoiceTransaction(text);
+
+        // Đổi type pill + UI nếu khác type hiện tại
+        const curType = $('#txForm').dataset.type;
+        if (parsed.type !== curType) {
+          $('#txForm').dataset.type = parsed.type;
+          $$('.tx-type-pill').forEach(el =>
+            el.classList.toggle('on', el.dataset.type === parsed.type));
+          if (this.state.editingTx) this.state.editingTx.type = parsed.type;
+          this.applyTxTypeUI(parsed.type);
+        }
+
+        // Số tiền
+        if (parsed.amount > 0) {
+          $('#txAmount').value = Number(parsed.amount).toLocaleString('vi-VN');
+        }
+
+        // Ví nguồn / đích
+        if (parsed.accountId) {
+          this.state.editingTx.accountId = parsed.accountId;
+          $$('#txAccountList .picker-item').forEach(el =>
+            el.classList.toggle('on', el.dataset.acc === parsed.accountId));
+        }
+        if (parsed.type === 'transfer' && parsed.toAccountId) {
+          this.state.editingTx.toAccountId = parsed.toAccountId;
+          this.renderTxToAccountPicker();
+        }
+
+        // Danh mục
+        if (parsed.categoryId) {
+          this.state.editingTx.categoryId = parsed.categoryId;
+          $$('#txCategoryList .picker-item').forEach(el =>
+            el.classList.toggle('on', el.dataset.cat === parsed.categoryId));
+        }
+
+        // Ghi chú = câu nói gốc
+        if (parsed.note) $('#txNote').value = parsed.note;
+
+        const typeLabel = parsed.type === 'expense' ? 'Chi'
+          : parsed.type === 'income' ? 'Thu' : 'Chuyển';
+        status.textContent = `✓ ${typeLabel} · "${text}"`;
+        setTimeout(() => { status.style.display = 'none'; }, 2500);
+      },
+      onError: (e) => {
+        status.style.color = '#e63946';
+        status.textContent = '⚠️ ' + (e?.message || 'Lỗi nghe');
+        setTimeout(() => { status.style.display = 'none'; status.style.color = ''; }, 2500);
+      },
+      onEnd: () => { /* status đã xử lý ở onResult/onError */ }
+    });
   },
 
   async scanReceipt() {
