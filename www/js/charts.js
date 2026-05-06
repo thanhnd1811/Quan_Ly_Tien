@@ -27,13 +27,26 @@
         return;
       }
 
-      const padTop = 20, padBottom = 36, padLeft = 12, padRight = 12;
+      // Tính profit/loss cho mỗi period (mutually exclusive)
+      const enriched = data.map(d => {
+        const inc = d.income || 0;
+        const exp = d.expense || 0;
+        return {
+          ...d,
+          profit: Math.max(0, inc - exp),
+          loss: Math.max(0, exp - inc)
+        };
+      });
+
+      const padTop = 36, padBottom = 36, padLeft = 12, padRight = 12;
       const innerW = W - padLeft - padRight;
       const innerH = H - padTop - padBottom;
-      const max = Math.max(1, ...data.map(d => Math.max(d.income || 0, d.expense || 0)));
-      const barGroupW = innerW / data.length;
-      const barW = Math.min(14, (barGroupW - 6) / 2);
+      const max = Math.max(1, ...enriched.map(d => Math.max(d.income || 0, d.expense || 0, d.profit || 0, d.loss || 0)));
+      const barGroupW = innerW / enriched.length;
+      // 4 bar / group, gap 1px giữa các bar, 4px giữa group
+      const barW = Math.min(10, (barGroupW - 4) / 4 - 1);
 
+      // Trục đáy
       ctx.strokeStyle = borderColor;
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -41,32 +54,59 @@
       ctx.lineTo(padLeft + innerW, padTop + innerH);
       ctx.stroke();
 
-      data.forEach((d, i) => {
-        const x = padLeft + i * barGroupW + barGroupW / 2;
-        const incH = (d.income || 0) / max * innerH;
-        const expH = (d.expense || 0) / max * innerH;
+      const COLORS = {
+        income:  '#52b788',  // xanh sáng
+        expense: '#e76f51',  // đỏ cam
+        profit:  '#1b4d3e',  // xanh đậm
+        loss:    '#a02431'   // đỏ đậm
+      };
 
-        ctx.fillStyle = '#52b788';
-        ctx.fillRect(x - barW - 2, padTop + innerH - incH, barW, incH);
-        ctx.fillStyle = '#e76f51';
-        ctx.fillRect(x + 2, padTop + innerH - expH, barW, expH);
+      enriched.forEach((d, i) => {
+        const groupX = padLeft + i * barGroupW + barGroupW / 2;
+        // 4 bar offset từ trung tâm: -1.5, -0.5, +0.5, +1.5 (tính từ trung tâm group)
+        const offsets = [-1.5, -0.5, 0.5, 1.5].map(o => o * (barW + 1));
+
+        const series = [
+          { val: d.income, color: COLORS.income },
+          { val: d.expense, color: COLORS.expense },
+          { val: d.profit, color: COLORS.profit },
+          { val: d.loss, color: COLORS.loss }
+        ];
+
+        series.forEach((s, k) => {
+          if (s.val <= 0) return;
+          const h = s.val / max * innerH;
+          const x = groupX + offsets[k] - barW / 2;
+          ctx.fillStyle = s.color;
+          ctx.fillRect(x, padTop + innerH - h, barW, h);
+        });
 
         ctx.fillStyle = text2Color;
         ctx.font = '10px DM Sans, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(d.label, x, H - padBottom + 14);
+        ctx.fillText(d.label, groupX, H - padBottom + 14);
       });
 
-      ctx.font = '11px DM Sans, sans-serif';
+      // Legend 2 hàng (4 series chia 2 hàng cho gọn)
+      const legend = [
+        { color: COLORS.income,  label: 'Thu nhập',  x: padLeft },
+        { color: COLORS.expense, label: 'Chi phí',   x: padLeft + 80 },
+        { color: COLORS.profit,  label: 'Lợi nhuận', x: padLeft + 160 },
+        { color: COLORS.loss,    label: 'Lỗ',        x: padLeft + 240 }
+      ];
+      ctx.font = '10px DM Sans, sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillStyle = '#52b788';
-      ctx.fillRect(padLeft, 4, 10, 10);
       ctx.fillStyle = textColor;
-      ctx.fillText('Thu', padLeft + 14, 13);
-      ctx.fillStyle = '#e76f51';
-      ctx.fillRect(padLeft + 50, 4, 10, 10);
-      ctx.fillStyle = textColor;
-      ctx.fillText('Chi', padLeft + 64, 13);
+      legend.forEach((l, i) => {
+        // Wrap to row 2 nếu hết width
+        const isRow2 = (l.x + 60) > innerW;
+        const x = isRow2 ? padLeft + (i - 2) * 80 : l.x;
+        const y = isRow2 ? 22 : 4;
+        ctx.fillStyle = l.color;
+        ctx.fillRect(x, y, 9, 9);
+        ctx.fillStyle = textColor;
+        ctx.fillText(l.label, x + 12, y + 8);
+      });
     },
 
     donut(canvas, slices, opts = {}) {
