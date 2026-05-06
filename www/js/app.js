@@ -3143,7 +3143,33 @@ const App = {
     if (dayOfMonth < 2 || spent === 0) { wrap.style.display = 'none'; return; }
 
     const avgPerDay = spent / dayOfMonth;
-    const forecast = Math.round(spent + avgPerDay * remainDays);
+
+    // ===== Recurring rules sắp fire trong phần còn lại của tháng =====
+    const todayStr = now.toISOString().slice(0, 10);
+    const eom = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const eomStr = eom.toISOString().slice(0, 10);
+    let recExp = 0, recInc = 0, recCount = 0;
+    for (const rule of (this.state.recurringRules || [])) {
+      if (!rule.active) continue;
+      // Bắt đầu duyệt từ ngày sau hôm nay (tránh cộng lại các tx đã fire)
+      let cursor = new Date(now);
+      cursor.setDate(cursor.getDate() + 1);
+      for (let i = 0; i < 35; i++) {
+        const cursorStr = cursor.toISOString().slice(0, 10);
+        if (cursorStr > eomStr) break;
+        const nextStr = this.recurringNextDate(rule, cursorStr);
+        if (nextStr > eomStr) break;
+        if (rule.endDate && nextStr > rule.endDate) break;
+        if (rule.type === 'income') { recInc += rule.amount || 0; recCount++; }
+        else if (rule.type === 'expense') { recExp += rule.amount || 0; recCount++; }
+        // transfer không ảnh hưởng tổng số dư nên bỏ qua
+        cursor = new Date(nextStr + 'T00:00:00');
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+
+    // Forecast chi = đã chi + (trung bình ngày × ngày còn lại) + recurring chi sắp fire
+    const forecast = Math.round(spent + avgPerDay * remainDays + recExp);
 
     // Tháng trước (cùng cả tháng)
     const lastDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -3174,6 +3200,15 @@ const App = {
     const dayPct = Math.round(dayOfMonth / totalDays * 100);
     const spentPct = forecast > 0 ? Math.min(100, Math.round(spent / forecast * 100)) : 0;
 
+    // Recurring info line (chỉ hiện nếu có rule fire trong tháng)
+    let recHtml = '';
+    if (recCount > 0) {
+      const parts = [];
+      if (recExp > 0) parts.push(`<strong style="color:#e76f51">−${fmt(recExp)} đ chi</strong>`);
+      if (recInc > 0) parts.push(`<strong style="color:#52b788">+${fmt(recInc)} đ thu</strong>`);
+      recHtml = `<div class="forecast-detail" style="margin-top:4px">📌 Định kỳ sắp tới: ${parts.join(' · ')} <span style="color:var(--text3)">(${recCount} giao dịch)</span></div>`;
+    }
+
     wrap.style.display = 'block';
     wrap.innerHTML = `
       <div class="forecast-card ${trend}">
@@ -3183,6 +3218,7 @@ const App = {
         <div class="forecast-detail">
           Đã chi <strong>${fmt(spent)} đ</strong> sau ${dayOfMonth}/${totalDays} ngày · trung bình <strong>${fmt(Math.round(avgPerDay))} đ/ngày</strong>
         </div>
+        ${recHtml}
         <div class="forecast-progress">
           <div class="forecast-progress-spent" style="width:${spentPct}%"></div>
           <div class="forecast-progress-marker" style="left:${dayPct}%" title="Hôm nay"></div>

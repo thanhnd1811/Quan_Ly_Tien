@@ -94,6 +94,15 @@ jobs:
                   m = new_m
                   print('OK: RECORD_AUDIO permission added')
 
+          # 4) Biometric (vân tay / Face ID)
+          if 'USE_BIOMETRIC' not in m:
+              perms = ('    <uses-permission android:name="android.permission.USE_BIOMETRIC" />\n'
+                       '    <uses-permission android:name="android.permission.USE_FINGERPRINT" />\n')
+              new_m, n = re.subn(r'(\s*<application )', '\n' + perms + r'\1', m, count=1)
+              if n > 0:
+                  m = new_m
+                  print('OK: Biometric permissions added')
+
           if m != original:
               with open(path, 'w', encoding='utf-8') as f:
                   f.write(m)
