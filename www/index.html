@@ -526,10 +526,12 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 .photo-add-btn svg{width:22px;height:22px}
 .photo-thumb{position:relative;display:inline-block;border-radius:var(--rsm);overflow:hidden;border:1px solid var(--border);cursor:pointer}
 .photo-thumb img{display:block;max-width:100%;max-height:200px;width:auto;object-fit:contain}
-.photo-remove{position:absolute;top:6px;right:6px;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
-.photo-remove svg{width:16px;height:16px}
-.tx-photo-badge{display:inline-flex;width:14px;height:14px;color:var(--accent);vertical-align:middle;margin-left:4px}
+.tx-photo-list .photo-thumb img{width:100%;height:100%;max-height:none;object-fit:cover}
+.photo-remove{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,0.65);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;border:none;padding:0;font-size:14px;line-height:1}
+.photo-remove svg{width:14px;height:14px}
+.tx-photo-badge{display:inline-flex;align-items:center;gap:2px;color:var(--accent);vertical-align:middle;margin-left:4px;font-size:11px;font-weight:700}
 .tx-photo-badge svg{width:14px;height:14px}
+.tx-photo-count{display:inline-flex;align-items:center;justify-content:center;min-width:14px;height:14px;background:var(--accent);color:#fff;border-radius:8px;padding:0 4px;font-size:10px;line-height:1}
 
 /* Members + Settlement */
 .member-row{display:flex;gap:6px;align-items:center;margin-bottom:8px}
@@ -568,8 +570,22 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 .lightbox{position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:400;display:none;align-items:center;justify-content:center;padding:20px}
 .lightbox.open{display:flex;animation:fadeIn .15s}
 .lightbox img{max-width:100%;max-height:100%;object-fit:contain}
-.lightbox-close{position:absolute;top:20px;right:20px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.15);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.lightbox-close{position:absolute;top:20px;right:20px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.15);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;border:none}
 .lightbox-close svg{width:22px;height:22px}
+.lightbox-nav{position:absolute;top:50%;transform:translateY(-50%);width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.18);color:#fff;font-size:32px;line-height:1;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:300;padding:0}
+.lightbox-nav:active{background:rgba(255,255,255,.32)}
+.lightbox-nav-prev{left:14px}
+.lightbox-nav-next{right:14px}
+.lightbox-counter{position:absolute;top:24px;left:0;right:0;text-align:center;color:#fff;font-size:14px;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,.6);pointer-events:none}
+
+/* Multi-photo thumbnails trong tx modal */
+.tx-photo-list{display:flex;gap:10px;overflow-x:auto;padding:4px 0 8px;scrollbar-width:thin}
+.tx-photo-list::-webkit-scrollbar{height:4px}
+.tx-photo-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.tx-photo-list .photo-thumb{flex:0 0 auto;width:96px;height:96px}
+.tx-photo-list .photo-add-thumb{flex:0 0 auto;width:96px;height:96px;border-radius:12px;border:2px dashed var(--border);background:var(--surface);color:var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:32px;line-height:1;font-weight:300}
+.tx-photo-list .photo-add-thumb:active{background:var(--surface2,#ecf2ed)}
+.tx-photo-list .photo-add-thumb svg{width:24px;height:24px}
 
 .setting-row{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border)}
 .setting-label{font-size:14px;color:var(--text)}
@@ -1305,6 +1321,9 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 <!-- ========== LIGHTBOX (xem ảnh full) ========== -->
 <div id="lightboxModal" class="lightbox">
   <button class="lightbox-close" data-close><span data-icon="close"></span></button>
+  <button id="lightboxPrev" class="lightbox-nav lightbox-nav-prev" style="display:none">‹</button>
+  <button id="lightboxNext" class="lightbox-nav lightbox-nav-next" style="display:none">›</button>
+  <div id="lightboxCounter" class="lightbox-counter" style="display:none"></div>
   <img id="lightboxImg" src="" alt="">
 </div>
 

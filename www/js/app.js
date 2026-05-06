@@ -895,7 +895,10 @@ const App = {
 
   renderTxItem(t) {
     const acc = this.state.accounts.find(a => a.id === t.accountId) || {};
-    const photoBadge = t.photo ? `<span class="tx-photo-badge" title="Có minh chứng">${svgIcon('camera')}</span>` : '';
+    const photoCount = this.getTxPhotos(t).length;
+    const photoBadge = photoCount > 0
+      ? `<span class="tx-photo-badge" title="${photoCount} ảnh minh chứng">${svgIcon('camera')}${photoCount > 1 ? `<span class="tx-photo-count">${photoCount}</span>` : ''}</span>`
+      : '';
 
     if (t.type === 'transfer') {
       const toAcc = this.state.accounts.find(a => a.id === t.toAccountId) || {};
@@ -2831,7 +2834,7 @@ const App = {
         toAccountId: this.state.accounts[1]?.id || null,
         categoryId: null,
         note: '',
-        photo: null,
+        photos: [],
         participantIds: null, // null = tất cả thành viên (mặc định)
         bookId: this.state.currentBookId
       };
@@ -2839,7 +2842,9 @@ const App = {
       tx = this.state.transactions.find(t => t.id === id);
       if (!tx) return;
     }
-    this.state.editingTx = { ...tx };
+    // Chuẩn hoá photos cho editingTx (giữ tương thích schema cũ tx.photo)
+    this.state.editingTx = { ...tx, photos: this.getTxPhotos(tx) };
+    delete this.state.editingTx.photo;
     $('#txForm').dataset.type = tx.type;
     $$('.tx-type-pill').forEach(el => {
       el.classList.toggle('on', el.dataset.type === tx.type);
@@ -3185,25 +3190,19 @@ const App = {
     this.autoSync();
   },
 
+  // Trả về mảng ảnh minh chứng từ tx (xử lý cả schema cũ tx.photo lẫn mới tx.photos)
+  getTxPhotos(t) {
+    if (!t) return [];
+    if (Array.isArray(t.photos)) return t.photos.filter(Boolean);
+    if (t.photo) return [t.photo];
+    return [];
+  },
+
   async scanReceipt() {
     try {
-      let imageDataUrl;
-      if (window.Capacitor && window.Capacitor.Plugins.Camera) {
-        const photo = await window.Capacitor.Plugins.Camera.getPhoto({
-          quality: 80,
-          resultType: 'dataUrl',
-          source: 'PROMPT',  // hỏi Camera hay Gallery — quét được cả ảnh chụp sẵn
-          allowEditing: false,
-          promptLabelHeader: 'Chọn ảnh hoá đơn',
-          promptLabelPhoto: 'Chọn từ thư viện',
-          promptLabelPicture: 'Chụp ảnh mới'
-        });
-        imageDataUrl = photo.dataUrl;
-      } else {
-        // Web fallback — bỏ capture để cho chọn file
-        imageDataUrl = await this.pickImageWeb();
-      }
-      if (!imageDataUrl) return;
+      const urls = await this.pickPhotos({ camera: false, multi: false, header: 'Chọn ảnh hoá đơn' });
+      if (!urls.length) return;
+      const imageDataUrl = urls[0];
 
       const status = $('#txOcrStatus');
       status.style.display = 'block';
@@ -3216,14 +3215,18 @@ const App = {
       status.textContent = 'Xong!';
       setTimeout(() => { status.style.display = 'none'; }, 1500);
 
-      if (result.amount) $('#txAmount').value = result.amount;
+      if (result.amount) {
+        $('#txAmount').value = Number(result.amount).toLocaleString('vi-VN');
+      }
       if (result.date) $('#txDate').value = result.date;
       if (result.merchant) $('#txNote').value = result.merchant;
 
-      // Tự đính kèm ảnh vừa quét làm minh chứng — khỏi phải add lại
+      // Tự THÊM ảnh vừa quét vào danh sách minh chứng (không ghi đè ảnh cũ)
       try {
         const compressed = await this.compressImage(imageDataUrl);
-        this.state.editingTx.photo = compressed;
+        const t = this.state.editingTx;
+        t.photos = [...this.getTxPhotos(t), compressed];
+        delete t.photo;
         this.renderTxPhoto();
       } catch (_) { /* compress lỗi cũng không chặn flow OCR */ }
     } catch (e) {
@@ -3232,47 +3235,68 @@ const App = {
     }
   },
 
-  pickImageWeb() {
-    return new Promise(resolve => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      // KHÔNG đặt capture → trình duyệt cho chọn Camera hoặc thư viện
-      input.onchange = e => {
-        const file = e.target.files[0];
-        if (!file) { resolve(null); return; }
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.readAsDataURL(file);
-      };
-      input.click();
-    });
-  },
-
-  // Picker linh hoạt: trên mobile cho chọn Camera hoặc Thư viện, web thì file picker
-  async pickPhoto(forceCamera = false) {
+  // Picker đa năng: trả về mảng dataUrl. Native single (1 ảnh/lần), web hỗ trợ multi.
+  async pickPhotos({ camera = false, multi = false, header } = {}) {
     if (window.Capacitor && window.Capacitor.Plugins.Camera) {
+      const Cam = window.Capacitor.Plugins.Camera;
+      // Thử pickImages trước (hỗ trợ chọn nhiều ảnh từ thư viện) khi multi & không bắt buộc camera
+      if (multi && !camera && typeof Cam.pickImages === 'function') {
+        try {
+          const r = await Cam.pickImages({ quality: 80, limit: 0 });
+          const photos = (r && r.photos) || [];
+          if (photos.length) {
+            const urls = await Promise.all(photos.map(async p => {
+              if (p.dataUrl) return p.dataUrl;
+              const path = p.webPath || p.path;
+              if (!path) return null;
+              try {
+                const res = await fetch(path);
+                const blob = await res.blob();
+                return await new Promise(res2 => {
+                  const fr = new FileReader();
+                  fr.onload = () => res2(fr.result);
+                  fr.onerror = () => res2(null);
+                  fr.readAsDataURL(blob);
+                });
+              } catch (_) { return null; }
+            }));
+            return urls.filter(Boolean);
+          }
+        } catch (_) { /* fallback xuống getPhoto */ }
+      }
       try {
-        const photo = await window.Capacitor.Plugins.Camera.getPhoto({
+        const opts = {
           quality: 80,
           resultType: 'dataUrl',
-          source: forceCamera ? 'CAMERA' : 'PROMPT',
+          source: camera ? 'CAMERA' : 'PROMPT',
           allowEditing: false
-        });
-        return photo.dataUrl;
-      } catch (_) { return null; }
+        };
+        if (header) {
+          opts.promptLabelHeader = header;
+          opts.promptLabelPhoto = 'Chọn từ thư viện';
+          opts.promptLabelPicture = 'Chụp ảnh mới';
+        }
+        const photo = await Cam.getPhoto(opts);
+        return photo.dataUrl ? [photo.dataUrl] : [];
+      } catch (_) { return []; }
     }
+    // Web fallback: file input — multi=true cho phép chọn nhiều ảnh
     return new Promise(resolve => {
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = 'image/*';
-      if (forceCamera) input.capture = 'environment';
-      input.onchange = e => {
-        const file = e.target.files[0];
-        if (!file) { resolve(null); return; }
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.readAsDataURL(file);
+      if (multi && !camera) input.multiple = true;
+      if (camera) input.capture = 'environment';
+      input.onchange = async e => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) { resolve([]); return; }
+        const results = await Promise.all(files.map(f => new Promise(r => {
+          const reader = new FileReader();
+          reader.onload = () => r(reader.result);
+          reader.onerror = () => r(null);
+          reader.readAsDataURL(f);
+        })));
+        resolve(results.filter(Boolean));
       };
       input.click();
     });
@@ -3301,38 +3325,35 @@ const App = {
 
   async addTxPhoto() {
     try {
-      const raw = await this.pickPhoto(false);
-      if (!raw) return;
-      const compressed = await this.compressImage(raw);
-      this.state.editingTx.photo = compressed;
+      const raws = await this.pickPhotos({ multi: true, header: 'Thêm ảnh minh chứng' });
+      if (!raws.length) return;
+      const compressed = await Promise.all(raws.map(r => this.compressImage(r).catch(() => null)));
+      const newPhotos = compressed.filter(Boolean);
+      const t = this.state.editingTx;
+      t.photos = [...this.getTxPhotos(t), ...newPhotos];
+      delete t.photo;
       this.renderTxPhoto();
     } catch (e) {
       QLT_UI.alert('Lỗi: ' + e.message, { title: 'Lỗi' });
     }
   },
 
-  async removeTxPhoto() {
-    if (!await QLT_UI.confirm('Xoá ảnh minh chứng?', { okLabel: 'Xoá', danger: true })) return;
-    this.state.editingTx.photo = null;
+  async removeTxPhoto(idx) {
+    if (!await QLT_UI.confirm('Xoá ảnh minh chứng này?', { okLabel: 'Xoá', danger: true })) return;
+    const t = this.state.editingTx;
+    const cur = this.getTxPhotos(t);
+    cur.splice(idx, 1);
+    t.photos = cur;
+    delete t.photo;
     this.renderTxPhoto();
   },
 
   renderTxPhoto() {
     const wrap = $('#txPhotoWrap');
     const t = this.state.editingTx;
-    if (t && t.photo) {
-      wrap.innerHTML = `
-        <div class="photo-thumb" id="txPhotoThumb">
-          <img src="${t.photo}" alt="minh chứng">
-          <button class="photo-remove" id="txPhotoRemove" title="Xoá">${svgIcon('close')}</button>
-        </div>
-      `;
-      $('#txPhotoThumb').onclick = (e) => {
-        if (e.target.closest('#txPhotoRemove')) return;
-        this.openLightbox(t.photo);
-      };
-      $('#txPhotoRemove').onclick = () => this.removeTxPhoto();
-    } else {
+    const photos = this.getTxPhotos(t);
+
+    if (photos.length === 0) {
       wrap.innerHTML = `
         <button class="photo-add-btn" id="txPhotoAddBtn">
           ${svgIcon('camera')}
@@ -3340,11 +3361,59 @@ const App = {
         </button>
       `;
       $('#txPhotoAddBtn').onclick = () => this.addTxPhoto();
+      return;
     }
+
+    let html = '<div class="tx-photo-list">';
+    photos.forEach((p, i) => {
+      html += `
+        <div class="photo-thumb" data-photo-idx="${i}">
+          <img src="${p}" alt="minh chứng ${i + 1}">
+          <button class="photo-remove" data-photo-remove="${i}" title="Xoá">${svgIcon('close')}</button>
+        </div>
+      `;
+    });
+    html += `<button class="photo-add-thumb" id="txPhotoAddBtn" title="Thêm ảnh">+</button>`;
+    html += '</div>';
+    wrap.innerHTML = html;
+
+    wrap.querySelectorAll('[data-photo-idx]').forEach(el => {
+      el.onclick = (e) => {
+        if (e.target.closest('[data-photo-remove]')) return;
+        const idx = parseInt(el.dataset.photoIdx, 10);
+        this.openLightbox(photos[idx], photos, idx);
+      };
+    });
+    wrap.querySelectorAll('[data-photo-remove]').forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const idx = parseInt(el.dataset.photoRemove, 10);
+        this.removeTxPhoto(idx);
+      };
+    });
+    $('#txPhotoAddBtn').onclick = () => this.addTxPhoto();
   },
 
-  openLightbox(src) {
-    $('#lightboxImg').src = src;
+  // Lightbox với hỗ trợ điều hướng prev/next nếu được cung cấp danh sách
+  openLightbox(src, list, startIdx) {
+    const imgEl = $('#lightboxImg');
+    const prevBtn = $('#lightboxPrev');
+    const nextBtn = $('#lightboxNext');
+    const counter = $('#lightboxCounter');
+    const photos = Array.isArray(list) && list.length > 0 ? list : [src];
+    let idx = (typeof startIdx === 'number' && startIdx >= 0) ? startIdx : Math.max(0, photos.indexOf(src));
+
+    const show = () => {
+      imgEl.src = photos[idx];
+      const multi = photos.length > 1;
+      prevBtn.style.display = multi ? 'flex' : 'none';
+      nextBtn.style.display = multi ? 'flex' : 'none';
+      counter.style.display = multi ? 'block' : 'none';
+      if (multi) counter.textContent = `${idx + 1}/${photos.length}`;
+    };
+    prevBtn.onclick = (e) => { e.stopPropagation(); idx = (idx - 1 + photos.length) % photos.length; show(); };
+    nextBtn.onclick = (e) => { e.stopPropagation(); idx = (idx + 1) % photos.length; show(); };
+    show();
     $('#lightboxModal').classList.add('open');
   },
 
@@ -4528,7 +4597,7 @@ const App = {
     // Lọc giao dịch "đóng quỹ" (do app tự sinh từ thành viên) khỏi danh sách chi tiết — đã có trong khối Quyết toán
     const isFundTx = t => !!t.memberId;
     let detailTxs = allTxs.filter(t => !isFundTx(t));
-    if (!includePhotos) detailTxs = detailTxs.map(t => ({ ...t, photo: null }));
+    if (!includePhotos) detailTxs = detailTxs.map(t => ({ ...t, photo: null, photos: null }));
     const groups = {};
     for (const t of detailTxs) (groups[t.date] = groups[t.date] || []).push(t);
     const dates = Object.keys(groups).sort().reverse();
@@ -4549,9 +4618,13 @@ const App = {
     const settlement = includeSettlement ? await this.calculateSettlement(bookId) : null;
     const reportType = includeSettlement ? 'KẾT THÚC – có quyết toán' : 'TRONG ĐỢT (chưa chốt)';
 
-    const photoCell = t => includePhotos
-      ? `<td class="tx-photo">${t.photo ? `<a href="${t.photo}" target="_blank"><img src="${t.photo}" alt=""></a>` : ''}</td>`
-      : '';
+    const photoCell = t => {
+      if (!includePhotos) return '';
+      const photos = this.getTxPhotos(t);
+      if (photos.length === 0) return '<td class="tx-photo"></td>';
+      const imgs = photos.map((p, i) => `<a href="${p}" target="_blank"><img src="${p}" alt="minh chứng ${i + 1}"></a>`).join('');
+      return `<td class="tx-photo">${imgs}</td>`;
+    };
     // Số thành viên trong sổ (để hiện badge "5/8 người" cho GD chia riêng)
     const bookMembers = (book.members || []).filter(m => m.name && m.name.trim());
     const memById = Object.fromEntries(bookMembers.map(m => [m.id, m.name]));
