@@ -154,15 +154,29 @@ function parseVoiceAmount(text) {
   // Bước 2: chuẩn hoá Vietnamese
   t = normalizeVi(t).replace(/,/g, '.');
 
-  // 1) "Xtr Y" hoặc "X triệu Y" — Y là số trăm-nghìn (1tr2 = 1.200.000)
-  let m = t.match(/(\d+(?:\.\d+)?)\s*(?:tr|trieu)\s*(\d)\b/);
-  if (m) return Math.round(parseFloat(m[1]) * 1e6 + parseInt(m[2], 10) * 1e5);
-
-  // 2) "X tr Y nghìn" / "X triệu Y trăm nghìn" (vd: "1 triệu 200 nghìn")
-  m = t.match(/(\d+(?:\.\d+)?)\s*(?:tr|trieu)\s*(\d+(?:\.\d+)?)\s*(?:k|nghin|ngan)/);
+  // 1) "X tr Y nghìn" / "X triệu Y trăm nghìn" (vd: "1 triệu 200 nghìn")
+  let m = t.match(/(\d+(?:\.\d+)?)\s*(?:tr|trieu)\s*(\d+(?:\.\d+)?)\s*(?:k|nghin|ngan)/);
   if (m) return Math.round(parseFloat(m[1]) * 1e6 + parseFloat(m[2]) * 1000);
 
-  // 3) Cụm số + đơn vị đơn lẻ
+  // 2) "X triệu YYYYYY" — Y là số raw nhiều chữ số (sau stripThousandSep)
+  // Vd: "1 triệu 450.000" → "1 triệu 450000" → 1.450.000
+  m = t.match(/(\d+(?:\.\d+)?)\s*(?:tr|trieu)\s+(\d{4,9})\b/);
+  if (m) return Math.round(parseFloat(m[1]) * 1e6 + parseInt(m[2], 10));
+
+  // 3) "Xtr YYY" — Y là 3 chữ số ngầm hiểu là 'nghìn'
+  // Vd: "1tr345" hoặc "1 triệu 345" → 1.345.000
+  m = t.match(/(\d+(?:\.\d+)?)\s*(?:tr|trieu)\s*(\d{3})(?!\d)/);
+  if (m) return Math.round(parseFloat(m[1]) * 1e6 + parseInt(m[2], 10) * 1000);
+
+  // 4) "Xtr YY" — Y là 2 chữ số ngầm hiểu là 'nghìn' (vd "1tr45" = 1.045.000)
+  m = t.match(/(\d+(?:\.\d+)?)\s*(?:tr|trieu)\s*(\d{2})(?!\d)/);
+  if (m) return Math.round(parseFloat(m[1]) * 1e6 + parseInt(m[2], 10) * 1000);
+
+  // 5) "Xtr Y" — Y là 1 chữ số trăm-nghìn (1tr2 = 1.200.000, 1tr5 = 1.500.000)
+  m = t.match(/(\d+(?:\.\d+)?)\s*(?:tr|trieu)\s*(\d)(?!\d)/);
+  if (m) return Math.round(parseFloat(m[1]) * 1e6 + parseInt(m[2], 10) * 1e5);
+
+  // 6) Cụm số + đơn vị đơn lẻ
   m = t.match(/(\d+(?:\.\d+)?)\s*(tr|trieu|nghin|ngan|k|ty|dong|d)\b/);
   if (m) {
     const x = parseFloat(m[1]);
