@@ -61,10 +61,11 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .drawer{position:fixed;top:0;left:0;height:100vh;width:78%;max-width:320px;background:var(--book-accent);color:#fff;transform:translateX(-100%);transition:transform .25s ease, background .25s ease;z-index:201;display:flex;flex-direction:column}
 .drawer.open{transform:translateX(0)}
 .drawer.open ~ .drawer-overlay{opacity:1;visibility:visible}
-.dr-header{padding:46px 18px 14px;border-bottom:1px solid rgba(255,255,255,0.12)}
-.dr-avatar{width:50px;height:50px;border-radius:50%;background:#fff;margin-bottom:8px;object-fit:cover}
-.dr-name{font-weight:700;font-size:15px}
-.dr-email{font-size:12px;opacity:.85;margin-top:2px}
+.dr-header{padding:46px 18px 14px;border-bottom:1px solid rgba(255,255,255,0.12);display:flex;align-items:center;gap:12px}
+.dr-avatar{width:44px;height:44px;border-radius:50%;background:#fff;object-fit:cover;flex-shrink:0}
+.dr-userinfo{flex:1;min-width:0}
+.dr-name{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dr-email{font-size:12px;opacity:.85;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dr-section{padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.12)}
 .dr-section-label{font-size:10px;font-weight:700;color:rgba(255,255,255,0.55);padding:6px 18px 6px;text-transform:uppercase;letter-spacing:1px}
 .dr-book-row{display:flex;align-items:center;gap:12px;padding:8px 18px;cursor:pointer;font-size:14px}
@@ -1213,8 +1214,10 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 <div id="drawer" class="drawer">
   <div class="dr-header">
     <img id="drUserAvatar" class="dr-avatar" src="icons/icon-192.png" alt="">
-    <div class="dr-name" id="drUserName">Khách</div>
-    <div class="dr-email" id="drUserEmail">Chưa đăng nhập</div>
+    <div class="dr-userinfo">
+      <div class="dr-name" id="drUserName">Khách</div>
+      <div class="dr-email" id="drUserEmail">Chưa đăng nhập</div>
+    </div>
   </div>
   <div class="dr-section">
     <div class="dr-section-label">Sổ của bạn</div>
