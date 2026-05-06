@@ -5398,6 +5398,17 @@ const App = {
       el.style.opacity = isNew ? '1' : '0.5';
       el.style.pointerEvents = isNew ? 'auto' : 'none';
     });
+    // Khi TẠO MỚI từ trang Tài khoản: ẩn pill 'Tiết kiệm' để dồn user
+    // sang trang 'Sổ tiết kiệm' chuyên dụng (có lãi tích luỹ, đáo hạn, v.v.)
+    // Khi SỬA sổ tiết kiệm cũ: vẫn hiện pill (để user biết loại — disabled).
+    // Khi vào từ trang 'Sổ tiết kiệm' page sẽ tự click pill savings → vẫn hiện đúng.
+    const savPill = document.querySelector('.acc-type-pill[data-type="savings"]');
+    if (savPill) {
+      const cameFromSavingsPage = this.state.currentTab === 'savings';
+      const editingSavings = !isNew && editing.accountType === 'savings';
+      savPill.style.display = (cameFromSavingsPage || editingSavings) ? '' : 'none';
+      // Nếu chỉ còn 1 pill thì style flex:1 sẽ làm full-width — không sao
+    }
 
     // Savings fields
     $('#accInterestRate').value = editing.interestRate || '';

@@ -704,18 +704,22 @@ html[data-theme="dark"] .insights-head{color:#f4d77c}
 .maturity-mode-row:has(input:checked){border-color:var(--accent);background:var(--acl)}
 .maturity-mode-row input{margin-top:3px;accent-color:var(--accent)}
 
-/* Chi phí xe — pill chọn loại xe (override màu trắng của .seg-item) */
-.fuel-type-pill, .maint-type-pill, .acc-type-pill{
+/* Pill seg-item override khi đặt trên modal body (màu trắng) thay vì topbar xanh
+   Không bao gồm .tx-type-pill vì nó có style riêng (Chi cam / Thu xanh / Chuyển xanh nhạt) */
+.fuel-type-pill, .maint-type-pill, .acc-type-pill, .rec-type-pill{
   color:var(--text2);
   border-bottom:none !important;
   background:transparent;
 }
-.fuel-type-pill.on, .maint-type-pill.on, .acc-type-pill.on{
+.fuel-type-pill.on, .maint-type-pill.on, .acc-type-pill.on, .rec-type-pill.on{
   color:var(--accent) !important;
   background:#fff;
   border-bottom:none !important;
   font-weight:700;
   box-shadow:0 1px 4px rgba(0,0,0,.08);
+}
+html[data-theme="dark"] .rec-type-pill.on{
+  background:var(--surface) !important;color:var(--accent-light) !important;
 }
 
 .maint-kind-pill{
