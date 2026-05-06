@@ -1315,6 +1315,32 @@ const App = {
     this.renderBookHeader();
   },
 
+  // Undo toast — hiện thông báo "Đã xoá. Hoàn tác?" trong 5s
+  // onUndo: function chạy khi user bấm hoàn tác (phải tự khôi phục data)
+  showUndoToast(message, onUndo, durationMs = 5000) {
+    const wrap = document.getElementById('qltToastWrap');
+    if (!wrap) return;
+    const el = document.createElement('div');
+    el.className = 'qlt-toast undo-toast';
+    el.style.cssText = 'background:var(--text);color:var(--bg);display:flex;align-items:center;gap:14px';
+    el.innerHTML = `
+      <span style="flex:1">${this.escapeHtml(message)}</span>
+      <button style="background:transparent;color:#f4b942;border:none;font-weight:700;font-size:13px;cursor:pointer;padding:4px 10px">HOÀN TÁC</button>
+    `;
+    wrap.appendChild(el);
+    let undone = false;
+    const btn = el.querySelector('button');
+    btn.onclick = async () => {
+      if (undone) return;
+      undone = true;
+      try { await onUndo(); } catch (e) { console.warn('Undo lỗi:', e); }
+      el.remove();
+    };
+    setTimeout(() => {
+      if (!undone) { el.classList.add('fade'); setTimeout(() => el.remove(), 260); }
+    }, durationMs);
+  },
+
   // Helper: skeleton placeholder cho list rows (dùng khi đang load)
   skeletonRows(n = 5) {
     let html = '';
@@ -4261,11 +4287,26 @@ const App = {
     const t = this.state.editingTx;
     if (!t.id) return;
     if (!await QLT_UI.confirm('Xoá giao dịch này?', { okLabel: 'Xoá', danger: true })) return;
+
+    // Snapshot full tx để có thể restore
+    const snapshot = JSON.parse(JSON.stringify(t));
     await this.applyBalanceDelta(t, -1);
     await window.QLT_Store.del('transactions', t.id);
     await this.reload();
     $('#txModal').classList.remove('open');
     this.switchTab(this.state.currentTab);
+
+    // Show undo toast 5s
+    this.showUndoToast('🗑️ Đã xoá giao dịch', async () => {
+      // Restore: put lại tx + apply delta +1
+      await this.applyBalanceDelta(snapshot, +1);
+      await window.QLT_Store.put('transactions', snapshot);
+      await this.reload();
+      this.switchTab(this.state.currentTab);
+      QLT_UI.toast('Đã khôi phục giao dịch', { type: 'success' });
+      this.autoSync();
+    });
+
     this.autoSync();
   },
 
