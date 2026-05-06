@@ -138,6 +138,23 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .sec-action{font-size:12px;color:var(--accent);font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:10px}
 .empty-msg{text-align:center;padding:40px 20px;color:var(--text3);font-size:13px}
+
+/* Skeleton loaders — placeholder boxes có shimmer effect khi đang load */
+.skeleton{background:linear-gradient(90deg,var(--surface2) 0%,var(--border) 50%,var(--surface2) 100%);background-size:200% 100%;animation:shimmer 1.4s linear infinite;border-radius:8px}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.skel-row{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.skel-circle{width:40px;height:40px;border-radius:50%;flex-shrink:0}
+.skel-line{height:12px;border-radius:4px}
+.skel-line.short{width:60%}
+.skel-line.tiny{width:35%;height:9px;margin-top:6px}
+.skel-flex{flex:1;min-width:0}
+.skel-amt{width:80px;height:14px;flex-shrink:0}
+
+/* Smoother transitions */
+.modal-card{will-change:transform,opacity}
+.btn,.dr-item,.tx-item,.cat-item,.picker-item,.acc-item{transition:transform .12s ease,background-color .15s ease}
+.btn:active,.tx-item:active,.cat-item:active,.acc-item:active{transform:scale(.98)}
+.tx-amount,.balance-hero-amount{transition:opacity .25s ease}
 .empty-state{text-align:center;padding:48px 20px 24px;line-height:1.6}
 .empty-state-icon{font-size:64px;margin-bottom:12px;animation:emptyBounce 2s ease-in-out infinite}
 @keyframes emptyBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}

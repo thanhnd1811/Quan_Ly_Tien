@@ -676,6 +676,12 @@ const App = {
   },
 
   async reload() {
+    // Show skeleton trên list giao dịch + ví ngay (bị ghi đè khi render xong)
+    const recentEl = document.getElementById('homeRecent');
+    if (recentEl && !recentEl.dataset.shown) {
+      recentEl.innerHTML = this.skeletonRows(4);
+      recentEl.dataset.shown = '1';
+    }
     this.state.books = await window.QLT_Store.getAll('books');
     this.state.currentBookId = window.QLT_Store.getCurrentBookId();
     const bid = this.state.currentBookId;
@@ -1019,6 +1025,24 @@ const App = {
   render() {
     this.renderAuthUI();
     this.renderBookHeader();
+  },
+
+  // Helper: skeleton placeholder cho list rows (dùng khi đang load)
+  skeletonRows(n = 5) {
+    let html = '';
+    for (let i = 0; i < n; i++) {
+      html += `
+        <div class="skel-row">
+          <div class="skeleton skel-circle"></div>
+          <div class="skel-flex">
+            <div class="skeleton skel-line short"></div>
+            <div class="skeleton skel-line tiny"></div>
+          </div>
+          <div class="skeleton skel-amt"></div>
+        </div>
+      `;
+    }
+    return html;
   },
 
   // Helper: build markup cho empty state đẹp (icon + title + desc + CTA)
