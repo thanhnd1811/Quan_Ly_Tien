@@ -468,6 +468,8 @@ const App = {
     loans: [],
     budgets: [],
     goals: [],
+    fuelLogs: [],
+    maintenanceLogs: [],
     currentTab: 'home',
     txFilter: { type: 'all', period: 'month', accountId: 'all', search: '' },
     chartPeriod: 'month',
@@ -598,6 +600,8 @@ const App = {
     this.state.loans = inBook(await window.QLT_Store.getAll('loans'));
     this.state.budgets = inBook(await window.QLT_Store.getAll('budgets'));
     this.state.goals = inBook(await window.QLT_Store.getAll('goals'));
+    this.state.fuelLogs = inBook(await window.QLT_Store.getAll('fuelLogs'));
+    this.state.maintenanceLogs = inBook(await window.QLT_Store.getAll('maintenanceLogs'));
   },
 
   currentBook() {
@@ -694,6 +698,12 @@ const App = {
     $('#txCamera').onclick = () => this.scanReceipt();
     const micBtn = $('#txMic');
     if (micBtn) micBtn.onclick = () => this.voiceInput();
+
+    // Fuel & Maintenance
+    const fSave = $('#fuelLogSave'); if (fSave) fSave.onclick = () => this.saveFuelLog();
+    const fDel = $('#fuelLogDelete'); if (fDel) fDel.onclick = () => this.deleteFuelLog();
+    const mSave = $('#maintLogSave'); if (mSave) mSave.onclick = () => this.saveMaintLog();
+    const mDel = $('#maintLogDelete'); if (mDel) mDel.onclick = () => this.deleteMaintLog();
 
     // Category form
     $('#catSave').onclick = () => this.saveCat();
@@ -929,6 +939,7 @@ const App = {
     else if (name === 'loans') this.renderLoans();
     else if (name === 'budgets') this.renderBudgets();
     else if (name === 'goals') this.renderGoals();
+    else if (name === 'fuel') this.renderFuel();
   },
 
   // ============ HOME ============
@@ -3126,6 +3137,9 @@ const App = {
         const loan = this.state.loans.find(l => l.id === tx._loanId);
         if (loan) { this.openLoanModal(loan.id); return; }
       }
+      // Fuel / Maintenance: redirect sang modal tương ứng
+      if (tx._fuelLogId) { this.openFuelLogModal(tx._fuelLogId); return; }
+      if (tx._maintLogId) { this.openMaintLogModal(tx._maintLogId); return; }
     }
     // Chuẩn hoá photos cho editingTx (giữ tương thích schema cũ tx.photo)
     this.state.editingTx = { ...tx, photos: this.getTxPhotos(tx) };
@@ -4701,6 +4715,592 @@ const App = {
       }
     };
     input.click();
+  },
+
+  // ============ CHI PHÍ XE (Xăng + Bảo dưỡng) ============
+  // Khoá nhận diện xe = name (lowercase, normalize) + type. Tránh gộp Wave+motorbike với Wave+car.
+  fuelVehicleKey(name, type) {
+    return normalizeVi(name).trim() + '__' + (type || 'motorbike');
+  },
+
+  // Group fuel + maintenance logs theo xe → trả mảng vehicles
+  fuelGroupVehicles() {
+    const map = new Map();
+    const get = (name, type) => {
+      const k = this.fuelVehicleKey(name, type);
+      if (!map.has(k)) {
+        map.set(k, {
+          key: k, name: (name || '').trim(), type: type || 'motorbike',
+          fuel: [], maint: []
+        });
+      }
+      return map.get(k);
+    };
+    for (const f of (this.state.fuelLogs || [])) {
+      if (!f.vehicleName) continue;
+      get(f.vehicleName, f.vehicleType).fuel.push(f);
+    }
+    for (const m of (this.state.maintenanceLogs || [])) {
+      if (!m.vehicleName) continue;
+      get(m.vehicleName, m.vehicleType).maint.push(m);
+    }
+    // Sort logs newest first per vehicle
+    for (const v of map.values()) {
+      v.fuel.sort((a, b) => (b.date + (b._updatedAt || '')).localeCompare(a.date + (a._updatedAt || '')));
+      v.maint.sort((a, b) => (b.date + (b._updatedAt || '')).localeCompare(a.date + (a._updatedAt || '')));
+    }
+    // Vehicles sort: gần đây có log nhất lên đầu
+    const arr = [...map.values()];
+    arr.sort((a, b) => {
+      const aLast = (a.fuel[0]?.date || '') > (a.maint[0]?.date || '') ? a.fuel[0]?.date : a.maint[0]?.date;
+      const bLast = (b.fuel[0]?.date || '') > (b.maint[0]?.date || '') ? b.fuel[0]?.date : b.maint[0]?.date;
+      return (bLast || '').localeCompare(aLast || '');
+    });
+    return arr;
+  },
+
+  // Tính stats cho 1 xe (input: object trả từ fuelGroupVehicles)
+  fuelComputeStats(v) {
+    const fuel = v.fuel; // newest first
+    const maint = v.maint;
+
+    // Tổng chi tháng này (xăng + bảo dưỡng)
+    const ym = new Date().toISOString().slice(0, 7);
+    const prevYm = (() => {
+      const d = new Date(); d.setMonth(d.getMonth() - 1);
+      return d.toISOString().slice(0, 7);
+    })();
+    let monthSpend = 0, prevMonthSpend = 0;
+    for (const x of [...fuel, ...maint]) {
+      if ((x.date || '').startsWith(ym)) monthSpend += x.amount || 0;
+      else if ((x.date || '').startsWith(prevYm)) prevMonthSpend += x.amount || 0;
+    }
+
+    // Odometer mới nhất = max odometer
+    let maxOdo = 0;
+    for (const x of [...fuel, ...maint]) if (x.odometer && x.odometer > maxOdo) maxOdo = x.odometer;
+
+    // Tiêu thụ lít/100km — cần ≥2 fuel logs có odometer + liters
+    // Sắp tăng dần theo ngày để tính delta
+    const fuelAsc = [...fuel].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    const consumptions = []; // mỗi phần tử = lít/100km
+    for (let i = 1; i < fuelAsc.length; i++) {
+      const prev = fuelAsc[i - 1];
+      const cur = fuelAsc[i];
+      const dKm = (cur.odometer || 0) - (prev.odometer || 0);
+      const liters = cur.liters || 0;
+      if (dKm > 0 && liters > 0) {
+        consumptions.push(liters / dKm * 100);
+      }
+    }
+    // Trung bình 3 lần gần nhất
+    const lastN = consumptions.slice(-3);
+    const avgLPer100 = lastN.length ? lastN.reduce((s, x) => s + x, 0) / lastN.length : null;
+
+    // đ/km — dùng tổng tiền xăng / tổng km đi
+    let totalFuelMoney = 0, totalDistance = 0;
+    for (let i = 1; i < fuelAsc.length; i++) {
+      const dKm = (fuelAsc[i].odometer || 0) - (fuelAsc[i - 1].odometer || 0);
+      if (dKm > 0) {
+        totalFuelMoney += (fuelAsc[i].amount || 0);
+        totalDistance += dKm;
+      }
+    }
+    const dongPerKm = totalDistance > 0 ? Math.round(totalFuelMoney / totalDistance) : null;
+
+    // Lần thay nhớt cuối + cảnh báo
+    const oilLogs = maint.filter(m => m.kind === 'oil' && m.odometer).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const lastOil = oilLogs[0] || null;
+    const oilThreshold = v.type === 'car' ? 5000 : 1500;
+    let oilStatus = null; // {km, threshold, urgent}
+    if (lastOil && maxOdo) {
+      const km = maxOdo - lastOil.odometer;
+      oilStatus = {
+        km,
+        threshold: oilThreshold,
+        urgent: km >= oilThreshold,
+        warn: km >= oilThreshold * 0.8
+      };
+    }
+
+    return { monthSpend, prevMonthSpend, maxOdo, avgLPer100, dongPerKm, lastOil, oilStatus, oilThreshold };
+  },
+
+  renderFuel() {
+    const wrap = $('#fuelVehicleList');
+    const empty = $('#fuelEmpty');
+    const vehicles = this.fuelGroupVehicles();
+
+    if (vehicles.length === 0) {
+      wrap.innerHTML = '';
+      empty.style.display = 'block';
+    } else {
+      empty.style.display = 'none';
+      wrap.innerHTML = vehicles.map(v => this.renderFuelVehicleCard(v)).join('');
+      // Bind click on log rows → open modal sửa
+      wrap.querySelectorAll('[data-fuel-log]').forEach(el => {
+        el.onclick = () => this.openFuelLogModal(el.dataset.fuelLog);
+      });
+      wrap.querySelectorAll('[data-maint-log]').forEach(el => {
+        el.onclick = () => this.openMaintLogModal(el.dataset.maintLog);
+      });
+    }
+
+    // FAB handlers
+    $('#fuelAddFab').onclick = () => this.openFuelLogModal(null);
+    $('#fuelMaintFab').onclick = () => this.openMaintLogModal(null);
+  },
+
+  renderFuelVehicleCard(v) {
+    const s = this.fuelComputeStats(v);
+    const icon = v.type === 'car' ? '🚗' : '🛵';
+    const monthCmp = s.prevMonthSpend > 0
+      ? (s.monthSpend > s.prevMonthSpend
+          ? `↑ ${fmt(s.monthSpend - s.prevMonthSpend)} so với tháng trước`
+          : `↓ ${fmt(s.prevMonthSpend - s.monthSpend)} so với tháng trước`)
+      : 'Chưa có dữ liệu tháng trước';
+
+    let oilHtml = '';
+    if (s.lastOil) {
+      const km = s.oilStatus?.km;
+      const cls = s.oilStatus?.urgent ? 'urgent' : (s.oilStatus?.warn ? '' : '');
+      const icon2 = s.oilStatus?.urgent ? '🚨' : '🛢️';
+      oilHtml = `<div class="fuel-oil-warning ${cls}">
+        ${icon2} Đã đi <strong>${fmt(km)} km</strong> kể từ lần thay nhớt cuối
+        (${this.formatDate(s.lastOil.date)} · ngưỡng ${fmt(s.oilThreshold)} km)
+        ${s.oilStatus?.urgent ? '<br><strong>Đề nghị thay nhớt</strong>' : ''}
+      </div>`;
+    } else {
+      oilHtml = `<div class="fuel-oil-warning">🛢️ Chưa ghi lần thay nhớt nào — bấm <strong>🔧 Bảo dưỡng</strong> để ghi lần đầu.</div>`;
+    }
+
+    // Logs gần đây — trộn fuel + maint, lấy 5 newest
+    const allLogs = [
+      ...v.fuel.map(f => ({ ...f, _kind: 'fuel' })),
+      ...v.maint.map(m => ({ ...m, _kind: 'maint' }))
+    ].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 5);
+
+    const logsHtml = allLogs.length === 0
+      ? '<div class="fuel-log-empty">Chưa có log nào</div>'
+      : allLogs.map(x => this.renderFuelLogRow(x)).join('');
+
+    return `
+      <div class="fuel-vehicle-card">
+        <div class="fuel-vehicle-head">
+          <div class="fuel-vehicle-icon">${icon}</div>
+          <div class="fuel-vehicle-name">${this.escapeHtml(v.name)}</div>
+          <div class="fuel-vehicle-month">
+            <div class="fuel-vehicle-month-val">${fmt(s.monthSpend)} đ</div>
+            <div class="fuel-vehicle-month-cmp">${monthCmp}</div>
+          </div>
+        </div>
+        <div class="fuel-stats-grid">
+          <div class="fuel-stat">
+            <div class="fuel-stat-lbl">Odometer</div>
+            <div class="fuel-stat-val">${fmt(s.maxOdo)} km</div>
+          </div>
+          <div class="fuel-stat">
+            <div class="fuel-stat-lbl">Tiêu thụ TB</div>
+            <div class="fuel-stat-val">${s.avgLPer100 != null ? s.avgLPer100.toFixed(1) + ' L/100km' : '—'}</div>
+          </div>
+          <div class="fuel-stat">
+            <div class="fuel-stat-lbl">Chi phí xăng</div>
+            <div class="fuel-stat-val">${s.dongPerKm != null ? fmt(s.dongPerKm) + ' đ/km' : '—'}</div>
+          </div>
+          <div class="fuel-stat">
+            <div class="fuel-stat-lbl">Số lần đổ / bảo dưỡng</div>
+            <div class="fuel-stat-val">${v.fuel.length} / ${v.maint.length}</div>
+          </div>
+        </div>
+        ${oilHtml}
+        <div class="fuel-log-list">${logsHtml}</div>
+      </div>
+    `;
+  },
+
+  renderFuelLogRow(x) {
+    if (x._kind === 'fuel') {
+      const liters = x.liters ? `${x.liters}L` : '';
+      const station = x.station ? '· ' + this.escapeHtml(x.station) : '';
+      const odo = x.odometer ? `${fmt(x.odometer)} km` : '';
+      return `
+        <div class="fuel-log-row" data-fuel-log="${x.id}">
+          <div class="fuel-log-row-icon fuel">⛽</div>
+          <div class="fuel-log-row-info">
+            <div class="fuel-log-row-title">Đổ xăng ${liters} ${station}</div>
+            <div class="fuel-log-row-meta">${this.formatDate(x.date)} ${odo ? '· ' + odo : ''}</div>
+          </div>
+          <div class="fuel-log-row-amt">${fmt(x.amount)}</div>
+        </div>
+      `;
+    }
+    const kindLabels = { oil: '🛢️ Thay nhớt', wash: '🚿 Rửa xe', repair: '🔧 Sửa chữa', tire: '🛞 Thay lốp', other: '📦 Khác' };
+    const lbl = kindLabels[x.kind] || '🔧 Bảo dưỡng';
+    const odo = x.odometer ? `${fmt(x.odometer)} km` : '';
+    return `
+      <div class="fuel-log-row" data-maint-log="${x.id}">
+        <div class="fuel-log-row-icon maint">🔧</div>
+        <div class="fuel-log-row-info">
+          <div class="fuel-log-row-title">${lbl}${x.label ? ' · ' + this.escapeHtml(x.label) : ''}</div>
+          <div class="fuel-log-row-meta">${this.formatDate(x.date)} ${odo ? '· ' + odo : ''}</div>
+        </div>
+        <div class="fuel-log-row-amt">${fmt(x.amount)}</div>
+      </div>
+    `;
+  },
+
+  // Tạo/lấy danh mục Xăng xe / Bảo dưỡng xe (auto-create)
+  async ensureFuelCategory(bookId) {
+    const all = await window.QLT_Store.getAll('categories');
+    let cat = all.find(c => c.bookId === bookId && c._fuelCategory === 'fuel');
+    if (!cat) {
+      cat = await window.QLT_Store.put('categories', {
+        type: 'expense', name: 'Xăng xe', icon: 'emoji:⛽',
+        color: '#dc2626', bookId, _fuelCategory: 'fuel'
+      });
+    }
+    return cat;
+  },
+  async ensureMaintCategory(bookId) {
+    const all = await window.QLT_Store.getAll('categories');
+    let cat = all.find(c => c.bookId === bookId && c._fuelCategory === 'maint');
+    if (!cat) {
+      cat = await window.QLT_Store.put('categories', {
+        type: 'expense', name: 'Bảo dưỡng xe', icon: 'emoji:🔧',
+        color: '#cc7a4f', bookId, _fuelCategory: 'maint'
+      });
+    }
+    return cat;
+  },
+
+  // Cập nhật datalist gợi ý tên xe + select tài khoản
+  _populateFuelOptions() {
+    // Distinct vehicle names
+    const names = new Set();
+    for (const f of this.state.fuelLogs) if (f.vehicleName) names.add(f.vehicleName.trim());
+    for (const m of this.state.maintenanceLogs) if (m.vehicleName) names.add(m.vehicleName.trim());
+    const dl = $('#fuelVehicleNameList');
+    if (dl) dl.innerHTML = [...names].map(n => `<option value="${this.escapeHtml(n)}">`).join('');
+
+    // Tài khoản (chỉ payment)
+    const payments = this.state.accounts.filter(a => this.isPayment(a));
+    const opts = payments.map(a => `<option value="${a.id}">${this.escapeHtml(a.name)}</option>`).join('');
+    const accFuel = $('#fuelAccount'); if (accFuel) accFuel.innerHTML = opts;
+    const accMaint = $('#maintAccount'); if (accMaint) accMaint.innerHTML = opts;
+  },
+
+  // ====== MODAL: ĐỔ XĂNG ======
+  openFuelLogModal(id) {
+    this._populateFuelOptions();
+    let log;
+    if (id) {
+      log = this.state.fuelLogs.find(x => x.id === id);
+      if (!log) return;
+    } else {
+      log = {
+        id: null, date: today(),
+        vehicleName: '', vehicleType: 'motorbike',
+        amount: 0, liters: 0, pricePerLiter: 0, odometer: 0,
+        station: '',
+        accountId: this.state.accounts.find(a => this.isPayment(a))?.id || null,
+        bookId: this.state.currentBookId
+      };
+    }
+    this.state.editingFuelLog = { ...log };
+
+    $('#fuelLogTitle').textContent = id ? '⛽ Sửa lần đổ xăng' : '⛽ Ghi lần đổ xăng';
+    $('#fuelLogDelete').style.display = id ? 'block' : 'none';
+    $('#fuelVehicleName').value = log.vehicleName || '';
+    $('#fuelDate').value = log.date || today();
+    $('#fuelAmount').value = log.amount ? Number(log.amount).toLocaleString('vi-VN') : '';
+    $('#fuelLiters').value = log.liters || '';
+    $('#fuelPricePerLiter').value = log.pricePerLiter ? Number(log.pricePerLiter).toLocaleString('vi-VN') : '';
+    $('#fuelOdometer').value = log.odometer || '';
+    $('#fuelStation').value = log.station || '';
+    if (log.accountId) $('#fuelAccount').value = log.accountId;
+
+    // Type pills
+    $$('.fuel-type-pill').forEach(el =>
+      el.classList.toggle('on', el.dataset.vt === (log.vehicleType || 'motorbike')));
+
+    // Hint odometer cuối cùng (nếu có)
+    this._updateFuelOdometerHint(log.vehicleName, log.vehicleType || 'motorbike', id);
+
+    // Compute hint khi đổi tiền/lít/giá
+    const refreshCompute = () => this._fuelAutoCompute();
+    $('#fuelAmount').oninput = refreshCompute;
+    $('#fuelAmount').onchange = refreshCompute;
+    $('#fuelLiters').oninput = refreshCompute;
+    $('#fuelPricePerLiter').oninput = refreshCompute;
+    $('#fuelPricePerLiter').onchange = refreshCompute;
+
+    $$('.fuel-type-pill').forEach(el => {
+      el.onclick = () => {
+        $$('.fuel-type-pill').forEach(x => x.classList.remove('on'));
+        el.classList.add('on');
+        this.state.editingFuelLog.vehicleType = el.dataset.vt;
+        this._updateFuelOdometerHint($('#fuelVehicleName').value, el.dataset.vt, id);
+      };
+    });
+    $('#fuelVehicleName').oninput = (e) => {
+      const t = $$('.fuel-type-pill.on')[0]?.dataset.vt || 'motorbike';
+      this._updateFuelOdometerHint(e.target.value, t, id);
+    };
+
+    $('#fuelLogModal').classList.add('open');
+    refreshCompute();
+  },
+
+  _updateFuelOdometerHint(name, type, currentLogId) {
+    const hint = $('#fuelOdometerHint');
+    if (!name?.trim()) { hint.textContent = ''; return; }
+    const k = this.fuelVehicleKey(name, type);
+    const others = this.state.fuelLogs
+      .filter(f => this.fuelVehicleKey(f.vehicleName, f.vehicleType) === k && f.id !== currentLogId)
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const last = others[0];
+    if (last) hint.textContent = `Lần trước: ${fmt(last.odometer)} km (${this.formatDate(last.date)})`;
+    else hint.textContent = `Lần đầu cho xe này — số odometer này sẽ là mốc bắt đầu để tính tiêu thụ.`;
+  },
+
+  _fuelAutoCompute() {
+    const amt = readAmount($('#fuelAmount'));
+    const lit = parseFloat($('#fuelLiters').value) || 0;
+    const ppl = readAmount($('#fuelPricePerLiter'));
+    const hint = $('#fuelComputeHint');
+    let msg = null;
+
+    // Có tiền + lít → suy ra giá/lít
+    if (amt > 0 && lit > 0 && (!ppl || Math.abs(ppl - amt / lit) > 1)) {
+      const computed = Math.round(amt / lit);
+      $('#fuelPricePerLiter').value = Number(computed).toLocaleString('vi-VN');
+      msg = `→ Giá: ${fmt(computed)} đ/lít`;
+    }
+    // Có tiền + giá/lít, thiếu lít → suy ra lít
+    else if (amt > 0 && ppl > 0 && !lit) {
+      const computed = (amt / ppl).toFixed(2);
+      $('#fuelLiters').value = computed;
+      msg = `→ Lít: ${computed} L`;
+    }
+    // Có lít + giá/lít, thiếu tiền → suy ra tiền
+    else if (lit > 0 && ppl > 0 && !amt) {
+      const computed = Math.round(lit * ppl);
+      $('#fuelAmount').value = Number(computed).toLocaleString('vi-VN');
+      msg = `→ Tiền: ${fmt(computed)} đ`;
+    }
+
+    if (msg) { hint.style.display = 'block'; hint.textContent = msg; }
+    else hint.style.display = 'none';
+  },
+
+  async saveFuelLog() {
+    const log = this.state.editingFuelLog;
+    if (!log) return;
+    const name = $('#fuelVehicleName').value.trim();
+    const type = $$('.fuel-type-pill.on')[0]?.dataset.vt || 'motorbike';
+    const date = $('#fuelDate').value || today();
+    const amount = readAmount($('#fuelAmount'));
+    const liters = parseFloat($('#fuelLiters').value) || 0;
+    const pricePerLiter = readAmount($('#fuelPricePerLiter'));
+    const odometer = parseInt($('#fuelOdometer').value, 10) || 0;
+    const station = $('#fuelStation').value.trim();
+    const accountId = $('#fuelAccount').value || null;
+
+    if (!name) { QLT_UI.toast('Vui lòng nhập tên xe', { type: 'error' }); return; }
+    if (amount <= 0) { QLT_UI.toast('Vui lòng nhập số tiền', { type: 'error' }); return; }
+    if (!odometer) { QLT_UI.toast('Vui lòng nhập số công-tơ-mét', { type: 'error' }); return; }
+    if (!accountId) { QLT_UI.toast('Vui lòng chọn ví trừ tiền', { type: 'error' }); return; }
+
+    Object.assign(log, {
+      vehicleName: name, vehicleType: type, date, amount, liters, pricePerLiter, odometer, station, accountId,
+      bookId: log.bookId || this.state.currentBookId
+    });
+
+    const isNew = !log.id;
+
+    // Hoàn tác tx cũ nếu sửa (sẽ tạo lại tx mới đúng giá trị)
+    if (!isNew && log.txId) {
+      const oldTx = (await window.QLT_Store.getAll('transactions')).find(t => t.id === log.txId);
+      if (oldTx) {
+        await this.applyBalanceDelta(oldTx, -1);
+        await window.QLT_Store.del('transactions', oldTx.id);
+      }
+      log.txId = null;
+    }
+
+    // Tạo expense tx mới
+    const cat = await this.ensureFuelCategory(log.bookId);
+    const tx = {
+      type: 'expense', amount, date, accountId,
+      categoryId: cat?.id || null,
+      note: `Đổ xăng ${name}${station ? ' · ' + station : ''}`,
+      bookId: log.bookId,
+      _fuelLogId: null  // sẽ điền sau khi lưu log có id
+    };
+    await this.applyBalanceDelta(tx, +1);
+    const savedTx = await window.QLT_Store.put('transactions', tx);
+
+    log.txId = savedTx.id;
+    const savedLog = await window.QLT_Store.put('fuelLogs', log);
+
+    // Update tx với fuelLogId (để khi click tx → open log modal)
+    savedTx._fuelLogId = savedLog.id;
+    await window.QLT_Store.put('transactions', savedTx);
+
+    await this.reload();
+    $('#fuelLogModal').classList.remove('open');
+    this.renderFuel();
+    this.autoSync();
+    QLT_UI.toast(isNew ? 'Đã ghi lần đổ xăng' : 'Đã cập nhật', { type: 'success' });
+  },
+
+  async deleteFuelLog() {
+    const log = this.state.editingFuelLog;
+    if (!log?.id) return;
+    if (!await QLT_UI.confirm('Xoá lần đổ xăng này? Giao dịch chi tiêu liên kết cũng sẽ bị xoá.', { okLabel: 'Xoá', danger: true })) return;
+    if (log.txId) {
+      const tx = (await window.QLT_Store.getAll('transactions')).find(t => t.id === log.txId);
+      if (tx) {
+        await this.applyBalanceDelta(tx, -1);
+        await window.QLT_Store.del('transactions', tx.id);
+      }
+    }
+    await window.QLT_Store.del('fuelLogs', log.id);
+    await this.reload();
+    $('#fuelLogModal').classList.remove('open');
+    this.renderFuel();
+    this.autoSync();
+  },
+
+  // ====== MODAL: BẢO DƯỠNG ======
+  openMaintLogModal(id) {
+    this._populateFuelOptions();
+    let log;
+    if (id) {
+      log = this.state.maintenanceLogs.find(x => x.id === id);
+      if (!log) return;
+    } else {
+      log = {
+        id: null, date: today(),
+        vehicleName: '', vehicleType: 'motorbike',
+        kind: 'oil', label: '',
+        amount: 0, odometer: 0,
+        accountId: this.state.accounts.find(a => this.isPayment(a))?.id || null,
+        note: '',
+        bookId: this.state.currentBookId
+      };
+    }
+    this.state.editingMaintLog = { ...log };
+
+    $('#maintLogTitle').textContent = id ? '🔧 Sửa bảo dưỡng' : '🔧 Ghi bảo dưỡng';
+    $('#maintLogDelete').style.display = id ? 'block' : 'none';
+    $('#maintVehicleName').value = log.vehicleName || '';
+    $('#maintDate').value = log.date || today();
+    $('#maintAmount').value = log.amount ? Number(log.amount).toLocaleString('vi-VN') : '';
+    $('#maintOdometer').value = log.odometer || '';
+    $('#maintLabel').value = log.label || '';
+    $('#maintNote').value = log.note || '';
+    if (log.accountId) $('#maintAccount').value = log.accountId;
+
+    $$('.maint-type-pill').forEach(el =>
+      el.classList.toggle('on', el.dataset.vt === (log.vehicleType || 'motorbike')));
+    $$('.maint-kind-pill').forEach(el =>
+      el.classList.toggle('on', el.dataset.kind === (log.kind || 'oil')));
+
+    $$('.maint-type-pill').forEach(el => {
+      el.onclick = () => {
+        $$('.maint-type-pill').forEach(x => x.classList.remove('on'));
+        el.classList.add('on');
+      };
+    });
+    $$('.maint-kind-pill').forEach(el => {
+      el.onclick = () => {
+        $$('.maint-kind-pill').forEach(x => x.classList.remove('on'));
+        el.classList.add('on');
+        // Hiện required dấu * cho odometer chỉ khi 'oil'
+        $('#maintOdoRequired').style.display = el.dataset.kind === 'oil' ? '' : 'none';
+      };
+    });
+    $('#maintOdoRequired').style.display = (log.kind || 'oil') === 'oil' ? '' : 'none';
+
+    $('#maintLogModal').classList.add('open');
+  },
+
+  async saveMaintLog() {
+    const log = this.state.editingMaintLog;
+    if (!log) return;
+    const name = $('#maintVehicleName').value.trim();
+    const type = $$('.maint-type-pill.on')[0]?.dataset.vt || 'motorbike';
+    const kind = $$('.maint-kind-pill.on')[0]?.dataset.kind || 'oil';
+    const label = $('#maintLabel').value.trim();
+    const date = $('#maintDate').value || today();
+    const amount = readAmount($('#maintAmount'));
+    const odometer = parseInt($('#maintOdometer').value, 10) || 0;
+    const note = $('#maintNote').value.trim();
+    const accountId = $('#maintAccount').value || null;
+
+    if (!name) { QLT_UI.toast('Vui lòng nhập tên xe', { type: 'error' }); return; }
+    if (amount <= 0) { QLT_UI.toast('Vui lòng nhập số tiền', { type: 'error' }); return; }
+    if (kind === 'oil' && !odometer) { QLT_UI.toast('Vui lòng nhập odometer (cần để tính chu kỳ thay nhớt)', { type: 'error' }); return; }
+    if (!accountId) { QLT_UI.toast('Vui lòng chọn ví trừ tiền', { type: 'error' }); return; }
+
+    Object.assign(log, {
+      vehicleName: name, vehicleType: type, kind, label, date, amount, odometer, note, accountId,
+      bookId: log.bookId || this.state.currentBookId
+    });
+
+    const isNew = !log.id;
+
+    if (!isNew && log.txId) {
+      const oldTx = (await window.QLT_Store.getAll('transactions')).find(t => t.id === log.txId);
+      if (oldTx) {
+        await this.applyBalanceDelta(oldTx, -1);
+        await window.QLT_Store.del('transactions', oldTx.id);
+      }
+      log.txId = null;
+    }
+
+    const cat = await this.ensureMaintCategory(log.bookId);
+    const kindNames = { oil: 'Thay nhớt', wash: 'Rửa xe', repair: 'Sửa chữa', tire: 'Thay lốp', other: 'Bảo dưỡng' };
+    const tx = {
+      type: 'expense', amount, date, accountId,
+      categoryId: cat?.id || null,
+      note: `${kindNames[kind] || 'Bảo dưỡng'} ${name}${label ? ' · ' + label : ''}`,
+      bookId: log.bookId,
+      _maintLogId: null
+    };
+    await this.applyBalanceDelta(tx, +1);
+    const savedTx = await window.QLT_Store.put('transactions', tx);
+
+    log.txId = savedTx.id;
+    const savedLog = await window.QLT_Store.put('maintenanceLogs', log);
+
+    savedTx._maintLogId = savedLog.id;
+    await window.QLT_Store.put('transactions', savedTx);
+
+    await this.reload();
+    $('#maintLogModal').classList.remove('open');
+    this.renderFuel();
+    this.autoSync();
+    QLT_UI.toast(isNew ? 'Đã ghi bảo dưỡng' : 'Đã cập nhật', { type: 'success' });
+  },
+
+  async deleteMaintLog() {
+    const log = this.state.editingMaintLog;
+    if (!log?.id) return;
+    if (!await QLT_UI.confirm('Xoá lần bảo dưỡng này? Giao dịch chi tiêu liên kết cũng sẽ bị xoá.', { okLabel: 'Xoá', danger: true })) return;
+    if (log.txId) {
+      const tx = (await window.QLT_Store.getAll('transactions')).find(t => t.id === log.txId);
+      if (tx) {
+        await this.applyBalanceDelta(tx, -1);
+        await window.QLT_Store.del('transactions', tx.id);
+      }
+    }
+    await window.QLT_Store.del('maintenanceLogs', log.id);
+    await this.reload();
+    $('#maintLogModal').classList.remove('open');
+    this.renderFuel();
+    this.autoSync();
   },
 
   // ============ BOOKS ============

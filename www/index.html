@@ -567,6 +567,34 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
   .calc-current{font-size:32px}
 }
 
+/* Chi phí xe — vehicle cards */
+.fuel-vehicle-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin:12px 16px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.fuel-vehicle-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.fuel-vehicle-icon{width:36px;height:36px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.fuel-vehicle-name{font-weight:700;font-size:15px;color:var(--text);flex:1}
+.fuel-vehicle-month{text-align:right;font-size:13px}
+.fuel-vehicle-month-val{font-weight:700;color:var(--text)}
+.fuel-vehicle-month-cmp{font-size:11px;color:var(--text3)}
+.fuel-stats-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px}
+.fuel-stat{background:var(--surface2);border-radius:8px;padding:8px 10px}
+.fuel-stat-lbl{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px}
+.fuel-stat-val{font-size:14px;font-weight:700;color:var(--text);margin-top:2px}
+.fuel-stat-val.warn{color:#e0a82e}
+.fuel-stat-val.alert{color:#e63946}
+.fuel-oil-warning{background:#fff5e6;border-left:3px solid #f4b942;color:#856404;padding:8px 12px;border-radius:6px;font-size:12px;margin-top:8px;line-height:1.5}
+.fuel-oil-warning.urgent{background:#ffe5e5;border-left-color:#e63946;color:#a02431}
+.fuel-log-list{margin-top:10px}
+.fuel-log-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border);cursor:pointer;font-size:13px}
+.fuel-log-row:active{background:var(--surface2)}
+.fuel-log-row-icon{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.fuel-log-row-icon.fuel{background:#e7f4ec;color:#2d6a4f}
+.fuel-log-row-icon.maint{background:#fdebdf;color:#cc7a4f}
+.fuel-log-row-info{flex:1;min-width:0}
+.fuel-log-row-title{font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fuel-log-row-meta{font-size:11px;color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fuel-log-row-amt{font-weight:700;color:#e63946;font-size:13px;flex-shrink:0}
+.fuel-log-empty{color:var(--text3);font-size:12px;text-align:center;padding:14px;font-style:italic}
+
 /* Lightbox */
 .lightbox{position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:400;display:none;align-items:center;justify-content:center;padding:20px}
 .lightbox.open{display:flex;animation:fadeIn .15s}
@@ -941,6 +969,146 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
   <button id="loanAddFab" class="ni-fab" style="position:fixed;bottom:80px;right:16px;width:56px;height:56px;z-index:90;box-shadow:0 6px 18px rgba(45,106,79,.4)" data-icon="add"></button>
 </div>
 
+<!-- ========== CHI PHÍ XE (Xăng + Bảo dưỡng) ========== -->
+<div id="screen-fuel" class="screen">
+  <div class="topbar">
+    <div class="tb-row">
+      <div class="tb-back" data-icon="back" onclick="QLT_App.switchTab('home')"></div>
+      <div class="tb-title">Chi phí xe</div>
+    </div>
+  </div>
+  <div class="scroll-body">
+    <div id="fuelEmpty" class="empty-msg" style="display:none;padding:24px 16px;text-align:center;line-height:1.7">
+      <div style="font-size:42px;margin-bottom:8px">🚗</div>
+      <div style="font-weight:700;font-size:15px;color:var(--text)">Chưa có dữ liệu nào</div>
+      <div style="font-size:13px;color:var(--text2);margin-top:6px">Bấm <strong>⛽</strong> để ghi lần đổ xăng đầu tiên,<br>hoặc <strong>🔧</strong> để ghi lần bảo dưỡng.</div>
+    </div>
+    <div id="fuelVehicleList"></div>
+  </div>
+  <button id="fuelMaintFab" title="Bảo dưỡng" style="position:fixed;bottom:148px;right:16px;width:50px;height:50px;border-radius:50%;background:#cc7a4f;color:#fff;border:none;font-size:22px;cursor:pointer;z-index:90;box-shadow:0 6px 18px rgba(204,122,79,.45)">🔧</button>
+  <button id="fuelAddFab" title="Đổ xăng" style="position:fixed;bottom:80px;right:16px;width:56px;height:56px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:22px;cursor:pointer;z-index:90;box-shadow:0 6px 18px rgba(45,106,79,.45)">⛽</button>
+</div>
+
+<!-- Modal: Đổ xăng -->
+<div id="fuelLogModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3 id="fuelLogTitle">⛽ Ghi lần đổ xăng</h3>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="fl">Tên xe <span style="color:#e63946">*</span></label>
+        <input id="fuelVehicleName" class="fi" type="text" list="fuelVehicleNameList" placeholder="Ví dụ: Wave Alpha, Honda CRV...">
+        <datalist id="fuelVehicleNameList"></datalist>
+      </div>
+      <div class="fg">
+        <label class="fl">Loại xe <span style="color:#e63946">*</span></label>
+        <div class="seg" style="background:var(--surface2);border-radius:8px;padding:4px">
+          <div class="seg-item fuel-type-pill on" data-vt="motorbike" style="padding:8px 0;border-radius:6px">🛵 Xe máy</div>
+          <div class="seg-item fuel-type-pill" data-vt="car" style="padding:8px 0;border-radius:6px">🚗 Ô tô</div>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Ngày</label>
+        <input id="fuelDate" class="fi" type="date">
+      </div>
+      <div class="fg">
+        <label class="fl">Số tiền (VND) <span style="color:#e63946">*</span></label>
+        <input id="fuelAmount" class="fi qlt-amount" type="text" inputmode="none" readonly placeholder="0">
+      </div>
+      <div class="fg">
+        <label class="fl">Số lít <span style="color:var(--text3);font-weight:400">(tuỳ chọn)</span></label>
+        <input id="fuelLiters" class="fi" type="number" step="0.01" min="0" inputmode="decimal" placeholder="Vd: 5.2">
+      </div>
+      <div class="fg">
+        <label class="fl">Giá/lít <span style="color:var(--text3);font-weight:400">(tự tính từ tiền + lít)</span></label>
+        <input id="fuelPricePerLiter" class="fi qlt-amount" type="text" inputmode="none" readonly placeholder="0">
+      </div>
+      <div id="fuelComputeHint" style="font-size:12px;color:var(--accent);background:var(--surface2);padding:10px 12px;border-radius:8px;line-height:1.5;display:none"></div>
+      <div class="fg">
+        <label class="fl">Số công-tơ-mét hiện tại (km) <span style="color:#e63946">*</span></label>
+        <input id="fuelOdometer" class="fi" type="number" min="0" inputmode="numeric" placeholder="Vd: 12345">
+        <div id="fuelOdometerHint" style="font-size:11px;color:var(--text3);margin-top:6px"></div>
+      </div>
+      <div class="fg">
+        <label class="fl">Tài khoản trừ tiền</label>
+        <select id="fuelAccount" class="fi"></select>
+      </div>
+      <div class="fg">
+        <label class="fl">Cây xăng / ghi chú</label>
+        <input id="fuelStation" class="fi" type="text" placeholder="Vd: Petrolimex Lý Tự Trọng">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="fuelLogDelete" class="btn btn-danger" style="display:none">Xoá</button>
+      <button id="fuelLogSave" class="btn btn-primary">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Bảo dưỡng -->
+<div id="maintLogModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3 id="maintLogTitle">🔧 Ghi bảo dưỡng</h3>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="fl">Tên xe <span style="color:#e63946">*</span></label>
+        <input id="maintVehicleName" class="fi" type="text" list="fuelVehicleNameList" placeholder="Ví dụ: Wave Alpha">
+      </div>
+      <div class="fg">
+        <label class="fl">Loại xe <span style="color:#e63946">*</span></label>
+        <div class="seg" style="background:var(--surface2);border-radius:8px;padding:4px">
+          <div class="seg-item maint-type-pill on" data-vt="motorbike" style="padding:8px 0;border-radius:6px">🛵 Xe máy</div>
+          <div class="seg-item maint-type-pill" data-vt="car" style="padding:8px 0;border-radius:6px">🚗 Ô tô</div>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Loại bảo dưỡng <span style="color:#e63946">*</span></label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px" id="maintKindRow">
+          <div class="pill maint-kind-pill on" data-kind="oil">🛢️ Thay nhớt</div>
+          <div class="pill maint-kind-pill" data-kind="wash">🚿 Rửa xe</div>
+          <div class="pill maint-kind-pill" data-kind="repair">🔧 Sửa chữa</div>
+          <div class="pill maint-kind-pill" data-kind="tire">🛞 Thay lốp</div>
+          <div class="pill maint-kind-pill" data-kind="other">📦 Khác</div>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Mô tả <span style="color:var(--text3);font-weight:400">(tuỳ chọn)</span></label>
+        <input id="maintLabel" class="fi" type="text" placeholder="Vd: Thay nhớt Castrol GTX">
+      </div>
+      <div class="fg">
+        <label class="fl">Ngày</label>
+        <input id="maintDate" class="fi" type="date">
+      </div>
+      <div class="fg">
+        <label class="fl">Số tiền (VND) <span style="color:#e63946">*</span></label>
+        <input id="maintAmount" class="fi qlt-amount" type="text" inputmode="none" readonly placeholder="0">
+      </div>
+      <div class="fg">
+        <label class="fl">Số công-tơ-mét hiện tại (km) <span id="maintOdoRequired" style="color:#e63946">*</span></label>
+        <input id="maintOdometer" class="fi" type="number" min="0" inputmode="numeric" placeholder="Vd: 12345">
+        <div id="maintOdometerHint" style="font-size:11px;color:var(--text3);margin-top:6px">Chỉ bắt buộc khi 'Thay nhớt' để tính chu kỳ.</div>
+      </div>
+      <div class="fg">
+        <label class="fl">Tài khoản trừ tiền</label>
+        <select id="maintAccount" class="fi"></select>
+      </div>
+      <div class="fg">
+        <label class="fl">Ghi chú</label>
+        <input id="maintNote" class="fi" type="text" placeholder="(không bắt buộc)">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="maintLogDelete" class="btn btn-danger" style="display:none">Xoá</button>
+      <button id="maintLogSave" class="btn btn-primary">Lưu</button>
+    </div>
+  </div>
+</div>
+
 <!-- ========== BUDGETS (Ngân sách tháng) ========== -->
 <div id="screen-budgets" class="screen">
   <div class="topbar">
@@ -1250,6 +1418,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     <div class="dr-item" data-action="loans"><span style="font-size:18px">🤝</span> Cho vay / Nợ</div>
     <div class="dr-item" data-action="budgets"><span style="font-size:18px">🎯</span> Ngân sách tháng</div>
     <div class="dr-item" data-action="goals"><span style="font-size:18px">🏆</span> Mục tiêu tiết kiệm</div>
+    <div class="dr-item" data-action="fuel"><span style="font-size:18px">🚗</span> Chi phí xe</div>
     <div class="dr-item" data-action="settings"><span data-icon="settings"></span> Cài đặt</div>
     <div class="dr-item" id="syncItem" data-action="sync" style="display:none"><span data-icon="cloud"></span> Đồng bộ Drive</div>
     <div class="dr-item" id="loginItem" data-action="login"><span data-icon="user"></span> Đăng nhập Google</div>
