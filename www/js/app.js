@@ -1320,6 +1320,7 @@ const App = {
       if (this.state.editingBook?.id) this.exportBookCSV(this.state.editingBook.id, false);
     };
     $('#bookFinalHTML').onclick = () => this.exportFinal('html');
+    $('#bookFinalPDF').onclick = () => this.exportFinal('pdf');
     $('#bookFinalCSV').onclick = () => this.exportFinal('csv');
     $('#bookAddMemberBtn').onclick = () => this.addBookMember();
     $('#bookAddManyBtn').onclick = () => this.addManyMembers();
@@ -8564,11 +8565,14 @@ const App = {
   },
 
   // ============ EXPORT BOOK ============
-  // Mở báo cáo HTML trong window mới + chèn print-CSS + gọi window.print()
-  // → user chọn 'Save as PDF' trong dialog in của Android/Chrome.
+  // In/PDF báo cáo: dùng iframe ẩn để chạy print() trong context app
+  // → mở Print dialog của hệ thống (Android: chọn "Save as PDF" hoặc máy in)
+  // Tránh window.open vì Capacitor WebView thường block popup.
   async exportBookPDF(bookId, includeSettlement = false, includePhotos = false) {
     let html = await this._buildBookReportHTML(bookId, includeSettlement, includePhotos);
-    // Inject print CSS để PDF gọn hơn (bỏ bóng đổ, padding nhỏ lại, A4 portrait)
+    if (!html) return;
+
+    // Inject print CSS: A4 portrait, ảnh thu nhỏ
     const printCss = `
       <style>
         @media print {
@@ -8577,22 +8581,41 @@ const App = {
           .container,article,section{box-shadow:none !important;page-break-inside:avoid}
           table{page-break-inside:auto}
           tr{page-break-inside:avoid;page-break-after:auto}
-          .no-print,.tx-photo a img{max-width:60px;max-height:60px}
+          .no-print{display:none !important}
+          .tx-photo a img{max-width:60px;max-height:60px}
         }
       </style>`;
     html = html.replace('</head>', printCss + '</head>');
-    // Chèn auto-print khi load (delay nhỏ để images render)
-    const autoPrint = `<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),500));<\/script>`;
-    html = html.replace('</body>', autoPrint + '</body>');
+
+    // Tạo iframe ẩn, load HTML, sau khi render xong gọi print()
+    const old = document.getElementById('qltPrintFrame');
+    if (old) old.remove();
+    const frame = document.createElement('iframe');
+    frame.id = 'qltPrintFrame';
+    frame.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;height:1123px;border:0;visibility:hidden';
+    document.body.appendChild(frame);
 
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
-    const w = window.open(url, '_blank');
-    if (!w) {
-      // Native WebView có thể block popup → fallback: thay current navigation
-      QLT_UI.toast('Không mở được tab mới. Hãy bấm "Xuất HTML" rồi mở file để in.', { type: 'error', duration: 4000 });
-    }
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    frame.src = url;
+
+    let printed = false;
+    const tryPrint = () => {
+      if (printed) return;
+      printed = true;
+      try {
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+        QLT_UI.toast('🖨️ Mở dialog In — chọn "Save as PDF" để xuất file', { type: 'info', duration: 3000 });
+      } catch (e) {
+        QLT_UI.alert('Trình duyệt/WebView này không hỗ trợ in trực tiếp.\n\nThay vào đó: bấm "HTML" để tải file về, mở file bằng Chrome → menu ⋮ → In / Lưu PDF.', { title: 'Không in được' });
+      }
+    };
+    frame.onload = () => setTimeout(tryPrint, 600);  // chờ ảnh render
+    setTimeout(tryPrint, 3000);  // safety timeout
+
+    // Cleanup sau 1 phút
+    setTimeout(() => { try { frame.remove(); URL.revokeObjectURL(url); } catch (_) {} }, 60000);
   },
 
   async exportBookHTML(bookId, includeSettlement = false, includePhotos = false) {
@@ -8903,6 +8926,7 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
     const bookId = this.state.editingBook.id;
     const photos = !!$('#bookExportPhotos')?.checked;
     if (format === 'html') await this.exportBookHTML(bookId, true, photos);
+    else if (format === 'pdf') await this.exportBookPDF(bookId, true, photos);
     else if (format === 'csv') await this.exportBookCSV(bookId, true);
   },
 

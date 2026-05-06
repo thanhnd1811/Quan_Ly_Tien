@@ -2663,14 +2663,18 @@ html[data-theme="dark"] .tx-loc-badge{background:#1a3a5c;color:#7eb6e8}
         </div>
 
         <label class="fl" style="margin-top:18px;color:#856404">Báo cáo kết thúc (có chia tiền cuối chuyến)</label>
-        <div style="display:flex;gap:8px">
-          <button id="bookFinalHTML" class="btn btn-primary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="bookFinalHTML" class="btn btn-primary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-width:90px">
             <span data-icon="download" style="display:inline-flex;width:18px;height:18px"></span>
             <span>HTML</span>
           </button>
-          <button id="bookFinalCSV" class="btn btn-primary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1">
+          <button id="bookFinalPDF" class="btn btn-primary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-width:90px">
+            <span style="font-size:14px">🖨️</span>
+            <span>In / PDF</span>
+          </button>
+          <button id="bookFinalCSV" class="btn btn-primary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-width:90px">
             <span data-icon="download" style="display:inline-flex;width:18px;height:18px"></span>
-            <span>CSV (Excel)</span>
+            <span>CSV</span>
           </button>
         </div>
         <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">
