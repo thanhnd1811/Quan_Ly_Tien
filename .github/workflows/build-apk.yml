@@ -51,13 +51,16 @@ jobs:
             convert "$SRC" -resize ${size}x${size} "$DIR/ic_launcher_foreground.png"
           done
 
-      - name: Inject deeplink intent-filter qltien://
+      - name: Inject deeplink intent-filter qltien:// + Location permissions
         run: |
           python3 - <<'PY'
           import re
           path = 'android/app/src/main/AndroidManifest.xml'
           with open(path, 'r', encoding='utf-8') as f:
               m = f.read()
+          original = m
+
+          # 1) Deeplink intent-filter qltien://
           if 'android:scheme="qltien"' not in m:
               filter_tag = ('            <intent-filter>\n'
                             '                <action android:name="android.intent.action.VIEW" />\n'
@@ -68,11 +71,38 @@ jobs:
               new_m, n = re.subn(r'(</intent-filter>)', r'\1\n' + filter_tag, m, count=1)
               if n > 0:
                   m = new_m
-                  with open(path, 'w', encoding='utf-8') as f:
-                      f.write(m)
-                  print('OK: intent-filter qltien:// added')
+                  print('OK: intent-filter qltien://')
               else:
-                  print('::warning::missed intent-filter')
+                  print('::warning::missed qltien intent-filter')
+
+          # 2) Location permissions (an toàn — đảm bảo có dù plugin sync miss)
+          if 'ACCESS_FINE_LOCATION' not in m:
+              perms = ('    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n'
+                       '    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n')
+              new_m, n = re.subn(r'(\s*<application )', '\n' + perms + r'\1', m, count=1)
+              if n > 0:
+                  m = new_m
+                  print('OK: Location permissions added')
+              else:
+                  print('::warning::missed Location permissions')
+
+          # 3) Microphone (an toàn cho Speech Recognition)
+          if 'RECORD_AUDIO' not in m:
+              perm = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n'
+              new_m, n = re.subn(r'(\s*<application )', '\n' + perm + r'\1', m, count=1)
+              if n > 0:
+                  m = new_m
+                  print('OK: RECORD_AUDIO permission added')
+
+          if m != original:
+              with open(path, 'w', encoding='utf-8') as f:
+                  f.write(m)
+
+          # In ra để debug
+          print('--- Permissions trong AndroidManifest:')
+          for line in m.split('\n'):
+              if 'uses-permission' in line:
+                  print(line.strip())
           PY
 
       - name: Decode release keystore
