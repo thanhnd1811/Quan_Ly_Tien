@@ -880,8 +880,10 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       <div class="pill tx-filter-pill" data-type="expense">Chi</div>
       <div class="pill tx-filter-pill" data-type="income">Thu</div>
       <div class="pill tx-filter-pill" data-type="transfer">Chuyển</div>
+      <div class="pill" id="txAdvFilterBtn" style="background:var(--surface);border-color:var(--accent);color:var(--accent);font-weight:600">⚙️ Bộ lọc</div>
     </div>
     <div class="pill-row" id="txAccountFilterRow"></div>
+    <div id="txActiveFilters" style="display:none;padding:0 16px 8px"></div>
     <div id="txList"></div>
   </div>
 </div>
@@ -1116,6 +1118,65 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     <div id="loanList"></div>
   </div>
   <button id="loanAddFab" class="ni-fab" style="position:fixed;bottom:80px;right:16px;width:56px;height:56px;z-index:90;box-shadow:0 6px 18px rgba(45,106,79,.4)" data-icon="add"></button>
+</div>
+
+<!-- Modal: Bộ lọc giao dịch nâng cao -->
+<div id="txFilterModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3>⚙️ Bộ lọc giao dịch</h3>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="fl">Khoảng thời gian</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px" id="txFilterPeriod">
+          <div class="pill" data-period="all">Tất cả</div>
+          <div class="pill on" data-period="month">Tháng này</div>
+          <div class="pill" data-period="last-month">Tháng trước</div>
+          <div class="pill" data-period="quarter">3 tháng gần</div>
+          <div class="pill" data-period="year">Năm nay</div>
+          <div class="pill" data-period="custom">Tuỳ chỉnh</div>
+        </div>
+      </div>
+      <div class="fg" id="txFilterCustomRange" style="display:none">
+        <div style="display:flex;gap:8px">
+          <div style="flex:1">
+            <label class="fl">Từ ngày</label>
+            <input id="txFilterFrom" class="fi" type="date">
+          </div>
+          <div style="flex:1">
+            <label class="fl">Đến ngày</label>
+            <input id="txFilterTo" class="fi" type="date">
+          </div>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Danh mục</label>
+        <select id="txFilterCategory" class="fi">
+          <option value="all">Tất cả danh mục</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label class="fl">Khoảng tiền</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="txFilterAmountMin" class="fi qlt-amount" type="text" inputmode="none" readonly placeholder="Tối thiểu" style="flex:1">
+          <span style="color:var(--text3)">—</span>
+          <input id="txFilterAmountMax" class="fi qlt-amount" type="text" inputmode="none" readonly placeholder="Tối đa" style="flex:1">
+        </div>
+      </div>
+      <div class="fg">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+          <input id="txFilterPhotoOnly" type="checkbox" style="width:18px;height:18px">
+          <span>📷 Chỉ hiện giao dịch CÓ ảnh minh chứng</span>
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="txFilterReset">Đặt lại</button>
+      <button class="btn btn-primary" id="txFilterApply">Áp dụng</button>
+    </div>
+  </div>
 </div>
 
 <!-- ========== GIAO DỊCH ĐỊNH KỲ ========== -->

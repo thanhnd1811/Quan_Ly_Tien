@@ -528,7 +528,7 @@ const App = {
     maintenanceLogs: [],
     recurringRules: [],
     currentTab: 'home',
-    txFilter: { type: 'all', period: 'month', accountId: 'all', search: '' },
+    txFilter: { type: 'all', period: 'month', accountId: 'all', search: '', categoryId: 'all', amountMin: 0, amountMax: 0, photoOnly: false, dateFrom: '', dateTo: '' },
     chartPeriod: 'month',
     chartFrom: '',
     chartTo: '',
@@ -888,6 +888,10 @@ const App = {
     const rDel = $('#recDelete'); if (rDel) rDel.onclick = () => this.deleteRecurring();
     const rDom = $('#recDayOfMonth'); if (rDom) rDom.onchange = () => this._recurringApplyFreqUI($('#recFrequency').value);
     const rDow = $('#recDayOfWeek'); if (rDow) rDow.onchange = () => this._recurringApplyFreqUI($('#recFrequency').value);
+
+    // Tx filter modal
+    const txfApply = $('#txFilterApply'); if (txfApply) txfApply.onclick = () => this.applyTxFilter();
+    const txfReset = $('#txFilterReset'); if (txfReset) txfReset.onclick = () => this.resetTxFilter();
 
     // Category form
     $('#catSave').onclick = () => this.saveCat();
@@ -1611,15 +1615,27 @@ const App = {
     const list = $('#txList');
     let txs = [...this.state.transactions];
 
+    const f = this.state.txFilter;
     // Filter type
-    if (this.state.txFilter.type !== 'all') {
-      txs = txs.filter(t => t.type === this.state.txFilter.type);
-    }
-    // Filter account (transfer hiện ở cả ví nguồn lẫn ví đích)
-    if (this.state.txFilter.accountId !== 'all') {
-      const aid = this.state.txFilter.accountId;
+    if (f.type !== 'all') txs = txs.filter(t => t.type === f.type);
+    // Filter account
+    if (f.accountId !== 'all') {
+      const aid = f.accountId;
       txs = txs.filter(t => t.accountId === aid || t.toAccountId === aid);
     }
+    // Filter category
+    if (f.categoryId && f.categoryId !== 'all') {
+      txs = txs.filter(t => t.categoryId === f.categoryId);
+    }
+    // Filter amount range
+    if (f.amountMin > 0) txs = txs.filter(t => (t.amount || 0) >= f.amountMin);
+    if (f.amountMax > 0) txs = txs.filter(t => (t.amount || 0) <= f.amountMax);
+    // Filter photo only
+    if (f.photoOnly) txs = txs.filter(t => this.getTxPhotos(t).length > 0);
+    // Filter date range
+    const range = this._computeDateRange(f);
+    if (range.from) txs = txs.filter(t => t.date >= range.from);
+    if (range.to) txs = txs.filter(t => t.date <= range.to);
     // Search: ghi chú / tên danh mục / tên ví / số tiền / ngày
     const searchTerm = (this.state.txFilter.search || '').trim();
     if (searchTerm) {
@@ -1686,6 +1702,10 @@ const App = {
         this.renderTransactions();
       };
     });
+    // Bộ lọc nâng cao
+    const advBtn = $('#txAdvFilterBtn');
+    if (advBtn) advBtn.onclick = () => this.openTxFilterModal();
+    this.renderActiveFilterChips();
   },
 
   // ============ CHARTS ============
@@ -5492,6 +5512,120 @@ const App = {
       }
     };
     input.click();
+  },
+
+  // ====== TX FILTER NÂNG CAO ======
+  _computeDateRange(f) {
+    const today_ = today();
+    const now = new Date();
+    if (f.period === 'all') return { from: '', to: '' };
+    if (f.period === 'month') {
+      const ym = today_.slice(0, 7);
+      return { from: ym + '-01', to: today_ };
+    }
+    if (f.period === 'last-month') {
+      const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const last = new Date(now.getFullYear(), now.getMonth(), 0);
+      return { from: d.toISOString().slice(0, 10), to: last.toISOString().slice(0, 10) };
+    }
+    if (f.period === 'quarter') {
+      const d = new Date(now); d.setMonth(d.getMonth() - 2); d.setDate(1);
+      return { from: d.toISOString().slice(0, 10), to: today_ };
+    }
+    if (f.period === 'year') {
+      return { from: now.getFullYear() + '-01-01', to: today_ };
+    }
+    if (f.period === 'custom') {
+      return { from: f.dateFrom || '', to: f.dateTo || '' };
+    }
+    return { from: '', to: '' };
+  },
+
+  openTxFilterModal() {
+    const f = this.state.txFilter;
+    // Period pills
+    document.querySelectorAll('#txFilterPeriod .pill').forEach(el => {
+      el.classList.toggle('on', el.dataset.period === (f.period || 'month'));
+      el.onclick = () => {
+        document.querySelectorAll('#txFilterPeriod .pill').forEach(x => x.classList.remove('on'));
+        el.classList.add('on');
+        $('#txFilterCustomRange').style.display = el.dataset.period === 'custom' ? 'block' : 'none';
+      };
+    });
+    $('#txFilterCustomRange').style.display = (f.period === 'custom') ? 'block' : 'none';
+    $('#txFilterFrom').value = f.dateFrom || '';
+    $('#txFilterTo').value = f.dateTo || '';
+    $('#txFilterAmountMin').value = f.amountMin ? Number(f.amountMin).toLocaleString('vi-VN') : '';
+    $('#txFilterAmountMax').value = f.amountMax ? Number(f.amountMax).toLocaleString('vi-VN') : '';
+    $('#txFilterPhotoOnly').checked = !!f.photoOnly;
+    // Category select — list tất cả categories
+    const cats = this.state.categories.slice().sort((a, b) => (a.type || '').localeCompare(b.type || '') || (a.name || '').localeCompare(b.name || ''));
+    $('#txFilterCategory').innerHTML = '<option value="all">Tất cả danh mục</option>' +
+      cats.map(c => `<option value="${c.id}">${c.type === 'expense' ? '📤' : c.type === 'income' ? '📥' : ''} ${this.escapeHtml(c.name)}</option>`).join('');
+    if (f.categoryId) $('#txFilterCategory').value = f.categoryId;
+    $('#txFilterModal').classList.add('open');
+  },
+
+  applyTxFilter() {
+    const period = document.querySelector('#txFilterPeriod .pill.on')?.dataset.period || 'month';
+    this.state.txFilter.period = period;
+    this.state.txFilter.dateFrom = period === 'custom' ? $('#txFilterFrom').value : '';
+    this.state.txFilter.dateTo = period === 'custom' ? $('#txFilterTo').value : '';
+    this.state.txFilter.categoryId = $('#txFilterCategory').value || 'all';
+    this.state.txFilter.amountMin = readAmount($('#txFilterAmountMin')) || 0;
+    this.state.txFilter.amountMax = readAmount($('#txFilterAmountMax')) || 0;
+    this.state.txFilter.photoOnly = $('#txFilterPhotoOnly').checked;
+    $('#txFilterModal').classList.remove('open');
+    this.renderTransactions();
+  },
+
+  resetTxFilter() {
+    this.state.txFilter = { type: 'all', period: 'month', accountId: 'all', search: '', categoryId: 'all', amountMin: 0, amountMax: 0, photoOnly: false, dateFrom: '', dateTo: '' };
+    $('#txFilterModal').classList.remove('open');
+    this.renderTransactions();
+  },
+
+  // Render chip "active filters" để user thấy filter nào đang áp + xoá nhanh
+  renderActiveFilterChips() {
+    const wrap = $('#txActiveFilters');
+    if (!wrap) return;
+    const f = this.state.txFilter;
+    const chips = [];
+    if (f.period && f.period !== 'all') {
+      const labels = { month: 'Tháng này', 'last-month': 'Tháng trước', quarter: '3 tháng', year: 'Năm nay', custom: 'Tuỳ chỉnh' };
+      chips.push({ key: 'period', label: '📅 ' + (labels[f.period] || f.period) });
+    }
+    if (f.categoryId && f.categoryId !== 'all') {
+      const c = this.state.categories.find(x => x.id === f.categoryId);
+      if (c) chips.push({ key: 'categoryId', label: '🏷️ ' + c.name });
+    }
+    if (f.amountMin > 0 || f.amountMax > 0) {
+      const a = f.amountMin > 0 ? fmt(f.amountMin) : '0';
+      const b = f.amountMax > 0 ? fmt(f.amountMax) : '∞';
+      chips.push({ key: 'amount', label: `💰 ${a} - ${b}` });
+    }
+    if (f.photoOnly) chips.push({ key: 'photoOnly', label: '📷 Có ảnh' });
+
+    if (chips.length === 0) {
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = 'flex';
+    wrap.style.flexWrap = 'wrap';
+    wrap.style.gap = '6px';
+    wrap.innerHTML = chips.map(c =>
+      `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--acl);color:var(--accent);padding:4px 10px;border-radius:14px;font-size:12px;font-weight:600">${this.escapeHtml(c.label)} <span data-clear-filter="${c.key}" style="cursor:pointer;font-weight:700;padding:0 2px">✕</span></span>`
+    ).join('');
+    wrap.querySelectorAll('[data-clear-filter]').forEach(el => {
+      el.onclick = () => {
+        const k = el.dataset.clearFilter;
+        if (k === 'period') this.state.txFilter.period = 'all';
+        else if (k === 'categoryId') this.state.txFilter.categoryId = 'all';
+        else if (k === 'amount') { this.state.txFilter.amountMin = 0; this.state.txFilter.amountMax = 0; }
+        else if (k === 'photoOnly') this.state.txFilter.photoOnly = false;
+        this.renderTransactions();
+      };
+    });
   },
 
   // ============ GIAO DỊCH ĐỊNH KỲ ============
