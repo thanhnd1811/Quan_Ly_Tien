@@ -1118,6 +1118,104 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
   <button id="loanAddFab" class="ni-fab" style="position:fixed;bottom:80px;right:16px;width:56px;height:56px;z-index:90;box-shadow:0 6px 18px rgba(45,106,79,.4)" data-icon="add"></button>
 </div>
 
+<!-- ========== GIAO DỊCH ĐỊNH KỲ ========== -->
+<div id="screen-recurring" class="screen">
+  <div class="topbar">
+    <div class="tb-row">
+      <div class="tb-back" data-icon="back" onclick="QLT_App.switchTab('home')"></div>
+      <div class="tb-title">Giao dịch định kỳ</div>
+    </div>
+  </div>
+  <div class="scroll-body">
+    <div id="recurringList"></div>
+  </div>
+  <button id="recurringAddFab" title="Tạo quy tắc" style="position:fixed;bottom:80px;right:16px;width:56px;height:56px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:28px;cursor:pointer;z-index:90;box-shadow:0 6px 18px rgba(45,106,79,.45)">+</button>
+</div>
+
+<!-- Modal: Quy tắc định kỳ -->
+<div id="recurringModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3 id="recurringTitle">🔄 Giao dịch định kỳ</h3>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="fl">Loại <span style="color:#e63946">*</span></label>
+        <div class="seg" style="background:var(--surface2);border-radius:8px;padding:4px">
+          <div class="seg-item rec-type-pill on" data-type="expense" style="padding:8px 0;border-radius:6px">Chi</div>
+          <div class="seg-item rec-type-pill" data-type="income" style="padding:8px 0;border-radius:6px">Thu</div>
+          <div class="seg-item rec-type-pill" data-type="transfer" style="padding:8px 0;border-radius:6px">Chuyển</div>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Tên gọi <span style="color:#e63946">*</span></label>
+        <input id="recName" class="fi" type="text" placeholder="Vd: Lương, Tiền nhà, Internet">
+      </div>
+      <div class="fg">
+        <label class="fl">Số tiền <span style="color:#e63946">*</span></label>
+        <input id="recAmount" class="fi qlt-amount" type="text" inputmode="none" readonly placeholder="0">
+      </div>
+      <div class="fg">
+        <label class="fl">Ví <span style="color:#e63946">*</span></label>
+        <select id="recAccount" class="fi"></select>
+      </div>
+      <div class="fg" id="recToAccountWrap" style="display:none">
+        <label class="fl">Đến ví</label>
+        <select id="recToAccount" class="fi"></select>
+      </div>
+      <div class="fg" id="recCategoryWrap">
+        <label class="fl">Danh mục</label>
+        <select id="recCategory" class="fi"></select>
+      </div>
+      <div class="fg">
+        <label class="fl">Tần suất <span style="color:#e63946">*</span></label>
+        <select id="recFrequency" class="fi">
+          <option value="daily">Mỗi ngày</option>
+          <option value="weekly">Mỗi tuần</option>
+          <option value="monthly" selected>Mỗi tháng</option>
+          <option value="yearly">Mỗi năm</option>
+        </select>
+      </div>
+      <div class="fg" id="recDayOfMonthWrap">
+        <label class="fl">Ngày trong tháng</label>
+        <select id="recDayOfMonth" class="fi"></select>
+      </div>
+      <div class="fg" id="recDayOfWeekWrap" style="display:none">
+        <label class="fl">Thứ trong tuần</label>
+        <select id="recDayOfWeek" class="fi">
+          <option value="1">Thứ 2</option><option value="2">Thứ 3</option><option value="3">Thứ 4</option>
+          <option value="4">Thứ 5</option><option value="5">Thứ 6</option><option value="6">Thứ 7</option>
+          <option value="0">Chủ nhật</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label class="fl">Bắt đầu từ ngày</label>
+        <input id="recStartDate" class="fi" type="date">
+      </div>
+      <div class="fg">
+        <label class="fl">Kết thúc (tuỳ chọn — bỏ trống = không giới hạn)</label>
+        <input id="recEndDate" class="fi" type="date">
+      </div>
+      <div class="fg">
+        <label class="fl">Ghi chú</label>
+        <input id="recNote" class="fi" type="text" placeholder="(không bắt buộc)">
+      </div>
+      <div class="fg">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+          <input id="recActive" type="checkbox" checked style="width:18px;height:18px">
+          <span>Đang bật (tự tạo giao dịch khi đến hạn)</span>
+        </label>
+      </div>
+      <div id="recHint" style="font-size:12px;color:var(--text3);background:var(--acl);padding:10px 12px;border-radius:8px;line-height:1.5"></div>
+    </div>
+    <div class="modal-footer">
+      <button id="recDelete" class="btn btn-danger" style="display:none">Xoá</button>
+      <button id="recSave" class="btn btn-primary">Lưu</button>
+    </div>
+  </div>
+</div>
+
 <!-- ========== SỔ TIẾT KIỆM ========== -->
 <div id="screen-savings" class="screen">
   <div class="topbar">
@@ -1646,6 +1744,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     <div class="dr-item" data-action="budgets"><span class="dr-emoji">🎯</span> Ngân sách tháng</div>
     <div class="dr-item" data-action="goals"><span class="dr-emoji">🏆</span> Mục tiêu tiết kiệm</div>
     <div class="dr-item" data-action="loans"><span class="dr-emoji">🤝</span> Cho vay / Nợ</div>
+    <div class="dr-item" data-action="recurring"><span class="dr-emoji">🔄</span> Giao dịch định kỳ</div>
 
     <div class="dr-section-label">Theo dõi</div>
     <div class="dr-item" data-action="fuel"><span class="dr-emoji">🚗</span> Chi phí xe</div>

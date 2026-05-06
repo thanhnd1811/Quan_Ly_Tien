@@ -526,6 +526,7 @@ const App = {
     goals: [],
     fuelLogs: [],
     maintenanceLogs: [],
+    recurringRules: [],
     currentTab: 'home',
     txFilter: { type: 'all', period: 'month', accountId: 'all', search: '' },
     chartPeriod: 'month',
@@ -685,6 +686,15 @@ const App = {
       this.bindEvents();
       $$('.qlt-amount').forEach(attachAmountFormatting);
 
+      // Chạy các quy tắc giao dịch định kỳ → tạo tx cho các kỳ đã qua
+      try {
+        const created = await this.runRecurringRules();
+        if (created > 0) {
+          await this.reload();
+          QLT_UI.toast(`🔄 Tự tạo ${created} giao dịch định kỳ`, { type: 'success', duration: 3500 });
+        }
+      } catch (e) { console.warn('Recurring rules lỗi:', e); }
+
       // Render home dưới TRƯỚC để khi unlock app sẵn sàng (lock screen z-index cao hơn)
       this.switchTab('home');
 
@@ -757,6 +767,7 @@ const App = {
     this.state.goals = inBook(await window.QLT_Store.getAll('goals'));
     this.state.fuelLogs = inBook(await window.QLT_Store.getAll('fuelLogs'));
     this.state.maintenanceLogs = inBook(await window.QLT_Store.getAll('maintenanceLogs'));
+    this.state.recurringRules = inBook(await window.QLT_Store.getAll('recurringRules'));
   },
 
   currentBook() {
@@ -871,6 +882,12 @@ const App = {
     // Withdraw early
     const wConfirm = $('#withdrawConfirm');
     if (wConfirm) wConfirm.onclick = () => this.confirmWithdrawEarly();
+
+    // Recurring
+    const rSave = $('#recSave'); if (rSave) rSave.onclick = () => this.saveRecurring();
+    const rDel = $('#recDelete'); if (rDel) rDel.onclick = () => this.deleteRecurring();
+    const rDom = $('#recDayOfMonth'); if (rDom) rDom.onchange = () => this._recurringApplyFreqUI($('#recFrequency').value);
+    const rDow = $('#recDayOfWeek'); if (rDow) rDow.onchange = () => this._recurringApplyFreqUI($('#recFrequency').value);
 
     // Category form
     $('#catSave').onclick = () => this.saveCat();
@@ -1158,6 +1175,7 @@ const App = {
     else if (name === 'goals') this.renderGoals();
     else if (name === 'fuel') this.renderFuel();
     else if (name === 'savings') this.renderSavings();
+    else if (name === 'recurring') this.renderRecurring();
   },
 
   // ============ HOME ============
@@ -5474,6 +5492,273 @@ const App = {
       }
     };
     input.click();
+  },
+
+  // ============ GIAO DỊCH ĐỊNH KỲ ============
+  // Tính ngày NEXT của rule sau ngày 'fromDate' (YYYY-MM-DD), inclusive
+  recurringNextDate(rule, fromDate) {
+    const from = new Date(fromDate + 'T00:00:00');
+    if (rule.frequency === 'daily') return fromDate;
+    if (rule.frequency === 'weekly') {
+      const dow = parseInt(rule.dayOfWeek, 10);
+      const d = new Date(from);
+      const diff = (dow - d.getDay() + 7) % 7;
+      d.setDate(d.getDate() + diff);
+      return d.toISOString().slice(0, 10);
+    }
+    if (rule.frequency === 'monthly') {
+      const dom = rule.dayOfMonth === 'last' ? null : parseInt(rule.dayOfMonth, 10);
+      const tryDate = (year, month) => {
+        if (dom === null) {
+          // last day of month
+          return new Date(year, month + 1, 0);
+        }
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        const day = Math.min(dom, lastDay);
+        return new Date(year, month, day);
+      };
+      let cand = tryDate(from.getFullYear(), from.getMonth());
+      if (cand < from) cand = tryDate(from.getFullYear(), from.getMonth() + 1);
+      return cand.toISOString().slice(0, 10);
+    }
+    if (rule.frequency === 'yearly') {
+      const start = new Date(rule.startDate + 'T00:00:00');
+      const cand = new Date(from.getFullYear(), start.getMonth(), start.getDate());
+      if (cand < from) cand.setFullYear(from.getFullYear() + 1);
+      return cand.toISOString().slice(0, 10);
+    }
+    return fromDate;
+  },
+
+  // Chạy các rule active: tạo giao dịch cho mỗi lần đáo hạn từ lastRunDate → today
+  async runRecurringRules() {
+    const today_ = today();
+    const rules = await window.QLT_Store.getAll('recurringRules');
+    let created = 0;
+    for (const rule of rules) {
+      if (!rule.active) continue;
+      const startDate = rule.startDate || today_;
+      // Bắt đầu từ ngày sau lastRunDate (nếu có), hoặc startDate
+      let cursor = rule.lastRunDate
+        ? new Date(rule.lastRunDate + 'T00:00:00')
+        : new Date(startDate + 'T00:00:00');
+      if (rule.lastRunDate) cursor.setDate(cursor.getDate() + 1);
+      // Lặp tối đa 60 lần để tránh infinite loop
+      for (let i = 0; i < 60; i++) {
+        const cursorStr = cursor.toISOString().slice(0, 10);
+        const nextStr = this.recurringNextDate(rule, cursorStr);
+        if (nextStr > today_) break;
+        if (rule.endDate && nextStr > rule.endDate) break;
+        // Tạo tx
+        const tx = {
+          type: rule.type,
+          amount: rule.amount,
+          date: nextStr,
+          accountId: rule.accountId,
+          toAccountId: rule.type === 'transfer' ? rule.toAccountId : null,
+          categoryId: rule.type !== 'transfer' ? rule.categoryId : null,
+          note: rule.note || rule.name,
+          bookId: rule.bookId,
+          _recurringRuleId: rule.id
+        };
+        await this.applyBalanceDelta(tx, +1);
+        await window.QLT_Store.put('transactions', tx);
+        created++;
+        rule.lastRunDate = nextStr;
+        // Cursor → ngày sau nextStr
+        cursor = new Date(nextStr + 'T00:00:00');
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      await window.QLT_Store.put('recurringRules', rule);
+    }
+    return created;
+  },
+
+  renderRecurring() {
+    const wrap = $('#recurringList');
+    const rules = this.state.recurringRules.slice().sort((a, b) =>
+      (a.active === b.active ? 0 : a.active ? -1 : 1) || (a.name || '').localeCompare(b.name || ''));
+
+    if (rules.length === 0) {
+      wrap.innerHTML = this.emptyState({
+        icon: '🔄', title: 'Chưa có giao dịch định kỳ',
+        desc: 'Tự động tạo giao dịch cho lương, tiền nhà, internet... mỗi tháng/tuần. App sẽ chạy tự động khi bạn mở app sau ngày tới hạn.',
+        ctaLabel: '+ Tạo quy tắc đầu tiên'
+      });
+      this.bindEmptyCTA(wrap, () => this.openRecurringModal(null));
+    } else {
+      const freqLabels = { daily: 'mỗi ngày', weekly: 'mỗi tuần', monthly: 'mỗi tháng', yearly: 'mỗi năm' };
+      const today_ = today();
+      wrap.innerHTML = rules.map(r => {
+        const nextDate = this.recurringNextDate(r, r.lastRunDate
+          ? (() => { const d = new Date(r.lastRunDate); d.setDate(d.getDate() + 1); return d.toISOString().slice(0,10); })()
+          : (r.startDate || today_));
+        const acc = this.state.accounts.find(a => a.id === r.accountId)?.name || '?';
+        const sign = r.type === 'income' ? '+' : (r.type === 'expense' ? '-' : '↻');
+        const cls = r.type === 'income' ? 'amount-pos' : (r.type === 'expense' ? 'amount-neg' : '');
+        return `
+          <div class="card" data-recurring="${r.id}" style="cursor:pointer;${!r.active ? 'opacity:.55' : ''}">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="font-size:24px">${r.type === 'income' ? '💰' : r.type === 'expense' ? '💸' : '↻'}</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:700">${this.escapeHtml(r.name)}${!r.active ? ' <span style="color:var(--text3);font-size:11px;font-weight:500">⏸ tắt</span>' : ''}</div>
+                <div style="font-size:12px;color:var(--text2);margin-top:2px">${freqLabels[r.frequency] || ''} · ${this.escapeHtml(acc)}</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">${r.active ? 'Lần kế: ' + this.formatDate(nextDate) : 'Đang tạm dừng'}</div>
+              </div>
+              <div class="${cls}" style="font-weight:700">${sign}${fmt(r.amount)}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      wrap.querySelectorAll('[data-recurring]').forEach(el => {
+        el.onclick = () => this.openRecurringModal(el.dataset.recurring);
+      });
+    }
+    $('#recurringAddFab').onclick = () => this.openRecurringModal(null);
+  },
+
+  openRecurringModal(id) {
+    const isNew = !id;
+    let r;
+    if (isNew) {
+      r = {
+        id: null, name: '', type: 'expense', amount: 0,
+        accountId: this.state.accounts.find(a => this.isPayment(a))?.id || null,
+        toAccountId: null, categoryId: null,
+        frequency: 'monthly', dayOfMonth: 1, dayOfWeek: 1,
+        startDate: today(), endDate: '', note: '', active: true,
+        lastRunDate: null, bookId: this.state.currentBookId
+      };
+    } else {
+      r = this.state.recurringRules.find(x => x.id === id);
+      if (!r) return;
+    }
+    this.state.editingRecurring = { ...r };
+
+    // Populate dayOfMonth select (1-28 + 'last')
+    const domSel = $('#recDayOfMonth');
+    if (domSel.children.length === 0) {
+      let html = '';
+      for (let i = 1; i <= 28; i++) html += `<option value="${i}">Ngày ${i}</option>`;
+      html += '<option value="last">Ngày cuối tháng</option>';
+      domSel.innerHTML = html;
+    }
+
+    $('#recurringTitle').textContent = isNew ? '🔄 Tạo giao dịch định kỳ' : '🔄 Sửa giao dịch định kỳ';
+    $('#recDelete').style.display = isNew ? 'none' : 'block';
+    $('#recName').value = r.name || '';
+    $('#recAmount').value = r.amount ? Number(r.amount).toLocaleString('vi-VN') : '';
+    $('#recFrequency').value = r.frequency || 'monthly';
+    $('#recDayOfMonth').value = String(r.dayOfMonth || 1);
+    $('#recDayOfWeek').value = String(r.dayOfWeek != null ? r.dayOfWeek : 1);
+    $('#recStartDate').value = r.startDate || today();
+    $('#recEndDate').value = r.endDate || '';
+    $('#recNote').value = r.note || '';
+    $('#recActive').checked = r.active !== false;
+
+    // Account selectors
+    const payAccs = this.state.accounts.filter(a => this.isPayment(a));
+    const opts = payAccs.map(a => `<option value="${a.id}">${this.escapeHtml(a.name)}</option>`).join('');
+    $('#recAccount').innerHTML = opts;
+    $('#recToAccount').innerHTML = opts;
+    if (r.accountId) $('#recAccount').value = r.accountId;
+    if (r.toAccountId) $('#recToAccount').value = r.toAccountId;
+
+    // Type pills
+    $$('.rec-type-pill').forEach(el => {
+      el.classList.toggle('on', el.dataset.type === (r.type || 'expense'));
+      el.onclick = () => {
+        $$('.rec-type-pill').forEach(x => x.classList.remove('on'));
+        el.classList.add('on');
+        this.state.editingRecurring.type = el.dataset.type;
+        this._recurringApplyTypeUI(el.dataset.type);
+      };
+    });
+    this._recurringApplyTypeUI(r.type || 'expense');
+
+    // Frequency change
+    $('#recFrequency').onchange = (e) => this._recurringApplyFreqUI(e.target.value);
+    this._recurringApplyFreqUI(r.frequency || 'monthly');
+
+    $('#recurringModal').classList.add('open');
+  },
+
+  _recurringApplyTypeUI(type) {
+    const isTransfer = type === 'transfer';
+    $('#recToAccountWrap').style.display = isTransfer ? 'block' : 'none';
+    $('#recCategoryWrap').style.display = isTransfer ? 'none' : 'block';
+    if (!isTransfer) {
+      const cats = this.state.categories.filter(c => c.type === type);
+      $('#recCategory').innerHTML = cats.map(c =>
+        `<option value="${c.id}">${this.escapeHtml(c.name)}</option>`).join('');
+      const r = this.state.editingRecurring;
+      if (r.categoryId) $('#recCategory').value = r.categoryId;
+    }
+  },
+
+  _recurringApplyFreqUI(freq) {
+    $('#recDayOfMonthWrap').style.display = freq === 'monthly' ? 'block' : 'none';
+    $('#recDayOfWeekWrap').style.display = freq === 'weekly' ? 'block' : 'none';
+    const hint = $('#recHint');
+    const dom = $('#recDayOfMonth').value;
+    const dow = $('#recDayOfWeek').value;
+    if (freq === 'monthly') hint.textContent = `Mỗi tháng vào ngày ${dom === 'last' ? 'cuối tháng' : dom}`;
+    else if (freq === 'weekly') hint.textContent = `Mỗi tuần vào ${['Chủ nhật','Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7'][dow]}`;
+    else if (freq === 'daily') hint.textContent = 'Mỗi ngày';
+    else if (freq === 'yearly') hint.textContent = 'Mỗi năm vào ngày ' + ($('#recStartDate').value || today());
+  },
+
+  async saveRecurring() {
+    const r = this.state.editingRecurring;
+    if (!r) return;
+    r.name = $('#recName').value.trim();
+    r.type = $$('.rec-type-pill.on')[0]?.dataset.type || 'expense';
+    r.amount = readAmount($('#recAmount'));
+    r.accountId = $('#recAccount').value;
+    r.toAccountId = r.type === 'transfer' ? $('#recToAccount').value : null;
+    r.categoryId = r.type !== 'transfer' ? $('#recCategory').value : null;
+    r.frequency = $('#recFrequency').value;
+    r.dayOfMonth = $('#recDayOfMonth').value;
+    r.dayOfWeek = parseInt($('#recDayOfWeek').value, 10);
+    r.startDate = $('#recStartDate').value || today();
+    r.endDate = $('#recEndDate').value || '';
+    r.note = $('#recNote').value.trim();
+    r.active = $('#recActive').checked;
+    r.bookId = r.bookId || this.state.currentBookId;
+
+    if (!r.name) { QLT_UI.toast('Nhập tên gọi', { type: 'error' }); return; }
+    if (r.amount <= 0) { QLT_UI.toast('Nhập số tiền', { type: 'error' }); return; }
+    if (!r.accountId) { QLT_UI.toast('Chọn ví', { type: 'error' }); return; }
+    if (r.type === 'transfer' && !r.toAccountId) { QLT_UI.toast('Chọn ví đích', { type: 'error' }); return; }
+
+    await window.QLT_Store.put('recurringRules', r);
+    await this.reload();
+
+    // Chạy ngay sau khi tạo/sửa để tạo tx cho các lần đã qua từ startDate đến nay
+    const created = await this.runRecurringRules();
+    if (created > 0) {
+      await this.reload();
+      QLT_UI.toast(`Đã tạo ${created} giao dịch từ quy tắc`, { type: 'success' });
+    } else {
+      QLT_UI.toast('Đã lưu quy tắc', { type: 'success' });
+    }
+
+    $('#recurringModal').classList.remove('open');
+    this.renderRecurring();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.autoSync();
+  },
+
+  async deleteRecurring() {
+    const r = this.state.editingRecurring;
+    if (!r?.id) return;
+    if (!await QLT_UI.confirm('Xoá quy tắc này? Các giao dịch đã tạo trước đây vẫn giữ nguyên.', { okLabel: 'Xoá', danger: true })) return;
+    await window.QLT_Store.del('recurringRules', r.id);
+    await this.reload();
+    $('#recurringModal').classList.remove('open');
+    this.renderRecurring();
+    this.autoSync();
+    QLT_UI.toast('Đã xoá quy tắc', { type: 'success' });
   },
 
   // ============ CHI PHÍ XE (Xăng + Bảo dưỡng) ============
