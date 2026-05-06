@@ -1017,6 +1017,10 @@ const App = {
 
   // ============ CATEGORIES ============
   renderCategories() {
+    // Đồng bộ tab UI với state để tránh lệch (HTML default vs state)
+    document.querySelectorAll('.cat-tab').forEach(el => {
+      el.classList.toggle('on', el.dataset.type === this.state.catTab);
+    });
     const cats = this.state.categories.filter(c => c.type === this.state.catTab);
     const parents = cats.filter(c => !c.parentId);
     const childrenByParent = {};
