@@ -229,6 +229,8 @@
           lsSet(LS.pinHash, this._setupTempHash);
           lsSet(LS.pinLength, this._pinLength);
           lsSet(LS.enabled, 'true');
+          // Lần đầu setup → mặc định timeout 5 phút (300s) để tránh nhập PIN quá thường xuyên
+          if (lsGet(LS.timeout) === null) lsSet(LS.timeout, 300);
           this.markUnlocked();
           this._setupTempHash = null;
           this._setupTempSalt = null;
@@ -338,6 +340,43 @@
 
       // Nút sinh trắc
       this._el('lockBioBtn').addEventListener('click', () => this._tryBio());
+
+      // Nút "Quên PIN" — mở khoá qua Google Sign-In
+      const forgotBtn = this._el('lockForgotBtn');
+      if (forgotBtn) forgotBtn.addEventListener('click', () => this._tryForgot());
+    },
+
+    // Recovery: yêu cầu user đăng nhập Google (qua QLT_Auth). Nếu thành công →
+    // mở khoá đồng thời TẮT PIN và xoá hash → user bắt buộc đặt PIN mới trong
+    // Cài đặt nếu muốn dùng tiếp. Đây là tradeoff hợp lý: chỉ chủ tài khoản
+    // Google đã từng đăng nhập trên thiết bị này mới recover được.
+    async _tryForgot() {
+      if (this._mode !== 'verify') return;
+      if (!window.QLT_Auth) {
+        this._setError('Tính năng đăng nhập chưa sẵn sàng');
+        return;
+      }
+      try {
+        this._setError('Đang xác minh Google...');
+        const user = await window.QLT_Auth.signIn();
+        if (!user) {
+          this._setError('Đăng nhập huỷ bỏ');
+          return;
+        }
+        // Thành công → tắt PIN, mở khoá
+        lsSet(LS.enabled, null);
+        lsSet(LS.pinHash, null);
+        lsSet(LS.pinSalt, null);
+        lsSet(LS.biometric, null);
+        this._failCount = 0;
+        this.markUnlocked();
+        this.hide();
+        window.QLT_UI?.toast?.('Đã mở khoá. PIN cũ bị xoá — vào Cài đặt để đặt PIN mới.', { type: 'success', duration: 4000 });
+        if (this._onSuccess) { const cb = this._onSuccess; this._onSuccess = null; cb(); }
+      } catch (e) {
+        console.warn('Forgot PIN flow lỗi:', e);
+        this._setError('Không xác minh được Google: ' + (e?.message || 'thử lại'));
+      }
     },
 
     async _tryBio() {
@@ -371,6 +410,9 @@
       const bioBtn = this._el('lockBioBtn');
       const bioOn = await this.hasBiometric();
       bioBtn.style.display = bioOn ? 'flex' : 'none';
+      // Nút quên PIN (chỉ verify mode)
+      const forgotBtn = this._el('lockForgotBtn');
+      if (forgotBtn) forgotBtn.style.display = 'inline-block';
       // Foot tip
       this._el('lockFoot').style.display = 'block';
 
@@ -398,6 +440,8 @@
       this._bindKeypad();
       this._el('lockBioBtn').style.display = 'none';
       this._el('lockFoot').style.display = 'none';
+      const _forgotBtn = this._el('lockForgotBtn');
+      if (_forgotBtn) _forgotBtn.style.display = 'none';
       this._open = true;
       this._el('lockScreen').classList.add('open');
     },
@@ -417,6 +461,8 @@
       this._bindKeypad();
       this._el('lockBioBtn').style.display = 'none';
       this._el('lockFoot').style.display = 'none';
+      const _forgotBtn = this._el('lockForgotBtn');
+      if (_forgotBtn) _forgotBtn.style.display = 'none';
       this._open = true;
       this._el('lockScreen').classList.add('open');
     },

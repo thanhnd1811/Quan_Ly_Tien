@@ -658,25 +658,29 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
         </div>
       </div>
     </div>
-    <div class="section">
-      <div class="sec-label">
-        Số dư từng ví
-        <span class="sec-action" onclick="QLT_App.switchTab('accounts')">Quản lý →</span>
+    <div data-home-widget="wallets">
+      <div class="section">
+        <div class="sec-label">
+          Số dư từng ví
+          <span class="sec-action" onclick="QLT_App.switchTab('accounts')">Quản lý →</span>
+        </div>
       </div>
+      <div id="homeWallets"></div>
     </div>
-    <div id="homeWallets"></div>
-    <div id="homeSavings" style="display:none"></div>
-    <div id="homeGoals" style="display:none"></div>
-    <div id="homeForecast" style="display:none"></div>
-    <div id="homeBudgetWidget" style="display:none"></div>
-    <div id="homeLoanShortcut" style="display:none"></div>
-    <div class="section">
-      <div class="sec-label">
-        Giao dịch gần đây
-        <span class="sec-action" onclick="QLT_App.switchTab('transactions')">Xem tất cả</span>
+    <div data-home-widget="savings"><div id="homeSavings" style="display:none"></div></div>
+    <div data-home-widget="goals"><div id="homeGoals" style="display:none"></div></div>
+    <div data-home-widget="forecast"><div id="homeForecast" style="display:none"></div></div>
+    <div data-home-widget="budgets"><div id="homeBudgetWidget" style="display:none"></div></div>
+    <div data-home-widget="loans"><div id="homeLoanShortcut" style="display:none"></div></div>
+    <div data-home-widget="recent">
+      <div class="section">
+        <div class="sec-label">
+          Giao dịch gần đây
+          <span class="sec-action" onclick="QLT_App.switchTab('transactions')">Xem tất cả</span>
+        </div>
       </div>
+      <div id="homeRecent"></div>
     </div>
-    <div id="homeRecent"></div>
   </div>
 </div>
 
@@ -1176,6 +1180,11 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     </div>
 
     <div class="section">
+      <div class="sec-label">🏠 Hiển thị trên Trang chủ</div>
+    </div>
+    <div id="setHomeWidgets"></div>
+
+    <div class="section">
       <div class="sec-label">Sao lưu / khôi phục</div>
     </div>
     <div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:10px">
@@ -1432,6 +1441,8 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       <div class="fg">
         <label class="fl" id="accBalanceLabel">Số dư ban đầu (VND)</label>
         <input id="accBalance" class="fi qlt-amount" type="text" inputmode="none" readonly placeholder="0">
+        <button id="accAdjustBalance" type="button" style="display:none;margin-top:8px;background:transparent;border:1px solid var(--accent);color:var(--accent);padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;width:100%">⚖️ Điều chỉnh số dư (tạo giao dịch)</button>
+        <div id="accBalanceHint" style="display:none;font-size:11px;color:var(--text3);margin-top:6px;line-height:1.5">Để giữ số dư đúng với lịch sử giao dịch, chỉnh số dư qua nút trên — hệ thống sẽ tạo 1 giao dịch "Điều chỉnh" tương ứng.</div>
       </div>
       <div id="accSavingsFields" style="display:none">
         <div class="fg">
@@ -1752,7 +1763,8 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     <div class="lock-key" data-k="0">0</div>
     <div class="lock-key fn" data-k="back">⌫</div>
   </div>
-  <div class="lock-foot" id="lockFoot">Quên PIN? Vào Cài đặt → Bảo mật từ thiết bị khác đã đăng nhập, hoặc xoá dữ liệu app trong Android.</div>
+  <button id="lockForgotBtn" type="button" style="margin-top:18px;background:transparent;border:1px solid rgba(255,255,255,.35);color:#fff;padding:10px 18px;border-radius:24px;font-size:13px;font-weight:600;cursor:pointer;backdrop-filter:blur(8px)">🔓 Quên PIN — mở khoá qua Google</button>
+  <div class="lock-foot" id="lockFoot">PIN mất → bấm nút trên để xác minh bằng Google đã từng đăng nhập, hoặc xoá dữ liệu app từ Android Settings.</div>
 </div>
 
 <script src="js/config.js"></script>

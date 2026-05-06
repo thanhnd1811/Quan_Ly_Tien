@@ -774,7 +774,31 @@ const App = {
   isSavings(acc) { return (acc?.accountType || 'payment') === 'savings'; },
   isPayment(acc) { return (acc?.accountType || 'payment') === 'payment'; },
 
+  // Cài đặt hiển thị widget trên Trang chủ — lưu trong localStorage (preference UI)
+  getHomeWidgetPrefs() {
+    try {
+      const raw = localStorage.getItem('qlt_home_widgets');
+      if (!raw) return {};
+      return JSON.parse(raw) || {};
+    } catch (_) { return {}; }
+  },
+  setHomeWidgetPref(key, val) {
+    const cur = this.getHomeWidgetPrefs();
+    cur[key] = !!val;
+    localStorage.setItem('qlt_home_widgets', JSON.stringify(cur));
+  },
+  // Default ON nếu chưa set
+  isHomeWidgetOn(key) {
+    const p = this.getHomeWidgetPrefs();
+    return p[key] !== false;
+  },
+
   renderHome() {
+    // Áp dụng prefs widget — ẩn cả wrapper data-home-widget tương ứng
+    document.querySelectorAll('[data-home-widget]').forEach(el => {
+      el.style.display = this.isHomeWidgetOn(el.dataset.homeWidget) ? '' : 'none';
+    });
+
     // Tổng số dư = CHỈ tính ví thanh toán (tiền dùng được)
     const paymentAccs = this.state.accounts.filter(a => this.isPayment(a));
     const savingsAccs = this.state.accounts.filter(a => this.isSavings(a));
@@ -2538,20 +2562,38 @@ const App = {
 
     const isNew = !loan.id;
     if (isNew) {
-      // Lần đầu tạo: cộng/trừ ví theo loại
-      // - lend (cho vay): tiền RA khỏi ví
-      // - borrow (đi vay): tiền VÀO ví
-      const acc = this.state.accounts.find(a => a.id === loan.accountId);
-      if (acc) {
-        acc.balance += (loan.type === 'lend' ? -1 : +1) * loan.principal;
-        await window.QLT_Store.put('accounts', acc);
-      }
       loan.status = 'open';
       loan.createdAt = Date.now();
     }
 
-    await window.QLT_Store.put('loans', loan);
-    await this.scheduleLoanNotif(loan);
+    // Lưu loan trước để có id (nếu mới)
+    const saved = await window.QLT_Store.put('loans', loan);
+
+    // Khi tạo mới: sinh giao dịch tương ứng (xuất hiện trong danh sách Giao dịch)
+    // - lend  → expense, danh mục "Cho vay"
+    // - borrow → income, danh mục "Đi vay"
+    if (isNew) {
+      const catKey = loan.type === 'lend' ? 'lend' : 'borrow';
+      const cat = await this.ensureLoanCategory(loan.bookId, catKey);
+      const tx = {
+        type: loan.type === 'lend' ? 'expense' : 'income',
+        amount: loan.principal,
+        date: loan.date,
+        accountId: loan.accountId,
+        categoryId: cat?.id || null,
+        note: loan.type === 'lend'
+          ? `Cho ${loan.counterparty} vay`
+          : `Vay từ ${loan.counterparty}`,
+        bookId: loan.bookId,
+        _loanId: saved.id
+      };
+      await this.applyBalanceDelta(tx, +1);
+      const savedTx = await window.QLT_Store.put('transactions', tx);
+      saved._principalTxId = savedTx.id;
+      await window.QLT_Store.put('loans', saved);
+    }
+
+    await this.scheduleLoanNotif(saved);
     await this.reload();
     $('#loanModal').classList.remove('open');
     this.renderLoans();
@@ -2565,19 +2607,36 @@ const App = {
     if (!loan?.id) return;
     if (!await QLT_UI.confirm('Xoá khoản này? Hệ thống sẽ HOÀN TÁC tất cả tác động lên ví (cả khoản gốc lẫn các lần trả).', { okLabel: 'Xoá', danger: true })) return;
 
-    // Hoàn tác balance: hoàn lại khoản gốc + cộng/trừ lại các lần trả
-    const acc = this.state.accounts.find(a => a.id === loan.accountId);
-    if (acc) {
-      // Đảo dấu của lúc tạo: lend đã trừ → giờ cộng lại; borrow đã cộng → giờ trừ lại
-      acc.balance += (loan.type === 'lend' ? +1 : -1) * loan.principal;
-      await window.QLT_Store.put('accounts', acc);
+    // Hoàn tác khoản gốc:
+    // - Loan mới (có _principalTxId): xoá tx liên kết, applyBalanceDelta tự cập nhật ví
+    // - Loan cũ (không có): direct mutate balance như trước (legacy fallback)
+    if (loan._principalTxId) {
+      const tx = (await window.QLT_Store.getAll('transactions')).find(t => t.id === loan._principalTxId);
+      if (tx) {
+        await this.applyBalanceDelta(tx, -1);
+        await window.QLT_Store.del('transactions', tx.id);
+      }
+    } else {
+      const acc = this.state.accounts.find(a => a.id === loan.accountId);
+      if (acc) {
+        acc.balance += (loan.type === 'lend' ? +1 : -1) * loan.principal;
+        await window.QLT_Store.put('accounts', acc);
+      }
     }
+    // Hoàn tác từng lần trả tương tự
     for (const p of (loan.payments || [])) {
-      const pa = this.state.accounts.find(a => a.id === p.accountId);
-      if (pa) {
-        // Đảo dấu của lúc trả: lend-payment đã cộng vào ví → giờ trừ; borrow-payment đã trừ → giờ cộng
-        pa.balance += (loan.type === 'lend' ? -1 : +1) * p.amount;
-        await window.QLT_Store.put('accounts', pa);
+      if (p.txId) {
+        const tx = (await window.QLT_Store.getAll('transactions')).find(t => t.id === p.txId);
+        if (tx) {
+          await this.applyBalanceDelta(tx, -1);
+          await window.QLT_Store.del('transactions', tx.id);
+        }
+      } else {
+        const pa = this.state.accounts.find(a => a.id === p.accountId);
+        if (pa) {
+          pa.balance += (loan.type === 'lend' ? -1 : +1) * p.amount;
+          await window.QLT_Store.put('accounts', pa);
+        }
       }
     }
 
@@ -2635,14 +2694,27 @@ const App = {
     loan.payments = loan.payments || [];
     loan.payments.push(payment);
 
-    // Cập nhật ví
-    // - lend-payment: đối tác trả mình → tiền VÀO ví
-    // - borrow-payment: mình trả đối tác → tiền RA khỏi ví
-    const acc = this.state.accounts.find(a => a.id === accountId);
-    if (acc) {
-      acc.balance += (loan.type === 'lend' ? +1 : -1) * amount;
-      await window.QLT_Store.put('accounts', acc);
-    }
+    // Tạo giao dịch tương ứng:
+    // - lend-payment: đối tác trả mình → income, danh mục 'Nhận trả nợ'
+    // - borrow-payment: mình trả đối tác → expense, danh mục 'Trả nợ'
+    const catKey = loan.type === 'lend' ? 'lendRepay' : 'borrowRepay';
+    const cat = await this.ensureLoanCategory(loan.bookId, catKey);
+    const tx = {
+      type: loan.type === 'lend' ? 'income' : 'expense',
+      amount,
+      date,
+      accountId,
+      categoryId: cat?.id || null,
+      note: note || (loan.type === 'lend'
+        ? `${loan.counterparty} trả nợ`
+        : `Trả ${loan.counterparty}`),
+      bookId: loan.bookId,
+      _loanId: loan.id,
+      _paymentId: payment.id
+    };
+    await this.applyBalanceDelta(tx, +1);
+    const savedTx = await window.QLT_Store.put('transactions', tx);
+    payment.txId = savedTx.id;
 
     // Tự đóng nếu trả đủ
     if (this.loanRemaining(loan) === 0) {
@@ -2669,11 +2741,21 @@ const App = {
     if (!p) return;
     if (!await QLT_UI.confirm('Xoá lần trả này? Số tiền sẽ hoàn lại ví.', { okLabel: 'Xoá', danger: true })) return;
 
-    // Hoàn tác balance
-    const acc = this.state.accounts.find(a => a.id === p.accountId);
-    if (acc) {
-      acc.balance += (loan.type === 'lend' ? -1 : +1) * p.amount;
-      await window.QLT_Store.put('accounts', acc);
+    // Hoàn tác balance:
+    // - Payment mới (có txId): xoá tx liên kết → applyBalanceDelta tự cập nhật ví
+    // - Payment cũ: direct mutate (legacy fallback)
+    if (p.txId) {
+      const tx = (await window.QLT_Store.getAll('transactions')).find(t => t.id === p.txId);
+      if (tx) {
+        await this.applyBalanceDelta(tx, -1);
+        await window.QLT_Store.del('transactions', tx.id);
+      }
+    } else {
+      const acc = this.state.accounts.find(a => a.id === p.accountId);
+      if (acc) {
+        acc.balance += (loan.type === 'lend' ? -1 : +1) * p.amount;
+        await window.QLT_Store.put('accounts', acc);
+      }
     }
 
     loan.payments = loan.payments.filter(x => x.id !== payId);
@@ -2760,6 +2842,37 @@ const App = {
 
     // Bảo mật — Khoá PIN
     await this.renderLockSettings();
+
+    // Hiển thị widget Trang chủ
+    this.renderHomeWidgetSettings();
+  },
+
+  renderHomeWidgetSettings() {
+    const wrap = $('#setHomeWidgets');
+    if (!wrap) return;
+    const items = [
+      { key: 'wallets',  label: 'Số dư từng ví' },
+      { key: 'savings',  label: '💎 Tài sản tiết kiệm' },
+      { key: 'goals',    label: '🏆 Mục tiêu tiết kiệm' },
+      { key: 'forecast', label: '📊 Dự báo cuối tháng' },
+      { key: 'budgets',  label: '🎯 Ngân sách tháng' },
+      { key: 'loans',    label: '🤝 Cho vay / Nợ' },
+      { key: 'recent',   label: 'Giao dịch gần đây' }
+    ];
+    wrap.innerHTML = items.map(it => `
+      <div class="setting-row">
+        <span class="setting-label">${it.label}</span>
+        <label class="qlt-switch">
+          <input type="checkbox" data-widget-toggle="${it.key}" ${this.isHomeWidgetOn(it.key) ? 'checked' : ''}>
+          <span class="qlt-switch-slider"></span>
+        </label>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('[data-widget-toggle]').forEach(el => {
+      el.onchange = (e) => {
+        this.setHomeWidgetPref(el.dataset.widgetToggle, e.target.checked);
+      };
+    });
   },
 
   async renderLockSettings() {
@@ -2841,6 +2954,12 @@ const App = {
     } else {
       tx = this.state.transactions.find(t => t.id === id);
       if (!tx) return;
+      // Giao dịch sinh từ Khoản vay/Trả nợ → mở Loan modal để sửa từ nguồn,
+      // tránh lệch giữa loan.principal/payment.amount với tx.amount
+      if (tx._loanId) {
+        const loan = this.state.loans.find(l => l.id === tx._loanId);
+        if (loan) { this.openLoanModal(loan.id); return; }
+      }
     }
     // Chuẩn hoá photos cho editingTx (giữ tương thích schema cũ tx.photo)
     this.state.editingTx = { ...tx, photos: this.getTxPhotos(tx) };
@@ -3766,6 +3885,28 @@ const App = {
     $('#accDelete').style.display = isNew ? 'none' : 'block';
     $('#accMaturity').style.display = (!isNew && editing.accountType === 'savings') ? 'block' : 'none';
 
+    // Khi sửa ví thanh toán: KHOÁ ô số dư (tránh ghi đè số liệu lịch sử),
+    // hiện nút "Điều chỉnh số dư" để tạo giao dịch điều chỉnh.
+    const balInput = $('#accBalance');
+    const adjBtn = $('#accAdjustBalance');
+    const balHint = $('#accBalanceHint');
+    const balLabel = $('#accBalanceLabel');
+    const lockBalance = !isNew && editing.accountType !== 'savings';
+    if (lockBalance) {
+      balInput.style.pointerEvents = 'none';
+      balInput.style.opacity = '0.65';
+      balLabel.textContent = 'Số dư hiện tại (chỉ xem)';
+      adjBtn.style.display = 'block';
+      balHint.style.display = 'block';
+      adjBtn.onclick = () => this.openAdjustBalanceModal();
+    } else {
+      balInput.style.pointerEvents = '';
+      balInput.style.opacity = '';
+      adjBtn.style.display = 'none';
+      balHint.style.display = 'none';
+      // applyAccountTypeUI() bên dưới sẽ đặt lại label đúng theo type
+    }
+
     // Type pills
     $$('.acc-type-pill').forEach(el => {
       el.classList.toggle('on', el.dataset.type === editing.accountType);
@@ -3851,9 +3992,16 @@ const App = {
   async saveAcc() {
     const a = this.state.editingAcc;
     a.name = $('#accName').value.trim();
-    a.balance = readAmount($('#accBalance'));
     a.bookId = a.bookId || this.state.currentBookId;
     if (!a.name) { QLT_UI.toast('Nhập tên tài khoản', { type: 'error' }); return; }
+
+    const isNew = !a.id;
+    // Chỉ đọc balance từ input khi: (a) tạo MỚI, hoặc (b) ví tiết kiệm — vì
+    // savings không có giao dịch điều chỉnh, gốc gửi cố định lúc tạo. Với ví
+    // thanh toán đang sửa, GIỮ NGUYÊN balance hiện tại để tránh ghi đè data.
+    if (isNew || a.accountType === 'savings') {
+      a.balance = readAmount($('#accBalance'));
+    }
 
     if (a.accountType === 'savings') {
       a.interestRate = parseFloat($('#accInterestRate').value) || 0;
@@ -4416,6 +4564,107 @@ const App = {
         bookId,
         _fundCategory: true
       });
+    }
+    return cat;
+  },
+
+  // Tạo/lấy danh mục "Điều chỉnh số dư" — dùng cho giao dịch khi user sửa số dư ví thủ công
+  async ensureAdjustCategory(bookId, type) {
+    const all = await window.QLT_Store.getAll('categories');
+    let cat = all.find(c => c.bookId === bookId && c._adjustCategory === type);
+    if (!cat) {
+      cat = await window.QLT_Store.put('categories', {
+        type,
+        name: type === 'income' ? 'Điều chỉnh tăng' : 'Điều chỉnh giảm',
+        icon: 'emoji:⚖️',
+        color: '#9ca3af',
+        bookId,
+        _adjustCategory: type
+      });
+    }
+    return cat;
+  },
+
+  // Mở máy tính nhập số dư mới — chênh lệch tạo giao dịch "Điều chỉnh"
+  async openAdjustBalanceModal() {
+    const a = this.state.editingAcc;
+    if (!a?.id) return;
+    const fresh = await window.QLT_Store.get('accounts', a.id);
+    const current = Number(fresh?.balance) || 0;
+
+    // Dùng input ẩn làm cầu nối với máy tính; nghe 'change' để biết user xác nhận
+    const tmp = document.createElement('input');
+    tmp.type = 'text';
+    tmp.value = fmtAmount(current);
+    tmp.style.position = 'fixed';
+    tmp.style.left = '-9999px';
+    document.body.appendChild(tmp);
+
+    let confirmed = false;
+    await new Promise(resolve => {
+      tmp.addEventListener('change', () => { confirmed = true; resolve(); }, { once: true });
+      // Nếu user đóng calc mà không bấm =, theo dõi tới khi modal đóng → resolve
+      const watchClose = setInterval(() => {
+        if (!document.getElementById('calcModal').classList.contains('open')) {
+          clearInterval(watchClose);
+          if (!confirmed) resolve();
+        }
+      }, 150);
+      QLT_Calc.open(tmp);
+    });
+
+    const newBal = readAmount(tmp);
+    tmp.remove();
+    if (!confirmed) return;
+
+    const diff = newBal - current;
+    if (diff === 0) { QLT_UI.toast('Số dư không đổi', { type: 'info' }); return; }
+
+    const type = diff > 0 ? 'income' : 'expense';
+    const cat = await this.ensureAdjustCategory(a.bookId, type);
+    const tx = {
+      type,
+      amount: Math.abs(diff),
+      date: today(),
+      accountId: a.id,
+      categoryId: cat?.id || null,
+      note: 'Điều chỉnh số dư',
+      bookId: a.bookId,
+      _adjustment: true
+    };
+    await this.applyBalanceDelta(tx, +1);
+    await window.QLT_Store.put('transactions', tx);
+    await this.reload();
+    // Cập nhật input balance hiển thị (modal vẫn mở)
+    const updated = this.state.accounts.find(x => x.id === a.id);
+    if (updated) {
+      this.state.editingAcc.balance = updated.balance;
+      $('#accBalance').value = fmtAmount(updated.balance);
+    }
+    this.renderAccounts();
+    if (this.state.currentTab === 'home') this.renderHome();
+    this.autoSync();
+    QLT_UI.toast(`Đã ${diff > 0 ? 'tăng' : 'giảm'} ${fmt(Math.abs(diff))} đ`, { type: 'success' });
+  },
+
+  // Tạo/lấy danh mục đặc biệt cho khoản vay. Key:
+  //   'lend'        — cho vay đi (expense, ví trừ)
+  //   'borrow'      — vay nhận về (income, ví cộng)
+  //   'lendRepay'   — đối tác trả mình (income, ví cộng)
+  //   'borrowRepay' — mình trả đối tác (expense, ví trừ)
+  async ensureLoanCategory(bookId, key) {
+    const cfg = {
+      lend:        { type: 'expense', name: 'Cho vay',     icon: 'emoji:💸', color: '#e8806b' },
+      borrow:      { type: 'income',  name: 'Đi vay',      icon: 'emoji:💰', color: '#52b788' },
+      lendRepay:   { type: 'income',  name: 'Nhận trả nợ', icon: 'emoji:🤲', color: '#6dad75' },
+      borrowRepay: { type: 'expense', name: 'Trả nợ',      icon: 'emoji:🤝', color: '#cc7a4f' }
+    };
+    const c = cfg[key];
+    if (!c) return null;
+    const all = await window.QLT_Store.getAll('categories');
+    let cat = all.find(x => x.bookId === bookId && x._loanCategory === key);
+    if (!cat) {
+      cat = await window.QLT_Store.put('categories', { ...c, bookId, _loanCategory: key });
     }
     return cat;
   },
