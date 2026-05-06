@@ -4030,6 +4030,9 @@ const App = {
     const showOnb = $('#setShowOnboard');
     if (showOnb) showOnb.onclick = () => this.showOnboarding();
 
+    // Storage info — đếm tx, photos, size data
+    this.renderStorageInfo();
+
     const dailyNotif = $('#setDailyNotif');
     if (dailyNotif) {
       dailyNotif.checked = localStorage.getItem('qlt_daily_notif_off') !== '1';
@@ -6186,6 +6189,37 @@ const App = {
     this._syncTimer = setTimeout(async () => {
       try { await window.QLT_Sync.pushNow(); } catch (e) { console.warn('Auto-sync lỗi:', e); }
     }, 3000);
+  },
+
+  async renderStorageInfo() {
+    const wrap = $('#setStorageInfo');
+    if (!wrap) return;
+    try {
+      const allTxs = await window.QLT_Store.getAll('transactions');
+      const allBooks = await window.QLT_Store.getAll('books');
+      const allAccs = await window.QLT_Store.getAll('accounts');
+      let photoCount = 0, photoBytes = 0;
+      for (const t of allTxs) {
+        const photos = this.getTxPhotos(t);
+        photoCount += photos.length;
+        for (const p of photos) photoBytes += (typeof p === 'string' ? p.length : 0);
+      }
+      const photoMB = (photoBytes / 1024 / 1024).toFixed(1);
+      // Estimate IndexedDB size — sum of JSON.stringify length
+      let totalBytes = 0;
+      for (const s of ['accounts', 'categories', 'transactions', 'reminders', 'books', 'loans', 'budgets', 'goals', 'fuelLogs', 'maintenanceLogs', 'recurringRules']) {
+        const arr = await window.QLT_Store.getAll(s);
+        totalBytes += JSON.stringify(arr).length;
+      }
+      const totalMB = (totalBytes / 1024 / 1024).toFixed(2);
+      wrap.innerHTML = `
+        <div>📊 <strong style="color:var(--text)">${allTxs.length}</strong> giao dịch · <strong style="color:var(--text)">${allAccs.length}</strong> tài khoản · <strong style="color:var(--text)">${allBooks.length}</strong> sổ</div>
+        <div>📷 <strong style="color:var(--text)">${photoCount}</strong> ảnh minh chứng (~${photoMB} MB)</div>
+        <div>💾 Tổng dữ liệu: ~<strong style="color:var(--text)">${totalMB} MB</strong> trên thiết bị</div>
+      `;
+    } catch (e) {
+      wrap.innerHTML = '<div style="color:var(--text3)">Không đọc được thông tin dữ liệu</div>';
+    }
   },
 
   async showBalanceDiagnosis() {
