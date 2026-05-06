@@ -198,7 +198,28 @@ const QLT_Voice = (() => {
     return window.Capacitor?.Plugins?.SpeechRecognition || null;
   }
 
+  // Diagnostic: trả thông tin chi tiết tại sao không nhận giọng nói được
+  async function diagnose() {
+    const SR = nativePlugin();
+    const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform?.());
+    const out = { isNative, hasPlugin: !!SR, available: false, perm: 'unknown', error: null };
+    if (SR) {
+      try {
+        const av = await SR.available();
+        out.available = !!(av?.available);
+      } catch (e) { out.error = 'available() lỗi: ' + (e?.message || e); }
+      try {
+        const p = await SR.checkPermissions();
+        out.perm = p?.speechRecognition || p?.permission || 'unknown';
+      } catch (e) { /* skip */ }
+    } else if (window.SpeechRecognition || window.webkitSpeechRecognition) {
+      out.available = true;
+    }
+    return out;
+  }
+
   return {
+    diagnose,
     available() {
       return !!nativePlugin() ||
              !!(window.SpeechRecognition || window.webkitSpeechRecognition);
@@ -208,35 +229,58 @@ const QLT_Voice = (() => {
       const SR = nativePlugin();
       try {
         if (SR) {
-          // Xin quyền RECORD_AUDIO nếu chưa có
+          // Kiểm tra service có sẵn
+          try {
+            const av = await SR.available();
+            console.log('[QLT_Voice] available:', av);
+            if (av && av.available === false) {
+              onError?.(new Error('Thiết bị thiếu dịch vụ nhận giọng nói. Cài Google App từ Play Store.'));
+              onEnd?.(); return;
+            }
+          } catch (e) { console.warn('[QLT_Voice] available() throw', e); }
+
+          // Xin quyền RECORD_AUDIO
           try {
             const perm = await SR.checkPermissions();
-            const ok = perm?.speechRecognition === 'granted' || perm?.permission === 'granted';
-            if (!ok) {
+            console.log('[QLT_Voice] checkPermissions:', perm);
+            const granted = perm?.speechRecognition === 'granted' || perm?.permission === 'granted';
+            if (!granted) {
               const req = await SR.requestPermissions();
-              const ok2 = req?.speechRecognition === 'granted' || req?.permission === 'granted';
-              if (!ok2) { onError?.(new Error('Bạn cần cấp quyền microphone')); onEnd?.(); return; }
+              console.log('[QLT_Voice] requestPermissions:', req);
+              const grantedNow = req?.speechRecognition === 'granted' || req?.permission === 'granted';
+              if (!grantedNow) {
+                onError?.(new Error('Chưa cấp quyền microphone. Vào Cài đặt Android → Apps → Quản Lý Tiền → Permissions → bật Microphone.'));
+                onEnd?.(); return;
+              }
             }
-          } catch (_) { /* một số impl không có check; bỏ qua */ }
+          } catch (e) { console.warn('[QLT_Voice] permissions throw', e); }
 
+          // Lắng nghe partial results (cho cả 2 mode)
           let final = '';
           let partListener = null;
           try {
-            partListener = await SR.addListener('partialResults', ({ matches }) => {
-              const text = matches?.[0] || '';
+            partListener = await SR.addListener('partialResults', (data) => {
+              const text = data?.matches?.[0] || '';
               if (text) { final = text; onPartial?.(text); }
             });
-          } catch (_) {}
+          } catch (e) { console.warn('[QLT_Voice] addListener throw', e); }
 
+          // Dùng popup mode (dialog hệ thống) — ổn định hơn inline trên đa số máy
           try {
             const r = await SR.start({
               language: lang,
               maxResults: 1,
               partialResults: true,
-              popup: false
+              popup: true,
+              prompt: 'Nói khoản chi của bạn'
             });
+            console.log('[QLT_Voice] start result:', r);
             const text = (r?.matches?.[0]) || final;
             if (text) onResult?.(text);
+            else onError?.(new Error('Không nghe được. Thử nói gần mic hơn.'));
+          } catch (e) {
+            console.error('[QLT_Voice] start failed:', e);
+            onError?.(new Error(e?.message || 'Lỗi khi gọi mic: ' + JSON.stringify(e)));
           } finally {
             try { partListener?.remove?.(); } catch (_) {}
             onEnd?.();
@@ -244,9 +288,9 @@ const QLT_Voice = (() => {
           return;
         }
 
-        // Fallback web/PWA
+        // Fallback web/PWA — chỉ chạy khi NO native plugin (vd test trên web)
         const W = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!W) { onError?.(new Error('Thiết bị không hỗ trợ nhận giọng nói')); onEnd?.(); return; }
+        if (!W) { onError?.(new Error('Thiết bị/WebView không hỗ trợ nhận giọng nói. Cài bản APK mới nhất có plugin.')); onEnd?.(); return; }
         const rec = new W();
         rec.lang = lang;
         rec.interimResults = true;

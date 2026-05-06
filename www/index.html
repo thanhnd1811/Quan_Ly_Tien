@@ -567,6 +567,28 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
   .calc-current{font-size:32px}
 }
 
+/* Chi phí xe — pill chọn loại xe (override màu trắng của .seg-item) */
+.fuel-type-pill, .maint-type-pill, .acc-type-pill{
+  color:var(--text2);
+  border-bottom:none !important;
+  background:transparent;
+}
+.fuel-type-pill.on, .maint-type-pill.on, .acc-type-pill.on{
+  color:var(--accent) !important;
+  background:#fff;
+  border-bottom:none !important;
+  font-weight:700;
+  box-shadow:0 1px 4px rgba(0,0,0,.08);
+}
+
+.maint-kind-pill{
+  background:var(--surface);border:1px solid var(--border);color:var(--text2);
+  padding:8px 14px;border-radius:18px;font-size:13px;cursor:pointer;font-weight:500;
+}
+.maint-kind-pill.on{
+  background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;
+}
+
 /* Chi phí xe — vehicle cards */
 .fuel-vehicle-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin:12px 16px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
 .fuel-vehicle-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
