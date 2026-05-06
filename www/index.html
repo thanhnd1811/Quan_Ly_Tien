@@ -90,9 +90,12 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .book-edit-btn:active{background:var(--border)}
 .book-edit-btn svg{width:18px;height:18px}
 .dr-list{flex:1;overflow-y:auto;padding:8px 0}
-.dr-item{display:flex;align-items:center;gap:14px;padding:14px 18px;cursor:pointer;font-size:15px}
+.dr-item{display:flex;align-items:center;gap:14px;padding:11px 18px;cursor:pointer;font-size:14px}
 .dr-item:active{background:rgba(255,255,255,.08)}
 .dr-item svg{width:22px;height:22px;opacity:.85}
+.dr-emoji{display:inline-flex;width:24px;justify-content:center;font-size:18px;line-height:1;flex-shrink:0}
+.dr-list .dr-section-label{margin-top:14px}
+.dr-list .dr-section-label:first-child{margin-top:6px}
 
 /* Sections */
 .section{padding:18px 16px 0}
@@ -456,6 +459,9 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 .tx-type-pill.on[data-type="transfer"]{background:#e8eef5;border-color:#4f86c6;color:#4f86c6}
 .picker-item.disabled{opacity:.4;cursor:not-allowed}
 .picker-item.picker-child{padding-left:22px;font-size:12px;background:var(--surface2)}
+.picker-item.picker-parent{font-weight:700}
+.picker-chev{font-size:12px;color:var(--text3);margin-left:4px}
+.picker-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;background:var(--accent);color:#fff;border-radius:9px;font-size:10px;font-weight:700;margin-left:2px}
 
 /* Color picker (12 swatch tròn + 1 ô tuỳ chỉnh rainbow) */
 .color-picker{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;padding:6px 0}
@@ -1431,20 +1437,29 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     </div>
   </div>
   <div class="dr-list">
-    <div class="dr-item" data-action="home"><span data-icon="list"></span> Trang chủ</div>
-    <div class="dr-item" data-action="accounts"><span data-icon="cash"></span> Tài khoản</div>
-    <div class="dr-item" data-action="charts"><span data-icon="chart"></span> Biểu đồ</div>
-    <div class="dr-item" data-action="categories"><span data-icon="list"></span> Danh mục</div>
-    <div class="dr-item" data-action="transactions"><span data-icon="refresh"></span> Giao dịch</div>
-    <div class="dr-item" data-action="reminders"><span data-icon="bell"></span> Nhắc nhở</div>
-    <div class="dr-item" data-action="loans"><span style="font-size:18px">🤝</span> Cho vay / Nợ</div>
-    <div class="dr-item" data-action="budgets"><span style="font-size:18px">🎯</span> Ngân sách tháng</div>
-    <div class="dr-item" data-action="goals"><span style="font-size:18px">🏆</span> Mục tiêu tiết kiệm</div>
-    <div class="dr-item" data-action="fuel"><span style="font-size:18px">🚗</span> Chi phí xe</div>
-    <div class="dr-item" data-action="settings"><span data-icon="settings"></span> Cài đặt</div>
-    <div class="dr-item" id="syncItem" data-action="sync" style="display:none"><span data-icon="cloud"></span> Đồng bộ Drive</div>
-    <div class="dr-item" id="loginItem" data-action="login"><span data-icon="user"></span> Đăng nhập Google</div>
-    <div class="dr-item" id="logoutItem" data-action="logout" style="display:none"><span data-icon="logout"></span> Đăng xuất</div>
+    <div class="dr-section-label">Tổng quan</div>
+    <div class="dr-item" data-action="home"><span class="dr-emoji">🏠</span> Trang chủ</div>
+    <div class="dr-item" data-action="transactions"><span class="dr-emoji">📋</span> Giao dịch</div>
+    <div class="dr-item" data-action="charts"><span class="dr-emoji">📊</span> Biểu đồ</div>
+
+    <div class="dr-section-label">Tài chính</div>
+    <div class="dr-item" data-action="accounts"><span class="dr-emoji">💼</span> Tài khoản</div>
+    <div class="dr-item" data-action="budgets"><span class="dr-emoji">🎯</span> Ngân sách tháng</div>
+    <div class="dr-item" data-action="goals"><span class="dr-emoji">🏆</span> Mục tiêu tiết kiệm</div>
+    <div class="dr-item" data-action="loans"><span class="dr-emoji">🤝</span> Cho vay / Nợ</div>
+
+    <div class="dr-section-label">Theo dõi</div>
+    <div class="dr-item" data-action="fuel"><span class="dr-emoji">🚗</span> Chi phí xe</div>
+    <div class="dr-item" data-action="reminders"><span class="dr-emoji">🔔</span> Nhắc nhở</div>
+
+    <div class="dr-section-label">Quản lý</div>
+    <div class="dr-item" data-action="categories"><span class="dr-emoji">🗂️</span> Danh mục</div>
+    <div class="dr-item" data-action="settings"><span class="dr-emoji">⚙️</span> Cài đặt</div>
+
+    <div class="dr-section-label">Tài khoản Google</div>
+    <div class="dr-item" id="syncItem" data-action="sync" style="display:none"><span class="dr-emoji">☁️</span> Đồng bộ Drive</div>
+    <div class="dr-item" id="loginItem" data-action="login"><span class="dr-emoji">🔐</span> Đăng nhập Google</div>
+    <div class="dr-item" id="logoutItem" data-action="logout" style="display:none"><span class="dr-emoji">🔓</span> Đăng xuất</div>
   </div>
 </div>
 <div id="drawerOverlay" class="drawer-overlay"></div>

@@ -3345,7 +3345,6 @@ const App = {
     const cats = this.state.categories.filter(c => c.type === type);
     const sel = this.state.editingTx?.categoryId;
 
-    // Sắp xếp: parents → ngay sau là children của nó
     const parents = cats.filter(c => !c.parentId);
     const childrenByParent = {};
     for (const c of cats) {
@@ -3353,23 +3352,60 @@ const App = {
     }
     const orphans = cats.filter(c => c.parentId && !cats.find(x => x.id === c.parentId));
 
-    const sortedFlat = [];
-    [...parents, ...orphans].forEach(p => {
-      sortedFlat.push({ ...p, _depth: 0 });
-      (childrenByParent[p.id] || []).forEach(ch => sortedFlat.push({ ...ch, _depth: 1 }));
-    });
+    if (!this.state.expandedTxCats) this.state.expandedTxCats = new Set();
+    const expanded = this.state.expandedTxCats;
 
-    $('#txCategoryList').innerHTML = sortedFlat.map(c => `
-      <div class="picker-item ${c.id === sel ? 'on' : ''} ${c._depth ? 'picker-child' : ''}" data-cat="${c.id}">
-        <span class="picker-icon" style="color:${c.color}">${svgIcon(c.icon)}</span>
-        <span>${c._depth ? '↳ ' : ''}${this.escapeHtml(c.name)}</span>
-      </div>
-    `).join('');
+    // Tự mở cha của danh mục đang chọn (vd: edit tx có sẵn → cha tương ứng auto-mở)
+    if (sel) {
+      const selCat = cats.find(c => c.id === sel);
+      if (selCat?.parentId) expanded.add(selCat.parentId);
+    }
+
+    let html = '';
+    [...parents, ...orphans].forEach(p => {
+      const children = childrenByParent[p.id] || [];
+      const isOpen = expanded.has(p.id);
+      const isSel = sel === p.id;
+      // Cha — luôn render. Có con: tap = toggle mở/đóng. Không con: tap = chọn.
+      const cls = ['picker-item'];
+      if (isSel) cls.push('on');
+      if (children.length) cls.push('picker-parent');
+      html += `
+        <div class="${cls.join(' ')}" data-cat="${p.id}" data-has-children="${children.length ? '1' : '0'}">
+          <span class="picker-icon" style="color:${p.color}">${svgIcon(p.icon)}</span>
+          <span style="flex:1">${this.escapeHtml(p.name)}</span>
+          ${children.length ? `<span class="picker-chev">${isOpen ? '▾' : '▸'}</span><span class="picker-badge">${children.length}</span>` : ''}
+        </div>
+      `;
+      if (isOpen) {
+        for (const ch of children) {
+          const chSel = sel === ch.id;
+          html += `
+            <div class="picker-item picker-child ${chSel ? 'on' : ''}" data-cat="${ch.id}">
+              <span class="picker-icon" style="color:${ch.color}">${svgIcon(ch.icon)}</span>
+              <span>↳ ${this.escapeHtml(ch.name)}</span>
+            </div>
+          `;
+        }
+      }
+    });
+    $('#txCategoryList').innerHTML = html;
+
     $$('#txCategoryList .picker-item').forEach(el => {
       el.onclick = () => {
+        const id = el.dataset.cat;
+        const hasChildren = el.dataset.hasChildren === '1';
+        if (hasChildren) {
+          // Cha có con → toggle mở/đóng (KHÔNG chọn cha)
+          if (expanded.has(id)) expanded.delete(id);
+          else expanded.add(id);
+          this.renderTxCategoryPicker(type);
+          return;
+        }
+        // Cha không con / con → chọn
         $$('#txCategoryList .picker-item').forEach(x => x.classList.remove('on'));
         el.classList.add('on');
-        this.state.editingTx.categoryId = el.dataset.cat;
+        this.state.editingTx.categoryId = id;
         this.renderTxBudgetHint();
       };
     });
