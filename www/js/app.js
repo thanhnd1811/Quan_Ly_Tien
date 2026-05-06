@@ -775,7 +775,7 @@ const App = {
     const type = [...types][0];
     const cats = this.state.categories.filter(c => c.type === type);
     if (cats.length === 0) { QLT_UI.toast('Không có danh mục phù hợp', { type: 'error' }); return; }
-    const html = `<div style="text-align:left;font-size:13px;line-height:1.6">Chọn danh mục mới cho <strong>${ids.length}</strong> giao dịch ${type === 'expense' ? 'Chi' : 'Thu'}:</div>
+    const html = `<div style="text-align:left;font-size:13px;line-height:1.6">Chọn danh mục mới cho <strong>${ids.length}</strong> giao dịch ${type === 'expense' ? 'Chi phí' : 'Thu nhập'}:</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;max-height:300px;overflow-y:auto">
         ${cats.map(c => `<span class="pill" data-cat-pick="${c.id}" style="cursor:pointer">${this.escapeHtml(c.name)}</span>`).join('')}
       </div>`;
@@ -2486,16 +2486,24 @@ const App = {
 
   // ============ CHARTS ============
   renderCharts() {
+    if (!this.state.chartTab) this.state.chartTab = 'expense';
     const period = this.state.chartPeriod;
-    const groups = this.groupByPeriod(period);
 
-    // Bar chart
-    const barCanvas = $('#chartBar');
-    if (barCanvas) {
-      window.QLT_Charts.bar(barCanvas, groups);
-    }
+    // Sync tab pills
+    document.querySelectorAll('.chart-tab').forEach(el => {
+      const on = el.dataset.chartTab === this.state.chartTab;
+      el.classList.toggle('on', on);
+      el.onclick = () => {
+        this.state.chartTab = el.dataset.chartTab;
+        this.renderCharts();
+      };
+    });
+    // Show/hide panes
+    document.querySelectorAll('[data-chart-pane]').forEach(el => {
+      el.style.display = el.dataset.chartPane === this.state.chartTab ? '' : 'none';
+    });
 
-    // Donut: phân loại chi tiêu theo danh mục (kỳ hiện tại)
+    // Tính khoảng kỳ
     const now = new Date();
     let from, to;
     if (period === 'day') { from = today(); to = today(); }
@@ -2512,20 +2520,32 @@ const App = {
       from = now.getFullYear() + '-01-01';
       to = today();
     }
-    const expByCat = {};
-    let totalExp = 0;
-    for (const t of this.state.transactions) {
-      if (t.type !== 'expense') continue;
-      if (t.date < from || t.date > to) continue;
-      expByCat[t.categoryId] = (expByCat[t.categoryId] || 0) + t.amount;
-      totalExp += t.amount;
+
+    if (this.state.chartTab === 'expense') {
+      this._renderChartByType('expense', from, to, period, '#chartTop5', '#chartDonut', '#chartLegend');
+    } else if (this.state.chartTab === 'income') {
+      this._renderChartByType('income', from, to, period, '#chartTop5Inc', '#chartDonutInc', '#chartLegendInc');
+    } else if (this.state.chartTab === 'overview') {
+      this._renderChartOverview(from, to, period);
     }
-    const slices = Object.entries(expByCat).map(([cid, value]) => {
+  },
+
+  // Render chart cho 1 type cụ thể (expense / income) — top5 + donut + legend
+  _renderChartByType(type, from, to, period, top5Sel, donutSel, legendSel) {
+    const byCat = {};
+    let total = 0;
+    for (const t of this.state.transactions) {
+      if (t.type !== type) continue;
+      if (t.date < from || t.date > to) continue;
+      byCat[t.categoryId] = (byCat[t.categoryId] || 0) + t.amount;
+      total += t.amount;
+    }
+    const slices = Object.entries(byCat).map(([cid, value]) => {
       const c = this.state.categories.find(x => x.id === cid) || {};
       return { id: cid, label: c.name || 'Không rõ', value, color: c.color || '#888' };
     }).sort((a, b) => b.value - a.value);
 
-    // ----- Tính khoảng "kỳ trước" cùng độ dài để so sánh -----
+    // Tính kỳ trước cùng độ dài
     const fromD = new Date(from + 'T00:00:00');
     const toD = new Date(to + 'T00:00:00');
     const days = Math.floor((toD - fromD) / 86400000) + 1;
@@ -2535,7 +2555,7 @@ const App = {
     const prevTo = prevToD.toISOString().slice(0, 10);
     const prevByCat = {};
     for (const t of this.state.transactions) {
-      if (t.type !== 'expense') continue;
+      if (t.type !== type) continue;
       if (t.date < prevFrom || t.date > prevTo) continue;
       prevByCat[t.categoryId] = (prevByCat[t.categoryId] || 0) + t.amount;
     }
@@ -2546,7 +2566,7 @@ const App = {
       : 'kỳ trước';
     const compareHtml = (catId) => {
       const prev = prevByCat[catId] || 0;
-      const curr = expByCat[catId] || 0;
+      const curr = byCat[catId] || 0;
       if (prev === 0 && curr > 0) return `<span class="cmp-tag new">🆕 mới</span>`;
       if (prev === 0) return '';
       const pct = Math.round((curr - prev) / prev * 100);
@@ -2555,20 +2575,23 @@ const App = {
       return `<span class="cmp-tag flat">≈ vs ${periodCmpLabel}</span>`;
     };
 
-    // Top 5 khoản chi nhiều nhất — list rõ ràng có huy chương + so sánh kỳ trước
-    const top5El = $('#chartTop5');
+    const typeLabel = type === 'expense' ? 'chi' : 'thu';
+    const totalLabel = type === 'expense' ? 'Chi' : 'Thu';
+
+    // Top 5
+    const top5El = $(top5Sel);
     if (top5El) {
       if (!slices.length) {
-        top5El.innerHTML = '<div class="top5-empty">Chưa có chi tiêu trong kỳ này</div>';
+        top5El.innerHTML = `<div class="top5-empty">Chưa có ${typeLabel} trong kỳ này</div>`;
       } else {
         const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
         const top5 = slices.slice(0, 5);
         const maxVal = top5[0].value;
         top5El.innerHTML = top5.map((s, i) => {
-          const pct = totalExp > 0 ? Math.round(s.value / totalExp * 100) : 0;
+          const pct = total > 0 ? Math.round(s.value / total * 100) : 0;
           const barW = maxVal > 0 ? Math.round(s.value / maxVal * 100) : 0;
           return `
-            <div class="top5-row" data-cat="${s.id}">
+            <div class="top5-row" data-cat="${s.id}" data-cat-type="${type}">
               <div class="top5-rank ${i === 0 ? 'gold' : ''}">${medals[i]}</div>
               <div class="top5-info">
                 <div class="top5-name">${this.escapeHtml(s.label)} ${compareHtml(s.id)}</div>
@@ -2576,52 +2599,98 @@ const App = {
               </div>
               <div class="top5-amt">
                 <div class="top5-val">${fmt(s.value)}</div>
-                <div class="top5-pct">${pct}% tổng chi</div>
+                <div class="top5-pct">${pct}% tổng ${typeLabel}</div>
               </div>
             </div>
           `;
         }).join('');
         top5El.querySelectorAll('.top5-row').forEach(el => {
-          el.onclick = () => this.openCategoryTxs(el.dataset.cat, from, to);
+          el.onclick = () => this.openCategoryTxs(el.dataset.cat, from, to, el.dataset.catType);
         });
       }
     }
 
-    const donutCanvas = $('#chartDonut');
+    // Donut
+    const donutCanvas = $(donutSel);
     if (donutCanvas) {
       window.QLT_Charts.donut(donutCanvas, slices, {
-        centerLabel: fmt(totalExp),
-        centerSub: 'Chi',
-        onSliceClick: (sr) => this.openCategoryTxs(sr.id, from, to)
+        centerLabel: fmt(total),
+        centerSub: totalLabel,
+        onSliceClick: (sr) => this.openCategoryTxs(sr.id, from, to, type)
       });
     }
 
-    // Legend — bấm 1 dòng để xem danh sách giao dịch của danh mục đó trong kỳ
-    const legend = $('#chartLegend');
-    if (slices.length) {
-      legend.innerHTML = slices.map(s => {
-        const pct = totalExp > 0 ? Math.round(s.value / totalExp * 100) : 0;
-        return `
-          <div class="legend-item" data-cat="${s.id}">
-            <span class="legend-dot" style="background:${s.color}"></span>
-            <span class="legend-name">${this.escapeHtml(s.label)}<span class="legend-pct">${pct}%</span> ${compareHtml(s.id)}</span>
-            <span class="legend-val">${fmt(s.value)}</span>
+    // Legend
+    const legend = $(legendSel);
+    if (legend) {
+      if (slices.length) {
+        legend.innerHTML = slices.map(s => {
+          const pct = total > 0 ? Math.round(s.value / total * 100) : 0;
+          return `
+            <div class="legend-item" data-cat="${s.id}" data-cat-type="${type}">
+              <span class="legend-dot" style="background:${s.color}"></span>
+              <span class="legend-name">${this.escapeHtml(s.label)}<span class="legend-pct">${pct}%</span> ${compareHtml(s.id)}</span>
+              <span class="legend-val">${fmt(s.value)}</span>
+            </div>
+          `;
+        }).join('');
+        legend.querySelectorAll('.legend-item').forEach(el => {
+          el.onclick = () => this.openCategoryTxs(el.dataset.cat, from, to, el.dataset.catType);
+        });
+      } else {
+        legend.innerHTML = `<div class="empty-msg">Chưa có ${typeLabel} trong kỳ này</div>`;
+      }
+    }
+  },
+
+  // Render tab CHUNG: tổng thu/chi + bar chart + tỷ lệ tiết kiệm
+  _renderChartOverview(from, to, period) {
+    let totalInc = 0, totalExp = 0;
+    for (const t of this.state.transactions) {
+      if (t.date < from || t.date > to) continue;
+      if (t.type === 'income') totalInc += t.amount;
+      else if (t.type === 'expense') totalExp += t.amount;
+    }
+    const balance = totalInc - totalExp;
+    const savePct = totalInc > 0 ? Math.round(balance / totalInc * 100) : 0;
+
+    const summary = $('#chartOverviewSummary');
+    if (summary) {
+      summary.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;padding:0 4px">
+          <div style="background:linear-gradient(135deg,#52b788,#2d6a4f);color:#fff;padding:14px;border-radius:12px">
+            <div style="font-size:11px;opacity:.85;text-transform:uppercase">Tổng thu</div>
+            <div style="font-size:22px;font-weight:700;margin-top:2px">+${fmt(totalInc)}</div>
+            <div style="font-size:11px;opacity:.85;margin-top:2px">đ trong kỳ</div>
           </div>
-        `;
-      }).join('');
-      legend.querySelectorAll('.legend-item').forEach(el => {
-        el.onclick = () => this.openCategoryTxs(el.dataset.cat, from, to);
-      });
-    } else {
-      legend.innerHTML = '<div class="empty-msg">Chưa có chi tiêu trong kỳ này</div>';
+          <div style="background:linear-gradient(135deg,#e76f51,#c44a32);color:#fff;padding:14px;border-radius:12px">
+            <div style="font-size:11px;opacity:.85;text-transform:uppercase">Tổng chi</div>
+            <div style="font-size:22px;font-weight:700;margin-top:2px">-${fmt(totalExp)}</div>
+            <div style="font-size:11px;opacity:.85;margin-top:2px">đ trong kỳ</div>
+          </div>
+        </div>
+        <div style="background:${balance >= 0 ? 'var(--acl)' : '#ffe5e5'};color:${balance >= 0 ? 'var(--accent)' : '#a02431'};padding:14px;border-radius:12px;margin:0 4px 14px;text-align:center">
+          <div style="font-size:11px;opacity:.85;text-transform:uppercase">${balance >= 0 ? '✅ Số dư kỳ này' : '⚠️ Bội chi kỳ này'}</div>
+          <div style="font-size:24px;font-weight:700;margin-top:4px">${balance >= 0 ? '+' : ''}${fmt(balance)} đ</div>
+          ${totalInc > 0 ? `<div style="font-size:12px;margin-top:4px">Tỷ lệ tiết kiệm: <strong>${savePct}%</strong> thu nhập</div>` : ''}
+        </div>
+      `;
+    }
+
+    // Bar chart Thu/Chi theo kỳ
+    const barCanvas = $('#chartBar');
+    if (barCanvas) {
+      const groups = this.groupByPeriod(period);
+      window.QLT_Charts.bar(barCanvas, groups);
     }
   },
 
   // Mở modal: liệt kê giao dịch của 1 danh mục trong khoảng [from, to]
-  openCategoryTxs(catId, from, to) {
+  // type optional: 'expense' (default) | 'income' — match với chart tab tương ứng
+  openCategoryTxs(catId, from, to, type = 'expense') {
     const cat = this.state.categories.find(c => c.id === catId) || {};
     const txs = this.state.transactions
-      .filter(t => t.type === 'expense' && t.categoryId === catId && t.date >= from && t.date <= to)
+      .filter(t => t.type === type && t.categoryId === catId && t.date >= from && t.date <= to)
       .sort((a, b) => (b.date + (b._updatedAt || '')).localeCompare(a.date + (a._updatedAt || '')));
     const total = txs.reduce((s, t) => s + t.amount, 0);
 
@@ -2638,11 +2707,13 @@ const App = {
           ${txs.length} giao dịch · từ ${this.formatDate(from)} đến ${this.formatDate(to)}
         </div>
       ` + Object.keys(groups).sort().reverse().map(date => {
-        const dayExp = groups[date].reduce((s, t) => s + t.amount, 0);
+        const daySum = groups[date].reduce((s, t) => s + t.amount, 0);
+        const sign = type === 'income' ? '+' : '-';
+        const cls = type === 'income' ? 'amount-pos' : 'amount-neg';
         return `
           <div class="day-header">
             <div>${this.formatDate(date)}</div>
-            <div class="day-totals"><span class="amount-neg">-${fmt(dayExp)}</span></div>
+            <div class="day-totals"><span class="${cls}">${sign}${fmt(daySum)}</span></div>
           </div>
           ${groups[date].map(t => this.renderTxItem(t)).join('')}
         `;
@@ -5335,8 +5406,8 @@ const App = {
         // Ghi chú = câu nói gốc
         if (parsed.note) $('#txNote').value = parsed.note;
 
-        const typeLabel = parsed.type === 'expense' ? 'Chi'
-          : parsed.type === 'income' ? 'Thu' : 'Chuyển';
+        const typeLabel = parsed.type === 'expense' ? 'Chi phí'
+          : parsed.type === 'income' ? 'Thu nhập' : 'Chuyển khoản';
         status.textContent = `✓ ${typeLabel} · "${text}"`;
         setTimeout(() => { status.style.display = 'none'; }, 2500);
       },
@@ -6880,7 +6951,7 @@ const App = {
         notifications: [{
           id: idNum,
           title: 'Quản Lý Tiền — ' + r.name,
-          body: `${r.type === 'income' ? 'Thu' : 'Chi'} ${fmt(r.amount)} đ${r.note ? ' · ' + r.note : ''}`,
+          body: `${r.type === 'income' ? 'Thu nhập' : 'Chi phí'} ${fmt(r.amount)} đ${r.note ? ' · ' + r.note : ''}`,
           schedule,
           sound: 'default'
         }]
@@ -8712,7 +8783,7 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
       }
       rows.push([
         t.date,
-        t.type === 'expense' ? 'Chi' : t.type === 'income' ? 'Thu' : 'Chuyển',
+        t.type === 'expense' ? 'Chi phí' : t.type === 'income' ? 'Thu nhập' : 'Chuyển khoản',
         t.amount,
         a?.name || '',
         ta?.name || '',

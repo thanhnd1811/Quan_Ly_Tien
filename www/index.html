@@ -892,8 +892,8 @@ html[data-theme="dark"] .rec-type-pill.on{
     </div>
     <div class="pill-row">
       <div class="pill tx-filter-pill on" data-type="all">Tất cả</div>
-      <div class="pill tx-filter-pill" data-type="expense">Chi</div>
-      <div class="pill tx-filter-pill" data-type="income">Thu</div>
+      <div class="pill tx-filter-pill" data-type="expense">Chi phí</div>
+      <div class="pill tx-filter-pill" data-type="income">Thu nhập</div>
       <div class="pill tx-filter-pill" data-type="transfer">Chuyển</div>
       <div class="pill" id="txAdvFilterBtn" style="background:var(--surface);border-color:var(--accent);color:var(--accent);font-weight:600">⚙️ Bộ lọc</div>
     </div>
@@ -945,6 +945,11 @@ html[data-theme="dark"] .rec-type-pill.on{
       <div class="tb-back" data-icon="back" onclick="QLT_App.switchTab('home')"></div>
       <div class="tb-title">Biểu đồ</div>
     </div>
+    <div class="seg">
+      <div class="seg-item chart-tab on" data-chart-tab="expense">CHI PHÍ</div>
+      <div class="seg-item chart-tab" data-chart-tab="income">THU NHẬP</div>
+      <div class="seg-item chart-tab" data-chart-tab="overview">CHUNG</div>
+    </div>
   </div>
   <div class="scroll-body">
     <div class="pill-row">
@@ -958,21 +963,48 @@ html[data-theme="dark"] .rec-type-pill.on{
       <label>Từ <input type="date" id="chartFrom"></label>
       <label>Đến <input type="date" id="chartTo"></label>
     </div>
-    <div class="chart-wrap">
-      <div class="sec-label" style="padding:0;margin-bottom:10px">Thu / Chi theo kỳ</div>
-      <canvas id="chartBar" class="chart-canvas"></canvas>
+
+    <!-- TAB CHI PHÍ -->
+    <div data-chart-pane="expense">
+      <div class="chart-wrap">
+        <div class="sec-label" style="padding:0;margin-bottom:10px">Top 5 khoản chi nhiều nhất</div>
+        <div id="chartTop5" class="top5-list"></div>
+      </div>
+      <div class="chart-wrap">
+        <div class="sec-label" style="padding:0;margin-bottom:10px">Chi tiêu theo danh mục <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0">(bấm để xem)</span></div>
+        <canvas id="chartDonut" class="chart-canvas-donut"></canvas>
+      </div>
+      <div id="chartLegend" class="legend-list"></div>
     </div>
-    <div class="chart-wrap">
-      <div class="sec-label" style="padding:0;margin-bottom:10px">Top 5 khoản chi nhiều nhất</div>
-      <div id="chartTop5" class="top5-list"></div>
+
+    <!-- TAB THU NHẬP -->
+    <div data-chart-pane="income" style="display:none">
+      <div class="chart-wrap">
+        <div class="sec-label" style="padding:0;margin-bottom:10px">Top 5 nguồn thu nhiều nhất</div>
+        <div id="chartTop5Inc" class="top5-list"></div>
+      </div>
+      <div class="chart-wrap">
+        <div class="sec-label" style="padding:0;margin-bottom:10px">Thu nhập theo danh mục <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0">(bấm để xem)</span></div>
+        <canvas id="chartDonutInc" class="chart-canvas-donut"></canvas>
+      </div>
+      <div id="chartLegendInc" class="legend-list"></div>
     </div>
-    <div class="chart-wrap">
-      <div class="sec-label" style="padding:0;margin-bottom:10px">Chi tiêu theo danh mục <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0">(bấm danh mục để xem giao dịch)</span></div>
-      <canvas id="chartDonut" class="chart-canvas-donut"></canvas>
+
+    <!-- TAB CHUNG (overview) -->
+    <div data-chart-pane="overview" style="display:none">
+      <div id="chartOverviewSummary"></div>
+      <div class="chart-wrap">
+        <div class="sec-label" style="padding:0;margin-bottom:10px">Thu / Chi theo kỳ</div>
+        <canvas id="chartBar" class="chart-canvas"></canvas>
+      </div>
     </div>
-    <div id="chartLegend" class="legend-list"></div>
   </div>
 </div>
+
+<style>
+.chart-tab{color:rgba(255,255,255,0.6) !important;border-bottom:3px solid transparent}
+.chart-tab.on{color:#fff !important;border-bottom-color:#fff !important}
+</style>
 
 <!-- ========== GOALS (Mục tiêu tiết kiệm) ========== -->
 <div id="screen-goals" class="screen">
@@ -1264,8 +1296,8 @@ html[data-theme="dark"] .rec-type-pill.on{
       <div class="fg">
         <label class="fl">Loại <span style="color:#e63946">*</span></label>
         <div class="seg" style="background:var(--surface2);border-radius:8px;padding:4px">
-          <div class="seg-item rec-type-pill on" data-type="expense" style="padding:8px 0;border-radius:6px">Chi</div>
-          <div class="seg-item rec-type-pill" data-type="income" style="padding:8px 0;border-radius:6px">Thu</div>
+          <div class="seg-item rec-type-pill on" data-type="expense" style="padding:8px 0;border-radius:6px">Chi phí</div>
+          <div class="seg-item rec-type-pill" data-type="income" style="padding:8px 0;border-radius:6px">Thu nhập</div>
           <div class="seg-item rec-type-pill" data-type="transfer" style="padding:8px 0;border-radius:6px">Chuyển</div>
         </div>
       </div>
@@ -2148,8 +2180,8 @@ html[data-theme="dark"] .tx-loc-badge{background:#1a3a5c;color:#7eb6e8}
     <div class="modal-body" id="txForm" data-type="expense">
       <div id="txOcrStatus" class="status-msg" style="display:none"></div>
       <div class="tx-type-row">
-        <div class="tx-type-pill on" data-type="expense">Chi</div>
-        <div class="tx-type-pill" data-type="income">Thu</div>
+        <div class="tx-type-pill on" data-type="expense">Chi phí</div>
+        <div class="tx-type-pill" data-type="income">Thu nhập</div>
         <div class="tx-type-pill" data-type="transfer">Chuyển</div>
       </div>
       <div class="fg">
