@@ -387,6 +387,24 @@ const QLT_Geo = (() => {
       });
     },
 
+    // Forward geocode (search địa chỉ → toạ độ) qua OSM Nominatim
+    // Trả mảng top 5 candidates
+    async searchAddress(query) {
+      if (!query || query.length < 3) return [];
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&accept-language=vi&countrycodes=vn&limit=5`;
+        const r = await fetch(url, { headers: { 'User-Agent': 'QuanLyTien/1.0' } });
+        if (!r.ok) return [];
+        const data = await r.json();
+        return data.map(d => ({
+          lat: parseFloat(d.lat),
+          lng: parseFloat(d.lon),
+          name: d.display_name,
+          shortName: (d.display_name || '').split(',').slice(0, 3).join(',')
+        }));
+      } catch (e) { return []; }
+    },
+
     // Reverse geocode qua OSM Nominatim — miễn phí, tiếng Việt
     // Rate limit 1 req/s — đủ cho dùng cá nhân (1 GD ~ 1 geocode)
     async reverseGeocode(lat, lng) {
@@ -4490,7 +4508,170 @@ const App = {
     this.applyTxTypeUI(tx.type);
     this.renderTxPhoto();
 
+    // Pre-load GPS nếu user bật toggle + đây là tx mới + không phải transfer
+    this._setupTxLocation(isNew);
+
     $('#txModal').classList.add('open');
+  },
+
+  _setupTxLocation(isNew) {
+    const sec = $('#txLocationSection');
+    if (!sec) return;
+    const enabled = QLT_Geo.isEnabled();
+    const t = this.state.editingTx;
+    const isTransfer = t.type === 'transfer';
+
+    // Hiện section khi: bật toggle + không transfer + (tạo mới HOẶC tx đã có location)
+    const show = enabled && !isTransfer && (isNew || t.location);
+    sec.style.display = show ? 'block' : 'none';
+    if (!show) return;
+
+    const updateUI = () => {
+      const loc = this.state.editingTx?.location;
+      const icon = $('#txLocIcon');
+      const text = $('#txLocText');
+      if (loc?.address) {
+        icon.textContent = '📍';
+        text.textContent = loc.address;
+        text.style.color = 'var(--text)';
+      } else if (loc?.lat) {
+        icon.textContent = '📍';
+        text.textContent = `${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)} (đang tra địa chỉ...)`;
+        text.style.color = 'var(--text2)';
+      } else {
+        icon.textContent = '⏳';
+        text.textContent = 'Đang lấy vị trí GPS...';
+        text.style.color = 'var(--text2)';
+      }
+    };
+    updateUI();
+
+    // Auto-capture cho tx MỚI (không edit)
+    if (isNew && !this.state.editingTx.location) {
+      QLT_Geo.getCurrentPosition().then(async (pos) => {
+        if (!this.state.editingTx) return;  // user đã đóng modal
+        this.state.editingTx.location = { lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy };
+        updateUI();
+        // Reverse geocode
+        const geo = await QLT_Geo.reverseGeocode(pos.lat, pos.lng);
+        if (geo && this.state.editingTx?.location) {
+          this.state.editingTx.location.address = geo.address;
+          this.state.editingTx.location.fullAddress = geo.full;
+          updateUI();
+        }
+      }).catch((e) => {
+        $('#txLocIcon').textContent = '⚠️';
+        $('#txLocText').textContent = 'Không lấy được vị trí: ' + (e?.message || 'GPS lỗi');
+      });
+    }
+
+    $('#txLocEdit').onclick = () => this.openLocationPicker();
+    $('#txLocClear').onclick = () => {
+      delete this.state.editingTx.location;
+      updateUI();
+      $('#txLocIcon').textContent = '✕';
+      $('#txLocText').textContent = 'Đã bỏ vị trí cho GD này';
+      $('#txLocText').style.color = 'var(--text3)';
+    };
+  },
+
+  // Mở map picker để user kéo thả pin / search địa chỉ
+  async openLocationPicker() {
+    try { await this._loadLeaflet(); }
+    catch (e) { QLT_UI.alert('Cần internet để mở bản đồ.'); return; }
+
+    $('#locPickerModal').classList.add('open');
+    const cur = this.state.editingTx?.location;
+    const startLat = cur?.lat || 16.0544;
+    const startLng = cur?.lng || 108.2022;
+
+    setTimeout(() => {
+      const mapEl = $('#locPickerMap');
+      // Cleanup old map nếu có
+      if (this._locPickerMap) { this._locPickerMap.remove(); this._locPickerMap = null; }
+      this._locPickerMap = window.L.map(mapEl).setView([startLat, startLng], cur ? 16 : 11);
+      window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '© OpenStreetMap'
+      }).addTo(this._locPickerMap);
+
+      this._locPickerMarker = window.L.marker([startLat, startLng], { draggable: true }).addTo(this._locPickerMap);
+      this._locPickerPicked = { lat: startLat, lng: startLng, address: cur?.address || '' };
+
+      const updateAddr = async (lat, lng) => {
+        $('#locPickerAddress').innerHTML = '<span style="color:var(--text3)">⏳ Đang tra địa chỉ...</span>';
+        const geo = await QLT_Geo.reverseGeocode(lat, lng);
+        if (geo) {
+          $('#locPickerAddress').innerHTML = `📍 <strong>${this.escapeHtml(geo.address)}</strong><br><span style="font-size:11px;color:var(--text3)">${this.escapeHtml(geo.full)}</span>`;
+          this._locPickerPicked = { lat, lng, address: geo.address, fullAddress: geo.full };
+        } else {
+          $('#locPickerAddress').innerHTML = `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)} <span style="color:var(--text3)">(không tra được địa chỉ)</span>`;
+          this._locPickerPicked = { lat, lng };
+        }
+      };
+
+      // Initial address
+      updateAddr(startLat, startLng);
+
+      // Drag marker
+      this._locPickerMarker.on('dragend', (e) => {
+        const ll = e.target.getLatLng();
+        updateAddr(ll.lat, ll.lng);
+      });
+      // Click map → move marker
+      this._locPickerMap.on('click', (e) => {
+        this._locPickerMarker.setLatLng(e.latlng);
+        updateAddr(e.latlng.lat, e.latlng.lng);
+      });
+
+      // Force resize sau khi modal animate xong
+      setTimeout(() => this._locPickerMap.invalidateSize(), 350);
+    }, 100);
+
+    // Search bar
+    const search = $('#locSearchInput');
+    const searchBtn = $('#locSearchBtn');
+    const results = $('#locSearchResults');
+    const doSearch = async () => {
+      const q = search.value.trim();
+      if (!q) return;
+      results.innerHTML = '<div style="padding:10px;color:var(--text3);font-size:12px">⏳ Đang tìm...</div>';
+      results.style.display = 'block';
+      const list = await QLT_Geo.searchAddress(q);
+      if (list.length === 0) {
+        results.innerHTML = '<div style="padding:10px;color:var(--text3);font-size:12px">Không tìm thấy địa chỉ phù hợp</div>';
+        return;
+      }
+      results.innerHTML = list.map((r, i) =>
+        `<div data-pick="${i}" style="padding:10px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px;line-height:1.5">${this.escapeHtml(r.shortName)}</div>`
+      ).join('');
+      results.querySelectorAll('[data-pick]').forEach(el => {
+        el.onclick = () => {
+          const r = list[parseInt(el.dataset.pick, 10)];
+          this._locPickerMarker.setLatLng([r.lat, r.lng]);
+          this._locPickerMap.setView([r.lat, r.lng], 16);
+          this._locPickerPicked = { lat: r.lat, lng: r.lng, address: r.shortName, fullAddress: r.name };
+          $('#locPickerAddress').innerHTML = `📍 <strong>${this.escapeHtml(r.shortName)}</strong><br><span style="font-size:11px;color:var(--text3)">${this.escapeHtml(r.name)}</span>`;
+          results.style.display = 'none';
+          search.value = '';
+        };
+      });
+    };
+    search.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } };
+    searchBtn.onclick = doSearch;
+
+    $('#locPickerConfirm').onclick = () => {
+      const p = this._locPickerPicked;
+      if (!p?.lat) { QLT_UI.toast('Chưa chọn vị trí', { type: 'error' }); return; }
+      this.state.editingTx.location = {
+        lat: p.lat,
+        lng: p.lng,
+        address: p.address || '',
+        fullAddress: p.fullAddress || ''
+      };
+      $('#locPickerModal').classList.remove('open');
+      // Re-render display section
+      this._setupTxLocation(false);
+    };
   },
 
   applyTxTypeUI(type) {
@@ -4739,15 +4920,9 @@ const App = {
     // Áp giao dịch mới
     await this.applyBalanceDelta(t, +1);
 
-    const saved = await window.QLT_Store.put('transactions', t);
-
-    // Capture vị trí GPS — CHỈ với tx tạo MỚI + user đã bật toggle
-    // Async (không block save) — tx đã saved, location được patch sau
-    const isNewTx = !oldTx;
-    if (isNewTx && QLT_Geo.isEnabled() && t.type !== 'transfer') {
-      this._captureLocationAsync(saved.id);
-    }
-
+    // Location đã được pre-load + có sẵn trong editingTx.location (nếu có)
+    // → chỉ cần save kèm transaction
+    await window.QLT_Store.put('transactions', t);
     await this.reload();
     $('#txModal').classList.remove('open');
     this.switchTab(this.state.currentTab);
@@ -4763,34 +4938,6 @@ const App = {
     }
 
     this.autoSync();
-  },
-
-  // Capture GPS + reverse geocode async, patch tx.location sau khi xong
-  async _captureLocationAsync(txId) {
-    try {
-      const pos = await QLT_Geo.getCurrentPosition();
-      if (!pos) return;
-      const tx = await window.QLT_Store.get('transactions', txId);
-      if (!tx) return;
-      tx.location = { lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy };
-      await window.QLT_Store.put('transactions', tx);
-
-      // Reverse geocode async (không chặn nếu offline)
-      const geo = await QLT_Geo.reverseGeocode(pos.lat, pos.lng);
-      if (geo) {
-        tx.location.address = geo.address;
-        tx.location.fullAddress = geo.full;
-        await window.QLT_Store.put('transactions', tx);
-      }
-
-      // Re-render nếu user đang xem tab cùng
-      await this.reload();
-      if (this.state.currentTab === 'home') this.renderHome();
-      if (this.state.currentTab === 'transactions') this.renderTransactions();
-    } catch (e) {
-      console.warn('Capture location lỗi:', e?.message || e);
-      // Không hiện toast (tránh spam) — chỉ log
-    }
   },
 
   // Học từ khoá từ câu nói: trích từ "đặc trưng" (key term không phải số/đơn vị/connector)
