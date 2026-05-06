@@ -137,10 +137,22 @@ const VI_DIGIT_WORDS = {
   'tram': 100, 'nghin': 1000, 'ngan': 1000, 'trieu': 1000000, 'ty': 1000000000
 };
 
+// Bỏ dấu chấm phân tách nghìn ("50.000" → "50000", "1.500.000" → "1500000")
+// nhưng GIỮ dấu chấm thập phân ("1.5" giữ nguyên — chỉ thay khi có đúng 3 số sau dấu chấm)
+function stripThousandSep(s) {
+  let t = s;
+  let prev;
+  do { prev = t; t = t.replace(/(\d+)\.(\d{3})(?=\D|$)/g, '$1$2'); } while (t !== prev);
+  return t;
+}
+
 // Trích số tiền từ câu nói tiếng Việt
-// Hỗ trợ: "50 nghìn", "80k", "1tr2", "1 triệu 200", "200000", "một triệu hai"
+// Hỗ trợ: "50 nghìn", "80k", "1tr2", "1 triệu 200", "200000", "50.000đ", "1.5 triệu", "một triệu hai"
 function parseVoiceAmount(text) {
-  const t = normalizeVi(text).replace(/,/g, '.');
+  // Bước 1: bỏ dấu chấm thiên-tách-nghìn TRƯỚC khi normalize/parse
+  let t = stripThousandSep(text);
+  // Bước 2: chuẩn hoá Vietnamese
+  t = normalizeVi(t).replace(/,/g, '.');
 
   // 1) "Xtr Y" hoặc "X triệu Y" — Y là số trăm-nghìn (1tr2 = 1.200.000)
   let m = t.match(/(\d+(?:\.\d+)?)\s*(?:tr|trieu)\s*(\d)\b/);
