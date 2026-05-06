@@ -138,6 +138,13 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .sec-action{font-size:12px;color:var(--accent);font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:10px}
 .empty-msg{text-align:center;padding:40px 20px;color:var(--text3);font-size:13px}
+.empty-state{text-align:center;padding:48px 20px 24px;line-height:1.6}
+.empty-state-icon{font-size:64px;margin-bottom:12px;animation:emptyBounce 2s ease-in-out infinite}
+@keyframes emptyBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.empty-state-title{font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px}
+.empty-state-desc{font-size:13px;color:var(--text2);max-width:280px;margin:0 auto 16px}
+.empty-state-cta{display:inline-block;padding:10px 20px;background:var(--accent);color:#fff;border-radius:24px;font-size:13px;font-weight:600;cursor:pointer;border:none;text-decoration:none}
+.empty-state-cta:active{transform:scale(.97)}
 
 /* Home */
 .balance-hero{background:linear-gradient(135deg,var(--book-accent),var(--book-accent-light));color:#fff;border-radius:var(--r);padding:18px;margin:16px;box-shadow:var(--sh);transition:background .25s ease}

@@ -1021,6 +1021,27 @@ const App = {
     this.renderBookHeader();
   },
 
+  // Helper: build markup cho empty state đẹp (icon + title + desc + CTA)
+  emptyState({ icon = '📭', title = 'Chưa có gì', desc = '', ctaLabel = '', ctaAction = null }) {
+    const ctaHtml = ctaLabel
+      ? `<button class="empty-state-cta" data-empty-cta="1">${this.escapeHtml(ctaLabel)}</button>`
+      : '';
+    return `
+      <div class="empty-state">
+        <div class="empty-state-icon">${icon}</div>
+        <div class="empty-state-title">${this.escapeHtml(title)}</div>
+        ${desc ? `<div class="empty-state-desc">${desc}</div>` : ''}
+        ${ctaHtml}
+      </div>
+    `;
+  },
+  // Bind CTA action sau khi render empty state
+  bindEmptyCTA(parentEl, action) {
+    if (!parentEl || !action) return;
+    const btn = parentEl.querySelector('[data-empty-cta]');
+    if (btn) btn.onclick = action;
+  },
+
   // Cập nhật fade gradient mép trên/dưới của drawer list để báo hiệu nội dung scroll
   _updateDrawerOverflowHints() {
     const list = document.getElementById('drList');
@@ -1168,7 +1189,12 @@ const App = {
     const walletEl = $('#homeWallets');
     const accs = paymentAccs;
     if (!accs.length) {
-      walletEl.innerHTML = '<div class="empty-msg">Chưa có ví nào. Vào Tài khoản để thêm.</div>';
+      walletEl.innerHTML = this.emptyState({
+        icon: '💼', title: 'Chưa có ví nào',
+        desc: 'Tạo ví để bắt đầu theo dõi thu chi.',
+        ctaLabel: '+ Thêm ví đầu tiên'
+      });
+      this.bindEmptyCTA(walletEl, () => this.switchTab('accounts'));
     } else {
       // % của từng ví so với ví số dư lớn nhất → mini bar
       const maxBal = Math.max(1, ...accs.map(a => Math.abs(a.balance || 0)));
@@ -1231,7 +1257,10 @@ const App = {
       .slice(0, 8);
     const recentEl = $('#homeRecent');
     if (recent.length === 0) {
-      recentEl.innerHTML = '<div class="empty-msg">Chưa có giao dịch nào. Bấm + để thêm.</div>';
+      recentEl.innerHTML = this.emptyState({
+        icon: '📋', title: 'Chưa có giao dịch nào',
+        desc: 'Bấm dấu <strong>+</strong> ở dưới để thêm thu/chi đầu tiên.'
+      });
     } else {
       recentEl.innerHTML = recent.map(t => this.renderTxItem(t)).join('');
       recentEl.querySelectorAll('[data-tx]').forEach(el => {
@@ -1300,7 +1329,12 @@ const App = {
 
     const list = $('#accList');
     if (this.state.accounts.length === 0) {
-      list.innerHTML = '<div class="empty-msg">Chưa có tài khoản</div>';
+      list.innerHTML = this.emptyState({
+        icon: '💼', title: 'Chưa có tài khoản',
+        desc: 'Thêm ví thanh toán hoặc sổ tiết kiệm để quản lý.',
+        ctaLabel: '+ Thêm tài khoản'
+      });
+      this.bindEmptyCTA(list, () => this.openAccModal(null));
       $('#accAddBtn').onclick = () => this.openAccModal(null);
       return;
     }
@@ -1506,7 +1540,10 @@ const App = {
       if (searchTerm) {
         list.innerHTML = `<div class="tx-search-empty">Không có giao dịch nào khớp với <strong>"${this.escapeHtml(searchTerm)}"</strong>.<br>Thử bỏ bớt filter hoặc xoá ô tìm kiếm.</div>`;
       } else {
-        list.innerHTML = '<div class="empty-msg">Không có giao dịch phù hợp</div>';
+        list.innerHTML = this.emptyState({
+          icon: '🔍', title: 'Không tìm thấy giao dịch',
+          desc: 'Thử bỏ bớt bộ lọc hoặc tìm từ khoá khác.'
+        });
       }
     } else {
       // Group theo ngày
@@ -1805,7 +1842,12 @@ const App = {
   renderReminders() {
     const list = $('#remList');
     if (this.state.reminders.length === 0) {
-      list.innerHTML = '<div class="empty-msg">Chưa có lời nhắc</div>';
+      list.innerHTML = this.emptyState({
+        icon: '🔔', title: 'Chưa có lời nhắc nào',
+        desc: 'Tạo nhắc nhở để không quên các khoản chi định kỳ (tiền nhà, internet, điện...).',
+        ctaLabel: '+ Tạo lời nhắc'
+      });
+      this.bindEmptyCTA(list, () => this.openReminderModal(null));
     } else {
       list.innerHTML = this.state.reminders.map(r => {
         const cat = this.state.categories.find(c => c.id === r.categoryId) || {};
@@ -1878,7 +1920,12 @@ const App = {
 
     const list = $('#budgetList');
     if (!budgets.length) {
-      list.innerHTML = '<div class="empty-msg">Chưa có ngân sách. Bấm <strong>+</strong> để tạo cho từng danh mục chi.</div>';
+      list.innerHTML = this.emptyState({
+        icon: '🎯', title: 'Chưa có ngân sách',
+        desc: 'Đặt giới hạn chi tháng cho từng danh mục — app sẽ cảnh báo khi gần vượt.',
+        ctaLabel: '+ Tạo ngân sách đầu tiên'
+      });
+      this.bindEmptyCTA(list, () => this.openBudgetModal(null));
       return;
     }
 
@@ -2713,7 +2760,13 @@ const App = {
 
     const list = $('#loanList');
     if (!loans.length) {
-      list.innerHTML = '<div class="empty-msg">Chưa có khoản nào trong nhóm này</div>';
+      list.innerHTML = this.emptyState({
+        icon: this.state.loanTab === 'lend' ? '💸' : '💰',
+        title: this.state.loanTab === 'lend' ? 'Chưa cho ai vay' : 'Chưa nợ ai',
+        desc: 'Theo dõi các khoản tiền cho người khác mượn / mượn người khác có hạn trả + nhắc nhở.',
+        ctaLabel: '+ Thêm khoản'
+      });
+      this.bindEmptyCTA(list, () => this.openLoanModal(null));
       return;
     }
 
