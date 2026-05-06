@@ -130,6 +130,28 @@ const QLT_UI = (() => {
 window.QLT_UI = QLT_UI;
 const fmt = n => (n || 0).toLocaleString('vi-VN');
 const today = () => new Date().toISOString().slice(0, 10);
+
+// Lazy-load SortableJS (kéo-thả sắp xếp lại) — chỉ tải khi user thật sự reorder
+let _sortableLoading = null;
+function loadSortable() {
+  if (window.Sortable) return Promise.resolve();
+  if (_sortableLoading) return _sortableLoading;
+  _sortableLoading = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js';
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+  return _sortableLoading;
+}
+// Sort helper: items có .order số đứng trước, không order theo _createdAt/id (mới ở cuối)
+const sortByOrder = (a, b) => {
+  const ao = (typeof a.order === 'number') ? a.order : 9e9;
+  const bo = (typeof b.order === 'number') ? b.order : 9e9;
+  if (ao !== bo) return ao - bo;
+  return String(a._createdAt || a.id || '').localeCompare(String(b._createdAt || b.id || ''));
+};
 const todayTime = () => {
   const d = new Date();
   return d.toTimeString().slice(0, 5);
@@ -1599,7 +1621,8 @@ const App = {
     const wrap = $('#drBooksList');
     if (!wrap) return;
     const cur = this.state.currentBookId;
-    wrap.innerHTML = this.state.books.map(b => `
+    const sortedBooks = this.state.books.slice().sort(sortByOrder);
+    wrap.innerHTML = sortedBooks.map(b => `
       <div class="dr-book-row ${b.id === cur ? 'on' : ''}" data-book="${b.id}">
         <span class="dr-book-row-icon" style="background:${b.color || '#52b788'}">${svgIcon(b.icon || 'wallet')}</span>
         <span class="dr-book-row-name">${this.escapeHtml(b.name)}</span>
@@ -1992,9 +2015,48 @@ const App = {
   },
 
   // ============ ACCOUNTS ============
+  // Helper: Bind SortableJS lên container. opts.collect(container) trả ID array theo thứ tự mới.
+  async _initSortable(container, store, opts = {}) {
+    if (!container) return;
+    try { await loadSortable(); } catch (_) { return; }
+    const existing = window.Sortable.get(container);
+    if (existing) existing.destroy();
+    window.Sortable.create(container, {
+      delay: 400,
+      delayOnTouchOnly: true,
+      animation: 180,
+      ghostClass: 'qlt-sort-ghost',
+      chosenClass: 'qlt-sort-chosen',
+      dragClass: 'qlt-sort-drag',
+      filter: opts.filter || '',
+      preventOnFilter: true,
+      onEnd: async () => {
+        const ids = (opts.collect ? opts.collect(container) : []).filter(Boolean);
+        if (!ids.length) return;
+        let changed = 0;
+        for (let i = 0; i < ids.length; i++) {
+          const rec = await window.QLT_Store.get(store, ids[i]);
+          if (!rec) continue;
+          if (rec.order !== i) {
+            rec.order = i;
+            rec._updatedAt = new Date().toISOString();
+            await window.QLT_Store.put(store, rec);
+            changed++;
+          }
+        }
+        if (!changed) return;
+        await this.reload();
+        // Re-render đúng tab hiện tại
+        if (opts.afterReorder) opts.afterReorder.call(this);
+        this.autoSync();
+        QLT_UI.toast('Đã lưu thứ tự mới', { type: 'success', duration: 1400 });
+      }
+    });
+  },
+
   renderAccounts() {
-    const payAccs = this.state.accounts.filter(a => this.isPayment(a));
-    const savAccs = this.state.accounts.filter(a => this.isActiveSavings(a));
+    const payAccs = this.state.accounts.filter(a => this.isPayment(a)).sort(sortByOrder);
+    const savAccs = this.state.accounts.filter(a => this.isActiveSavings(a)).sort(sortByOrder);
     const totalPay = payAccs.reduce((s, a) => s + (a.balance || 0), 0);
     const totalSav = savAccs.reduce((s, a) => s + (a.balance || 0), 0);
     $('#accTotalBalance').textContent = fmt(totalPay + totalSav) + ' đ';
@@ -2029,12 +2091,12 @@ const App = {
 
     let html = '';
     if (payAccs.length) {
-      html += `<div class="sec-label" style="padding:14px 16px 6px">💳 Tiền dùng được — ${fmt(totalPay)} đ</div>`;
-      html += payAccs.map(renderAcc).join('');
+      html += `<div class="sec-label" style="padding:14px 16px 6px">💳 Tiền dùng được — ${fmt(totalPay)} đ <span style="color:var(--text3);font-weight:400;font-size:11px">· giữ để kéo</span></div>`;
+      html += `<div id="accListPay">${payAccs.map(renderAcc).join('')}</div>`;
     }
     if (savAccs.length) {
-      html += `<div class="sec-label" style="padding:14px 16px 6px">💎 Sổ tiết kiệm — ${fmt(totalSav)} đ</div>`;
-      html += savAccs.map(renderAcc).join('');
+      html += `<div class="sec-label" style="padding:14px 16px 6px">💎 Sổ tiết kiệm — ${fmt(totalSav)} đ <span style="color:var(--text3);font-weight:400;font-size:11px">· giữ để kéo</span></div>`;
+      html += `<div id="accListSav">${savAccs.map(renderAcc).join('')}</div>`;
     }
     list.innerHTML = html;
     list.querySelectorAll('[data-acc]').forEach(el => {
@@ -2042,6 +2104,17 @@ const App = {
     });
 
     $('#accAddBtn').onclick = () => this.openAccModal(null);
+
+    // Wire sortable cho 2 section riêng
+    const collectAccIds = c => Array.from(c.children).map(el => el.dataset.acc).filter(Boolean);
+    this._initSortable($('#accListPay'), 'accounts', {
+      collect: collectAccIds,
+      afterReorder: function () { this.renderAccounts(); }
+    });
+    this._initSortable($('#accListSav'), 'accounts', {
+      collect: collectAccIds,
+      afterReorder: function () { this.renderAccounts(); }
+    });
   },
 
   // ============ CATEGORIES ============
@@ -2051,15 +2124,19 @@ const App = {
       el.classList.toggle('on', el.dataset.type === this.state.catTab);
     });
     const cats = this.state.categories.filter(c => c.type === this.state.catTab);
-    const parents = cats.filter(c => !c.parentId);
+    const parents = cats.filter(c => !c.parentId).sort(sortByOrder);
     const childrenByParent = {};
     for (const c of cats) {
       if (c.parentId) {
         (childrenByParent[c.parentId] = childrenByParent[c.parentId] || []).push(c);
       }
     }
+    // Sort children theo order trong từng parent
+    Object.keys(childrenByParent).forEach(pid => {
+      childrenByParent[pid].sort(sortByOrder);
+    });
     // Mồ côi: có parentId nhưng parent không tồn tại (vd cha bị xoá ở máy khác qua sync) → coi như top-level
-    const orphans = cats.filter(c => c.parentId && !cats.find(x => x.id === c.parentId));
+    const orphans = cats.filter(c => c.parentId && !cats.find(x => x.id === c.parentId)).sort(sortByOrder);
 
     if (!this.state.expandedCats) this.state.expandedCats = new Set();
     const expanded = this.state.expandedCats;
@@ -2132,6 +2209,16 @@ const App = {
         if (id === 'new') this.openCatModal(null);
         else this.openCatModal(id);
       };
+    });
+    // Drag-to-reorder: chỉ top-level (parents + leaves không phải child),
+    // không cho kéo thẻ "Tạo" và child. Long-press 400ms để bắt đầu kéo.
+    this._initSortable(grid, 'categories', {
+      filter: '.cat-child, [data-cat="new"]',
+      collect: c => Array.from(c.children)
+        .filter(el => !el.classList.contains('cat-child') && el.dataset.cat !== 'new')
+        .map(el => el.dataset.cat || el.dataset.catToggle)
+        .filter(Boolean),
+      afterReorder: function () { this.renderCategories(); }
     });
   },
 
@@ -4642,7 +4729,7 @@ const App = {
     $('#txTitle').textContent = isNew ? 'Thêm giao dịch' : 'Sửa giao dịch';
 
     // Render account picker
-    $('#txAccountList').innerHTML = this.state.accounts.map(a => `
+    $('#txAccountList').innerHTML = this.state.accounts.slice().sort(sortByOrder).map(a => `
       <div class="picker-item ${a.id === tx.accountId ? 'on' : ''}" data-acc="${a.id}">
         <span class="picker-icon" style="color:#2d6a4f">${svgIcon(a.icon || 'cash')}</span>
         <span>${this.escapeHtml(a.name)}</span>
@@ -4916,7 +5003,7 @@ const App = {
   renderTxToAccountPicker() {
     const sel = this.state.editingTx?.toAccountId;
     const from = this.state.editingTx?.accountId;
-    $('#txToAccountList').innerHTML = this.state.accounts.map(a => `
+    $('#txToAccountList').innerHTML = this.state.accounts.slice().sort(sortByOrder).map(a => `
       <div class="picker-item ${a.id === sel ? 'on' : ''} ${a.id === from ? 'disabled' : ''}" data-acc="${a.id}">
         <span class="picker-icon" style="color:#2d6a4f">${svgIcon(a.icon || 'cash')}</span>
         <span>${this.escapeHtml(a.name)}</span>
@@ -4939,12 +5026,13 @@ const App = {
     const cats = this.state.categories.filter(c => c.type === type);
     const sel = this.state.editingTx?.categoryId;
 
-    const parents = cats.filter(c => !c.parentId);
+    const parents = cats.filter(c => !c.parentId).sort(sortByOrder);
     const childrenByParent = {};
     for (const c of cats) {
       if (c.parentId) (childrenByParent[c.parentId] = childrenByParent[c.parentId] || []).push(c);
     }
-    const orphans = cats.filter(c => c.parentId && !cats.find(x => x.id === c.parentId));
+    Object.keys(childrenByParent).forEach(pid => childrenByParent[pid].sort(sortByOrder));
+    const orphans = cats.filter(c => c.parentId && !cats.find(x => x.id === c.parentId)).sort(sortByOrder);
 
     if (!this.state.expandedTxCats) this.state.expandedTxCats = new Set();
     const expanded = this.state.expandedTxCats;
@@ -8312,7 +8400,8 @@ const App = {
   // ============ BOOKS ============
   openBookList() {
     const list = $('#bookList');
-    list.innerHTML = this.state.books.map(b => `
+    const sortedBooks = this.state.books.slice().sort(sortByOrder);
+    list.innerHTML = sortedBooks.map(b => `
       <div class="book-item ${b.id === this.state.currentBookId ? 'on' : ''}" data-book="${b.id}">
         <div class="tx-icon" style="background:${b.color || '#2d6a4f'};color:#fff">
           ${svgIcon(b.icon || 'wallet')}
@@ -8324,6 +8413,11 @@ const App = {
         <button class="book-edit-btn" data-edit="${b.id}" title="Sửa">${svgIcon('edit')}</button>
       </div>
     `).join('');
+    // Drag-to-reorder
+    this._initSortable(list, 'books', {
+      collect: c => Array.from(c.children).map(el => el.dataset.book).filter(Boolean),
+      afterReorder: function () { this.openBookList(); }
+    });
     list.querySelectorAll('[data-book]').forEach(el => {
       el.onclick = async (e) => {
         if (e.target.closest('[data-edit]')) return;

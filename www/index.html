@@ -818,6 +818,11 @@ html[data-theme="dark"] .rec-type-pill.on{
 .qlt-toast.error{background:#a8324a}
 .qlt-toast.fade{animation:toastOut .25s ease forwards}
 
+/* Drag-to-reorder (SortableJS) */
+.qlt-sort-ghost{opacity:.4;background:var(--surface2)!important}
+.qlt-sort-chosen{background:rgba(45,106,79,.10)!important;box-shadow:0 6px 18px rgba(0,0,0,.18)!important;z-index:5;position:relative}
+.qlt-sort-drag{cursor:grabbing!important;opacity:.95}
+
 /* Insight banner — slide từ top (smart insights real-time) */
 #qltInsightWrap{position:fixed;top:max(8px,env(safe-area-inset-top,8px));left:0;right:0;z-index:9200;display:flex;flex-direction:column;align-items:stretch;gap:8px;pointer-events:none;padding:0 12px}
 .qlt-insight{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--brand);border-radius:10px;padding:10px 12px;box-shadow:0 4px 18px rgba(0,0,0,0.15);pointer-events:auto;cursor:pointer;transform:translateY(-120%);opacity:0;transition:transform .3s cubic-bezier(.2,.9,.3,1),opacity .3s ease}
