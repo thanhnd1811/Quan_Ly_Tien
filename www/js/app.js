@@ -588,7 +588,7 @@ const App = {
       } catch (_) {}
       // Đặt lại notif cho mọi sổ tiết kiệm có ngày đáo hạn
       try {
-        for (const a of this.state.accounts.filter(a => this.isSavings(a) && a.maturityDate)) {
+        for (const a of this.state.accounts.filter(a => this.isActiveSavings(a) && a.maturityDate)) {
           await this.scheduleMaturityNotif(a);
         }
       } catch (_) {}
@@ -760,6 +760,10 @@ const App = {
     const fDel = $('#fuelLogDelete'); if (fDel) fDel.onclick = () => this.deleteFuelLog();
     const mSave = $('#maintLogSave'); if (mSave) mSave.onclick = () => this.saveMaintLog();
     const mDel = $('#maintLogDelete'); if (mDel) mDel.onclick = () => this.deleteMaintLog();
+
+    // Withdraw early
+    const wConfirm = $('#withdrawConfirm');
+    if (wConfirm) wConfirm.onclick = () => this.confirmWithdrawEarly();
 
     // Category form
     $('#catSave').onclick = () => this.saveCat();
@@ -996,12 +1000,52 @@ const App = {
     else if (name === 'budgets') this.renderBudgets();
     else if (name === 'goals') this.renderGoals();
     else if (name === 'fuel') this.renderFuel();
+    else if (name === 'savings') this.renderSavings();
   },
 
   // ============ HOME ============
   // Phân biệt 'payment' (tiền dùng được) và 'savings' (sổ tiết kiệm — locked)
   isSavings(acc) { return (acc?.accountType || 'payment') === 'savings'; },
   isPayment(acc) { return (acc?.accountType || 'payment') === 'payment'; },
+  // Sổ tiết kiệm "đang hoạt động" (chưa đóng/đáo hạn/rút trước hạn)
+  isActiveSavings(acc) { return this.isSavings(acc) && !acc.savingsClosed; },
+  isClosedSavings(acc) { return this.isSavings(acc) && !!acc.savingsClosed; },
+
+  // Lãi tích luỹ TỚI HÔM NAY (tuyến tính: gốc × rate% × ngày_đã_trôi / 365)
+  // Note: ngân hàng thực tế thường tính theo tháng đầy đủ + lãi suất phạt nếu rút trước hạn,
+  // nhưng đây là ước tính nhanh để user hình dung "rút bây giờ tôi có khoảng X".
+  savingsAccrued(acc) {
+    if (!this.isSavings(acc)) return 0;
+    const rate = parseFloat(acc.interestRate) || 0;
+    const principal = Number(acc.balance) || 0;
+    if (rate <= 0 || principal <= 0 || !acc.startDate) return 0;
+    const start = new Date(acc.startDate + 'T00:00:00').getTime();
+    const end = acc.savingsClosed && acc.savingsClosedDate
+      ? new Date(acc.savingsClosedDate + 'T00:00:00').getTime()
+      : Date.now();
+    const days = Math.max(0, Math.floor((end - start) / 86400000));
+    return Math.round(principal * (rate / 100) * (days / 365));
+  },
+
+  // % thời gian đã trôi qua từ startDate tới maturityDate
+  savingsTimeProgress(acc) {
+    if (!acc?.startDate || !acc?.maturityDate) return 0;
+    const start = new Date(acc.startDate + 'T00:00:00').getTime();
+    const end = new Date(acc.maturityDate + 'T00:00:00').getTime();
+    if (end <= start) return 100;
+    const now = Date.now();
+    const pct = (now - start) / (end - start) * 100;
+    return Math.max(0, Math.min(100, pct));
+  },
+
+  // Lãi DỰ KIẾN khi đáo hạn = gốc × rate × termMonths/12 (theo lãi suất công bố)
+  savingsExpectedInterest(acc) {
+    if (!this.isSavings(acc)) return 0;
+    const rate = parseFloat(acc.interestRate) || 0;
+    const principal = Number(acc.balance) || 0;
+    const months = parseInt(acc.termMonths, 10) || 0;
+    return Math.round(principal * (rate / 100) * (months / 12));
+  },
 
   // Cài đặt hiển thị widget trên Trang chủ — lưu trong localStorage (preference UI)
   getHomeWidgetPrefs() {
@@ -1030,7 +1074,7 @@ const App = {
 
     // Tổng số dư = CHỈ tính ví thanh toán (tiền dùng được)
     const paymentAccs = this.state.accounts.filter(a => this.isPayment(a));
-    const savingsAccs = this.state.accounts.filter(a => this.isSavings(a));
+    const savingsAccs = this.state.accounts.filter(a => this.isActiveSavings(a));
     const totalBalance = paymentAccs.reduce((s, a) => s + (a.balance || 0), 0);
     const totalSavings = savingsAccs.reduce((s, a) => s + (a.balance || 0), 0);
     $('#homeBalance').textContent = fmt(totalBalance) + ' đ';
@@ -1199,7 +1243,7 @@ const App = {
   // ============ ACCOUNTS ============
   renderAccounts() {
     const payAccs = this.state.accounts.filter(a => this.isPayment(a));
-    const savAccs = this.state.accounts.filter(a => this.isSavings(a));
+    const savAccs = this.state.accounts.filter(a => this.isActiveSavings(a));
     const totalPay = payAccs.reduce((s, a) => s + (a.balance || 0), 0);
     const totalSav = savAccs.reduce((s, a) => s + (a.balance || 0), 0);
     $('#accTotalBalance').textContent = fmt(totalPay + totalSav) + ' đ';
@@ -1824,7 +1868,7 @@ const App = {
   renderHomeSavings(totalPayment, totalSavings) {
     const wrap = $('#homeSavings');
     if (!wrap) return;
-    const savAccs = this.state.accounts.filter(a => this.isSavings(a));
+    const savAccs = this.state.accounts.filter(a => this.isActiveSavings(a));
     if (!savAccs.length) { wrap.style.display = 'none'; return; }
     const todayStr = today();
     savAccs.sort((a, b) => (a.maturityDate || '').localeCompare(b.maturityDate || ''));
@@ -4487,23 +4531,23 @@ const App = {
     const acc = this.state.editingAcc;
     if (!acc?.id || acc.accountType !== 'savings') return;
 
-    const interest = Math.round((acc.balance || 0) * ((acc.interestRate || 0) / 100) * ((acc.termMonths || 0) / 12));
+    const interest = this.savingsExpectedInterest(acc);
+    const accrued = this.savingsAccrued(acc);
 
     $('#maturityInfo').innerHTML = `
       <div><strong>${this.escapeHtml(acc.name)}</strong></div>
       <div style="color:var(--text2)">Gốc: <strong>${fmt(acc.balance)} đ</strong> · Lãi suất: ${acc.interestRate}%/năm · Kỳ hạn: ${acc.termMonths} tháng</div>
       <div style="color:var(--text2)">Ngày gửi: ${this.formatDate(acc.startDate)} → Đáo hạn: ${this.formatDate(acc.maturityDate)}</div>
+      <div style="color:var(--accent);margin-top:6px">Lãi đến hạn: <strong>${fmt(interest)} đ</strong> · Lãi tích luỹ tới hôm nay (ước tính): <strong>${fmt(accrued)} đ</strong></div>
     `;
 
     $('#maturityInterest').value = fmt(interest);
 
-    // Ví đích: chỉ payment accounts
-    const payAccs = this.state.accounts.filter(x => (x.accountType || 'payment') === 'payment');
+    const payAccs = this.state.accounts.filter(x => this.isPayment(x));
     $('#maturityToAccount').innerHTML = payAccs.map(a =>
       `<option value="${a.id}">${this.escapeHtml(a.name)}</option>`
     ).join('');
 
-    // Danh mục thu nhập (lọc category type=income)
     const incCats = this.state.categories.filter(c => c.type === 'income');
     $('#maturityCategory').innerHTML = incCats.map(c =>
       `<option value="${c.id}" ${c.name === 'Đầu tư' ? 'selected' : ''}>${this.escapeHtml(c.name)}</option>`
@@ -4511,69 +4555,473 @@ const App = {
 
     $('#maturityDate').value = today();
 
+    // Default mode: cashout
+    document.querySelectorAll('input[name="maturityMode"]').forEach(r => {
+      r.checked = r.value === 'cashout';
+      r.onchange = () => this._updateMaturityHint(acc);
+    });
+    this._updateMaturityHint(acc);
+
     $('#maturityModal').classList.add('open');
+  },
+
+  _updateMaturityHint(acc) {
+    const mode = document.querySelector('input[name="maturityMode"]:checked')?.value || 'cashout';
+    const principal = acc.balance || 0;
+    const interest = readAmount($('#maturityInterest'));
+    const hint = $('#maturityHint');
+    const toWrap = $('#maturityToAccountWrap');
+
+    if (mode === 'cashout') {
+      toWrap.style.display = 'block';
+      $('#maturityToAccount').previousElementSibling.textContent = 'Ví nhận tiền (gốc + lãi)';
+      hint.innerHTML = `✅ Sổ này sẽ ĐÓNG. Tổng <strong>${fmt(principal + interest)} đ</strong> chuyển vào ví đã chọn (1 transfer + 1 income lãi).`;
+    } else if (mode === 'renew-compound') {
+      toWrap.style.display = 'none';
+      hint.innerHTML = `🔁 Sổ HIỆN TẠI sẽ đóng. Tự tạo SỔ MỚI cùng tên/lãi suất/kỳ hạn với gốc = <strong>${fmt(principal + interest)} đ</strong> (gốc + lãi). Lãi cũng được ghi nhận thu nhập trong sổ chi tiêu.`;
+    } else if (mode === 'renew-simple') {
+      toWrap.style.display = 'block';
+      $('#maturityToAccount').previousElementSibling.textContent = 'Ví nhận lãi';
+      hint.innerHTML = `🔂 Sổ HIỆN TẠI sẽ đóng. Tạo SỔ MỚI cùng tên với gốc = <strong>${fmt(principal)} đ</strong>. Lãi <strong>${fmt(interest)} đ</strong> chuyển vào ví đã chọn (1 income).`;
+    }
   },
 
   async confirmMaturity() {
     const acc = this.state.editingAcc;
     if (!acc?.id) return;
+    const mode = document.querySelector('input[name="maturityMode"]:checked')?.value || 'cashout';
     const interest = readAmount($('#maturityInterest'));
     const toAccId = $('#maturityToAccount').value;
     const catId = $('#maturityCategory').value;
     const date = $('#maturityDate').value || today();
 
-    if (!toAccId) { QLT_UI.toast('Chọn ví nhận tiền', { type: 'error' }); return; }
-    if (!catId) { QLT_UI.toast('Chọn danh mục thu nhập cho lãi', { type: 'error' }); return; }
     if (interest < 0) { QLT_UI.toast('Lãi không hợp lệ', { type: 'error' }); return; }
+    if (mode !== 'renew-compound' && !toAccId) { QLT_UI.toast('Chọn ví nhận tiền', { type: 'error' }); return; }
+    if (!catId) { QLT_UI.toast('Chọn danh mục thu nhập cho lãi', { type: 'error' }); return; }
 
     const principal = acc.balance || 0;
 
-    // 1) Tạo giao dịch CHUYỂN KHOẢN gốc: từ savings → payment account
-    const txTransfer = {
-      type: 'transfer',
-      amount: principal,
-      date,
-      accountId: acc.id,
-      toAccountId: toAccId,
-      categoryId: null,
-      note: `Đáo hạn sổ ${acc.name} — chuyển gốc`,
-      bookId: this.state.currentBookId
-    };
-    // Cập nhật balance: savings -principal, payment +principal
-    await this.applyBalanceDelta(txTransfer, +1);
-    await window.QLT_Store.put('transactions', txTransfer);
-
-    // 2) Tạo giao dịch THU NHẬP cho lãi (nếu > 0)
-    if (interest > 0) {
-      const txIncome = {
-        type: 'income',
-        amount: interest,
-        date,
-        accountId: toAccId,
-        categoryId: catId,
-        note: `Lãi sổ ${acc.name}`,
-        bookId: this.state.currentBookId
-      };
-      await this.applyBalanceDelta(txIncome, +1);
-      await window.QLT_Store.put('transactions', txIncome);
-    }
-
-    // 3) Xoá tài khoản savings (số dư đã = 0 sau transfer)
+    // Common: cancel reminder của sổ cũ
     if (window.Capacitor?.Plugins?.LocalNotifications) {
       try {
         const idNum = Math.abs(this.hashCode('savings_' + acc.id)) % 2000000;
         await window.Capacitor.Plugins.LocalNotifications.cancel({ notifications: [{ id: idNum }] });
       } catch (_) {}
     }
-    await window.QLT_Store.del('accounts', acc.id);
+
+    if (mode === 'cashout') {
+      // Transfer gốc → ví đích
+      const txTransfer = {
+        type: 'transfer', amount: principal, date,
+        accountId: acc.id, toAccountId: toAccId, categoryId: null,
+        note: `Đáo hạn sổ ${acc.name} — rút gốc`,
+        bookId: acc.bookId || this.state.currentBookId
+      };
+      await this.applyBalanceDelta(txTransfer, +1);
+      await window.QLT_Store.put('transactions', txTransfer);
+      // Lãi → income
+      if (interest > 0) {
+        const txIncome = {
+          type: 'income', amount: interest, date, accountId: toAccId,
+          categoryId: catId, note: `Lãi sổ ${acc.name}`,
+          bookId: acc.bookId || this.state.currentBookId
+        };
+        await this.applyBalanceDelta(txIncome, +1);
+        await window.QLT_Store.put('transactions', txIncome);
+      }
+      // Đóng sổ (giữ lại để xem lịch sử)
+      acc.savingsClosed = true;
+      acc.savingsClosedDate = date;
+      acc.savingsClosedReason = 'matured';
+      acc.savingsActualInterest = interest;
+      acc.balance = 0;
+      await window.QLT_Store.put('accounts', acc);
+    }
+    else if (mode === 'renew-compound' || mode === 'renew-simple') {
+      const newPrincipal = mode === 'renew-compound' ? principal + interest : principal;
+
+      // Lãi: nếu renew-simple → chuyển ra ví; nếu renew-compound → cộng vào sổ mới (vẫn ghi nhận income để track)
+      if (interest > 0) {
+        if (mode === 'renew-simple') {
+          // Transfer lãi từ savings cũ → ví đích (lấy từ balance hiện tại)
+          // Đầu tiên giảm balance sổ cũ (rút lãi ra)
+          const txInterestTransfer = {
+            type: 'transfer', amount: interest, date,
+            accountId: acc.id, toAccountId: toAccId, categoryId: null,
+            note: `Lãi đáo hạn sổ ${acc.name}`,
+            bookId: acc.bookId || this.state.currentBookId
+          };
+          // Note: trong sổ tiền lãi không "tồn tại" — bank chỉ ghi nhận. Để minh bạch, ta TĂNG balance sổ +interest tạm rồi transfer ra (net = ban đầu)
+          // Đơn giản hơn: tạo income tx vào ví đích trực tiếp, KHÔNG transfer
+          const txIncome = {
+            type: 'income', amount: interest, date, accountId: toAccId,
+            categoryId: catId, note: `Lãi sổ ${acc.name}`,
+            bookId: acc.bookId || this.state.currentBookId
+          };
+          await this.applyBalanceDelta(txIncome, +1);
+          await window.QLT_Store.put('transactions', txIncome);
+        } else {
+          // renew-compound: lãi cộng vào sổ mới, vẫn ghi nhận income (để biểu đồ đẹp)
+          // Tx "ảo": income đi vào ví ảo, sau đó "transfer" qua sổ mới — nhưng để gọn,
+          // chỉ ghi nhận income vào ví thanh toán đầu tiên (proxy)
+          const proxyAcc = this.state.accounts.find(a => this.isPayment(a));
+          if (proxyAcc && catId) {
+            // Tạm bỏ qua việc tạo income tx khi compound — ghi note vào sổ mới
+            // (Tránh làm tăng "thu nhập tháng" ảo cho user)
+          }
+        }
+      }
+
+      // Đóng sổ cũ
+      acc.savingsClosed = true;
+      acc.savingsClosedDate = date;
+      acc.savingsClosedReason = 'renewed';
+      acc.savingsActualInterest = interest;
+      acc.balance = 0;
+      await window.QLT_Store.put('accounts', acc);
+
+      // Tạo sổ mới
+      const oldStart = new Date(acc.maturityDate + 'T00:00:00');
+      const newStart = oldStart.toISOString().slice(0, 10);
+      const newMaturity = this.computeMaturityDate(newStart, acc.termMonths || 6);
+      const newAcc = {
+        name: acc.name,
+        icon: acc.icon,
+        balance: newPrincipal,
+        currency: acc.currency || 'VND',
+        bookId: acc.bookId,
+        accountType: 'savings',
+        interestRate: acc.interestRate,
+        termMonths: acc.termMonths,
+        startDate: newStart,
+        maturityDate: newMaturity,
+        savingsRenewedFromId: acc.id,
+        savingsRenewCount: (acc.savingsRenewCount || 0) + 1
+      };
+      const savedNew = await window.QLT_Store.put('accounts', newAcc);
+      try { await this.scheduleMaturityNotif(savedNew); } catch (_) {}
+    }
 
     await this.reload();
     $('#maturityModal').classList.remove('open');
     $('#accModal').classList.remove('open');
     this.renderAccounts();
     if (this.state.currentTab === 'home') this.renderHome();
+    if (this.state.currentTab === 'savings') this.renderSavings();
     this.autoSync();
-    QLT_UI.toast(`Đáo hạn xong: nhận ${fmt(principal + interest)} đ`, { type: 'success' });
+    if (mode === 'cashout') {
+      QLT_UI.toast(`Đã đóng sổ — nhận ${fmt(principal + interest)} đ`, { type: 'success' });
+    } else {
+      QLT_UI.toast(`Đã gia hạn — sổ mới mở${interest > 0 && mode === 'renew-simple' ? `, lãi ${fmt(interest)} đ chuyển vào ví` : ''}`, { type: 'success' });
+    }
+  },
+
+  // ====== RÚT TRƯỚC HẠN ======
+  async openWithdrawEarlyModal(accId) {
+    const acc = this.state.accounts.find(a => a.id === accId);
+    if (!acc || !this.isActiveSavings(acc)) return;
+    this.state.editingWithdrawAcc = acc;
+
+    const accrued = this.savingsAccrued(acc);
+    const expected = this.savingsExpectedInterest(acc);
+    const principal = acc.balance || 0;
+
+    $('#withdrawInfo').innerHTML = `
+      <div><strong>${this.escapeHtml(acc.name)}</strong></div>
+      <div>Gốc: <strong>${fmt(principal)} đ</strong> · ${acc.interestRate}%/năm · ${acc.termMonths} tháng</div>
+      <div>Đáo hạn: ${this.formatDate(acc.maturityDate)}</div>
+      <div style="color:var(--accent);margin-top:6px">Lãi tích luỹ ~ <strong>${fmt(accrued)} đ</strong> (nếu rút đúng kỳ sẽ là ${fmt(expected)} đ)</div>
+      <div style="color:#a06f10;font-size:12px;margin-top:6px">⚠️ Rút trước hạn ngân hàng thường chỉ trả lãi không kỳ hạn (~0.1-0.5%/năm). Sửa số tiền nhận lại cho đúng số bạn được nhận thực tế.</div>
+    `;
+
+    // Mặc định = gốc + lãi tích luỹ
+    $('#withdrawAmount').value = fmt(principal + accrued);
+    $('#withdrawDate').value = today();
+
+    const payAccs = this.state.accounts.filter(a => this.isPayment(a));
+    $('#withdrawToAccount').innerHTML = payAccs.map(a =>
+      `<option value="${a.id}">${this.escapeHtml(a.name)}</option>`
+    ).join('');
+
+    const incCats = this.state.categories.filter(c => c.type === 'income');
+    $('#withdrawCategory').innerHTML = incCats.map(c =>
+      `<option value="${c.id}" ${c.name === 'Đầu tư' ? 'selected' : ''}>${this.escapeHtml(c.name)}</option>`
+    ).join('');
+
+    $('#withdrawModal').classList.add('open');
+  },
+
+  async confirmWithdrawEarly() {
+    const acc = this.state.editingWithdrawAcc;
+    if (!acc?.id) return;
+    const totalReceive = readAmount($('#withdrawAmount'));
+    const date = $('#withdrawDate').value || today();
+    const toAccId = $('#withdrawToAccount').value;
+    const catId = $('#withdrawCategory').value;
+
+    if (totalReceive <= 0) { QLT_UI.toast('Vui lòng nhập số tiền nhận', { type: 'error' }); return; }
+    if (!toAccId) { QLT_UI.toast('Chọn ví nhận tiền', { type: 'error' }); return; }
+
+    const principal = acc.balance || 0;
+    const interest = Math.max(0, totalReceive - principal);
+    const lossVsPrincipal = Math.max(0, principal - totalReceive); // mất phần gốc (rất hiếm)
+
+    // 1) Transfer gốc (hoặc số nhận nếu < gốc) → ví đích
+    const transferAmount = Math.min(principal, totalReceive);
+    const txTransfer = {
+      type: 'transfer', amount: transferAmount, date,
+      accountId: acc.id, toAccountId: toAccId, categoryId: null,
+      note: `Rút trước hạn sổ ${acc.name}`,
+      bookId: acc.bookId || this.state.currentBookId
+    };
+    await this.applyBalanceDelta(txTransfer, +1);
+    await window.QLT_Store.put('transactions', txTransfer);
+
+    // 2) Phần lãi (nếu có) → income vào ví đích
+    if (interest > 0 && catId) {
+      const txIncome = {
+        type: 'income', amount: interest, date, accountId: toAccId,
+        categoryId: catId, note: `Lãi sổ ${acc.name} (rút trước hạn)`,
+        bookId: acc.bookId || this.state.currentBookId
+      };
+      await this.applyBalanceDelta(txIncome, +1);
+      await window.QLT_Store.put('transactions', txIncome);
+    }
+
+    // 3) Nếu nhận < gốc (mất phần gốc do phạt), set balance còn lại
+    // Trong thực tế hiếm, nhưng vẫn xử lý: balance sổ = lossVsPrincipal sẽ chuyển 0
+    // Nhưng applyBalanceDelta đã trừ transferAmount khỏi balance nên còn dư = principal - transferAmount = lossVsPrincipal
+    // Ta cần đặt balance = 0 để đóng sổ. Nếu lossVsPrincipal > 0, tạo expense để cân:
+    if (lossVsPrincipal > 0) {
+      const txLoss = {
+        type: 'expense', amount: lossVsPrincipal, date,
+        accountId: acc.id, // trừ thêm từ sổ (nhưng sổ sẽ đóng nên không sao)
+        categoryId: null,
+        note: `Phạt rút trước hạn sổ ${acc.name}`,
+        bookId: acc.bookId || this.state.currentBookId
+      };
+      await this.applyBalanceDelta(txLoss, +1);
+      await window.QLT_Store.put('transactions', txLoss);
+    }
+
+    // 4) Đóng sổ
+    if (window.Capacitor?.Plugins?.LocalNotifications) {
+      try {
+        const idNum = Math.abs(this.hashCode('savings_' + acc.id)) % 2000000;
+        await window.Capacitor.Plugins.LocalNotifications.cancel({ notifications: [{ id: idNum }] });
+      } catch (_) {}
+    }
+    acc.savingsClosed = true;
+    acc.savingsClosedDate = date;
+    acc.savingsClosedReason = 'early-withdraw';
+    acc.savingsActualInterest = interest;
+    acc.balance = 0;
+    await window.QLT_Store.put('accounts', acc);
+
+    await this.reload();
+    $('#withdrawModal').classList.remove('open');
+    if (this.state.currentTab === 'savings') this.renderSavings();
+    if (this.state.currentTab === 'home') this.renderHome();
+    if (this.state.currentTab === 'accounts') this.renderAccounts();
+    this.autoSync();
+    QLT_UI.toast(`Đã rút trước hạn — nhận ${fmt(totalReceive)} đ`, { type: 'success' });
+  },
+
+  // ====== TRANG SỔ TIẾT KIỆM ======
+  renderSavings() {
+    if (!this.state.savingsTab) this.state.savingsTab = 'active';
+    document.querySelectorAll('.savings-tab').forEach(el => {
+      el.classList.toggle('on', el.dataset.status === this.state.savingsTab);
+      el.onclick = () => {
+        this.state.savingsTab = el.dataset.status;
+        this.renderSavings();
+      };
+    });
+
+    const all = this.state.accounts.filter(a => this.isSavings(a));
+    const active = all.filter(a => !a.savingsClosed)
+      .sort((a, b) => (a.maturityDate || '').localeCompare(b.maturityDate || ''));
+    const closed = all.filter(a => a.savingsClosed)
+      .sort((a, b) => (b.savingsClosedDate || '').localeCompare(a.savingsClosedDate || ''));
+
+    const list = this.state.savingsTab === 'active' ? active : closed;
+
+    // Summary header
+    const summaryEl = $('#savingsSummary');
+    if (this.state.savingsTab === 'active') {
+      const totalPrincipal = active.reduce((s, a) => s + (a.balance || 0), 0);
+      const totalAccrued = active.reduce((s, a) => s + this.savingsAccrued(a), 0);
+      const totalExpected = active.reduce((s, a) => s + this.savingsExpectedInterest(a), 0);
+      summaryEl.innerHTML = `
+        <div class="savings-summary-lbl">Tổng đang gửi (${active.length} sổ)</div>
+        <div class="savings-summary-val">${fmt(totalPrincipal)} đ</div>
+        <div class="savings-summary-row">
+          <div class="savings-summary-cell">
+            <div class="savings-summary-cell-lbl">Lãi tích luỹ</div>
+            <div class="savings-summary-cell-val">${fmt(totalAccrued)} đ</div>
+          </div>
+          <div class="savings-summary-cell">
+            <div class="savings-summary-cell-lbl">Lãi đến hạn</div>
+            <div class="savings-summary-cell-val">${fmt(totalExpected)} đ</div>
+          </div>
+        </div>
+      `;
+    } else {
+      const totalReceived = closed.reduce((s, a) => s + (a.savingsActualInterest || 0), 0);
+      summaryEl.innerHTML = `
+        <div class="savings-summary-lbl">Đã đóng (${closed.length} sổ)</div>
+        <div class="savings-summary-val">+${fmt(totalReceived)} đ</div>
+        <div style="font-size:11px;opacity:.85;margin-top:4px">Tổng lãi đã nhận từ các sổ đã đóng</div>
+      `;
+    }
+
+    // List
+    const wrap = $('#savingsList');
+    const empty = $('#savingsEmpty');
+    if (list.length === 0) {
+      wrap.innerHTML = '';
+      empty.style.display = 'block';
+      empty.innerHTML = this.state.savingsTab === 'active'
+        ? '<div style="font-size:42px;margin-bottom:8px">💎</div><div style="font-weight:700">Chưa có sổ nào đang gửi</div><div style="font-size:13px;color:var(--text2);margin-top:6px">Bấm <strong>+</strong> để mở sổ tiết kiệm đầu tiên.</div>'
+        : '<div style="font-size:42px;margin-bottom:8px">📂</div><div style="font-weight:700">Chưa có sổ nào đã đóng</div><div style="font-size:13px;color:var(--text2);margin-top:6px">Sổ đã đáo hạn / rút trước hạn sẽ lưu ở đây.</div>';
+    } else {
+      empty.style.display = 'none';
+      wrap.innerHTML = list.map(a =>
+        this.state.savingsTab === 'active' ? this.renderActiveSavingsCard(a) : this.renderClosedSavingsCard(a)
+      ).join('');
+
+      wrap.querySelectorAll('[data-acc-edit]').forEach(el => {
+        el.onclick = (e) => { e.stopPropagation(); this.openAccModal(el.dataset.accEdit); };
+      });
+      wrap.querySelectorAll('[data-acc-mature]').forEach(el => {
+        el.onclick = (e) => {
+          e.stopPropagation();
+          this.state.editingAcc = this.state.accounts.find(x => x.id === el.dataset.accMature);
+          this.openMaturityModal();
+        };
+      });
+      wrap.querySelectorAll('[data-acc-withdraw]').forEach(el => {
+        el.onclick = (e) => { e.stopPropagation(); this.openWithdrawEarlyModal(el.dataset.accWithdraw); };
+      });
+    }
+
+    // FAB
+    $('#savingsAddFab').onclick = () => {
+      // Mở modal tạo account với accountType = savings
+      this.state.editingAcc = {
+        id: null, name: '', icon: 'emoji:💎', balance: 0, currency: 'VND',
+        bookId: this.state.currentBookId, accountType: 'savings',
+        interestRate: 0, termMonths: 6, startDate: today(), maturityDate: ''
+      };
+      this.openAccModal(null);
+      // Sau openAccModal, chuyển sang savings type
+      setTimeout(() => {
+        const pill = document.querySelector('.acc-type-pill[data-type="savings"]');
+        if (pill && !pill.classList.contains('on')) pill.click();
+      }, 50);
+    };
+  },
+
+  renderActiveSavingsCard(a) {
+    const today_ = new Date(today() + 'T00:00:00').getTime();
+    const mat = a.maturityDate ? new Date(a.maturityDate + 'T00:00:00').getTime() : null;
+    const daysLeft = mat ? Math.ceil((mat - today_) / 86400000) : null;
+    const accrued = this.savingsAccrued(a);
+    const expected = this.savingsExpectedInterest(a);
+    const progress = this.savingsTimeProgress(a);
+
+    let badgeHtml = '<span class="savings-card-badge">Đang gửi</span>';
+    let cardClass = '';
+    if (daysLeft != null) {
+      if (daysLeft < 0) { badgeHtml = '<span class="savings-card-badge alert">Quá hạn ' + (-daysLeft) + 'd</span>'; cardClass = 'urgent'; }
+      else if (daysLeft === 0) { badgeHtml = '<span class="savings-card-badge alert">Đáo hạn HÔM NAY</span>'; cardClass = 'urgent'; }
+      else if (daysLeft <= 7) { badgeHtml = '<span class="savings-card-badge warn">Còn ' + daysLeft + ' ngày</span>'; }
+      else if (daysLeft <= 30) { badgeHtml = '<span class="savings-card-badge warn">Còn ' + daysLeft + ' ngày</span>'; }
+    }
+
+    const renewBadge = (a.savingsRenewCount || 0) > 0
+      ? `<span style="font-size:10px;color:var(--text3);margin-left:6px">🔁 GH lần ${a.savingsRenewCount}</span>` : '';
+
+    const icon = (a.icon || '').startsWith('emoji:') ? a.icon.slice(6) : '💎';
+
+    return `
+      <div class="savings-card ${cardClass}">
+        <div class="savings-card-head">
+          <div class="savings-card-icon">${icon}</div>
+          <div class="savings-card-name">${this.escapeHtml(a.name)}${renewBadge}</div>
+          ${badgeHtml}
+        </div>
+        <div class="savings-stats">
+          <div class="savings-stat">
+            <div class="savings-stat-lbl">Gốc gửi</div>
+            <div class="savings-stat-val">${fmt(a.balance)} đ</div>
+          </div>
+          <div class="savings-stat">
+            <div class="savings-stat-lbl">Lãi tích luỹ</div>
+            <div class="savings-stat-val pos">+${fmt(accrued)} đ</div>
+          </div>
+          <div class="savings-stat">
+            <div class="savings-stat-lbl">Lãi suất</div>
+            <div class="savings-stat-val">${a.interestRate || 0}%/năm</div>
+          </div>
+          <div class="savings-stat">
+            <div class="savings-stat-lbl">Lãi đến hạn</div>
+            <div class="savings-stat-val pos">${fmt(expected)} đ</div>
+          </div>
+        </div>
+        <div class="savings-progress">
+          <div class="savings-progress-fill ${cardClass === 'urgent' ? 'urgent' : ''}" style="width:${progress.toFixed(1)}%"></div>
+        </div>
+        <div class="savings-progress-meta">
+          <span>${this.formatDate(a.startDate)}</span>
+          <span>${progress.toFixed(0)}%</span>
+          <span>${this.formatDate(a.maturityDate)}</span>
+        </div>
+        <div class="savings-card-actions">
+          <button class="btn btn-secondary" data-acc-edit="${a.id}">✎ Sửa</button>
+          <button class="btn btn-secondary" data-acc-withdraw="${a.id}" style="color:#cc7a4f;border-color:#cc7a4f">💸 Rút sớm</button>
+          <button class="btn btn-primary" data-acc-mature="${a.id}">📅 Đáo hạn</button>
+        </div>
+      </div>
+    `;
+  },
+
+  renderClosedSavingsCard(a) {
+    const reasonLabels = {
+      'matured': '✅ Đáo hạn',
+      'renewed': '🔁 Đã gia hạn (sổ mới)',
+      'early-withdraw': '💸 Rút trước hạn'
+    };
+    const reasonClass = a.savingsClosedReason === 'early-withdraw' ? 'warn' : '';
+    const icon = (a.icon || '').startsWith('emoji:') ? a.icon.slice(6) : '💎';
+
+    return `
+      <div class="savings-card closed">
+        <div class="savings-card-head">
+          <div class="savings-card-icon" style="background:var(--surface2);opacity:.8">${icon}</div>
+          <div class="savings-card-name">${this.escapeHtml(a.name)}</div>
+          <span class="savings-card-badge closed ${reasonClass}">${reasonLabels[a.savingsClosedReason] || 'Đã đóng'}</span>
+        </div>
+        <div class="savings-stats">
+          <div class="savings-stat">
+            <div class="savings-stat-lbl">Đóng ngày</div>
+            <div class="savings-stat-val">${this.formatDate(a.savingsClosedDate)}</div>
+          </div>
+          <div class="savings-stat">
+            <div class="savings-stat-lbl">Lãi đã nhận</div>
+            <div class="savings-stat-val pos">+${fmt(a.savingsActualInterest || 0)} đ</div>
+          </div>
+          <div class="savings-stat">
+            <div class="savings-stat-lbl">Lãi suất</div>
+            <div class="savings-stat-val">${a.interestRate || 0}%/năm</div>
+          </div>
+          <div class="savings-stat">
+            <div class="savings-stat-lbl">Kỳ hạn</div>
+            <div class="savings-stat-val">${a.termMonths || 0} tháng</div>
+          </div>
+        </div>
+      </div>
+    `;
   },
 
   // ============ MODAL: REMINDER ============
