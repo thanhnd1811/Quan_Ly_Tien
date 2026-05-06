@@ -859,19 +859,29 @@ const App = {
       };
     });
 
-    // Enter để thêm tag mới từ input
+    // Thêm tag từ input (Enter, dấu phẩy, blur, hoặc nút "+")
     input.value = '';
-    input.onkeydown = (e) => {
-      if (e.key === 'Enter' || e.key === ',') {
-        e.preventDefault();
-        let v = input.value.trim().replace(/^#/, '');
-        if (!v) return;
+    const addCurrent = () => {
+      const raw = input.value.trim();
+      if (!raw) return;
+      // Tách nhiều tag cùng lúc nếu user gõ với dấu phẩy
+      const parts = raw.split(/[,;]/).map(s => s.trim().replace(/^#/, '')).filter(Boolean);
+      for (let v of parts) {
         if (!v.startsWith('#')) v = '#' + v;
         if (!tx.tags.includes(v)) tx.tags.push(v);
-        input.value = '';
-        renderChips();
+      }
+      input.value = '';
+      renderChips();
+    };
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ',' || e.keyCode === 13) {
+        e.preventDefault();
+        addCurrent();
       }
     };
+    input.onblur = () => addCurrent();
+    const addBtn = $('#txTagAddBtn');
+    if (addBtn) addBtn.onclick = () => { addCurrent(); input.focus(); };
   },
 
   // ====== SEARCH HISTORY (auto-suggest note) ======
@@ -5882,20 +5892,37 @@ const App = {
     renderSuggestions();
 
     input.value = '';
-    input.onkeydown = (e) => {
-      if (e.key === 'Enter' || e.key === ',') {
-        e.preventDefault();
-        const v = input.value.trim();
-        if (!v) return;
-        c.keywords = c.keywords || [];
+    const addCurrent = () => {
+      const raw = input.value.trim();
+      if (!raw) return false;
+      // Tách nhiều keyword cùng lúc nếu user gõ với dấu phẩy
+      const parts = raw.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+      c.keywords = c.keywords || [];
+      let added = false;
+      for (const v of parts) {
         if (!c.keywords.some(x => normalizeVi(x) === normalizeVi(v))) {
           c.keywords.push(v);
+          added = true;
         }
-        input.value = '';
+      }
+      input.value = '';
+      if (added) {
         renderChips();
         renderSuggestions();
       }
+      return added;
     };
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ',' || e.keyCode === 13) {
+        e.preventDefault();
+        addCurrent();
+      }
+    };
+    // Blur input → auto-add nếu còn text (user gõ xong, tap chỗ khác)
+    input.onblur = () => addCurrent();
+    // Nút "+ Thêm" rõ ràng cho user
+    const addBtn = $('#catKeywordAddBtn');
+    if (addBtn) addBtn.onclick = () => { addCurrent(); input.focus(); };
 
     // Refresh suggestions khi user đổi tên
     $('#catName').oninput = () => renderSuggestions();
