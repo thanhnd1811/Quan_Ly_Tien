@@ -4685,19 +4685,51 @@ const App = {
       // Bước 1: tìm match dài nhất (substring trực tiếp, không dấu)
       // Bước 2: alias mapping (cafe→cà phê, an→ăn, xang→xăng...)
       // Bước 3: substring 2 chiều — danh mục chứa từ trong câu hoặc câu chứa từ trong danh mục
+      // Alias mở rộng: thêm từ đồng nghĩa vào câu trước khi match
+      // Mỗi entry [synonym, expanded] — nếu câu nói chứa synonym, append expanded
+      // → tăng cơ hội match danh mục có tên hơi khác
       const aliasMap = [
-        ['cafe', 'ca phe'], ['café', 'ca phe'], ['ca fe', 'ca phe'],
-        ['coffee', 'ca phe'], ['trà sữa', 'tra sua'], ['tra sua', 'ca phe'],
-        ['xang', 'xang xe'], ['gas', 'xang xe'],
-        ['an', 'an uong'], ['an uong', 'an uong'], ['com', 'an uong'],
-        ['nuoc', 'tien nuoc'], ['dien', 'tien dien'], ['internet', 'internet'],
-        ['nha', 'tien nha'], ['thue nha', 'tien nha'],
+        // ====== ĐỒ UỐNG ======
+        ['cafe', 'ca phe'], ['café', 'ca phe'], ['coffee', 'ca phe'],
+        ['tra sua', 'tra sua'], ['bubble tea', 'tra sua'], ['nuoc ngot', 'nuoc ngot'],
+        // ====== ĂN UỐNG ======
+        ['com', 'com an uong'], ['an trua', 'an ngoai'], ['an sang', 'an ngoai'],
+        ['an toi', 'an ngoai'], ['di an', 'an ngoai'],
+        ['an ngoai', 'an ngoai'],
+        ['di cho', 'dua vo'], ['cho', 'dua vo'], ['vo', 'dua vo'],
+        // ====== XE / ĐI LẠI ======
+        ['gas', 'xang'], ['fuel', 'xang'], ['xang', 'xang xe'],
+        ['grab', 'di lai grab'], ['taxi', 'di lai grab'], ['xe om', 'di lai grab'],
+        ['bao duong', 'bao duong xe'], ['rua xe', 'bao duong xe'],
+        // ====== HOÁ ĐƠN ======
+        ['dien', 'dien tien dien'],
+        ['nuoc sach', 'nuoc tien nuoc'],
+        ['internet', 'internet mang wifi'], ['wifi', 'internet mang wifi'],
+        ['phone', 'dien thoai'], ['sim', 'dien thoai'],
+        ['cuoc', 'dien thoai cuoc'], ['5g', 'dien thoai 5g'], ['4g', 'dien thoai 4g'],
+        // ====== NHÀ CỬA ======
+        ['nha', 'tien nha'], ['thue nha', 'tien nha'], ['rent', 'tien nha'],
+        ['do gia dung', 'gia dinh'], ['gia dung', 'gia dinh'],
+        // ====== MUA SẮM ======
         ['shopping', 'mua sam'], ['quan ao', 'mua sam'],
-        ['thuoc', 'suc khoe'], ['benh vien', 'suc khoe'],
+        ['giay', 'mua sam'], ['my pham', 'mua sam'],
+        // ====== SỨC KHOẺ ======
+        ['thuoc', 'suc khoe thuoc'], ['benh vien', 'suc khoe'], ['kham', 'suc khoe'],
+        ['nha si', 'suc khoe'], ['rang', 'suc khoe'],
+        // ====== GIẢI TRÍ ======
         ['xem phim', 'giai tri'], ['game', 'giai tri'],
-        ['hoc', 'hoc hanh'], ['sach', 'hoc hanh'],
-        ['qua', 'gia dinh / bieu tang'], ['cuoi', 'gia dinh / bieu tang'],
-        ['luong', 'luong'], ['thuong', 'thuong']
+        ['karaoke', 'giai tri'], ['di choi', 'giai tri'],
+        // ====== HỌC HÀNH ======
+        ['hoc', 'hoc'], ['sach', 'hoc'],
+        ['gia su', 'gia su'], ['hoc them', 'gia su hoc them'],
+        ['trung tam', 'hoc chinh trung tam'],
+        // ====== GIA ĐÌNH / QUÀ / SỰ KIỆN ======
+        ['qua', 'qua tang gia dinh'], ['biếu', 'qua tang gia dinh'],
+        ['cuoi hoi', 'gia dinh cuoi'], ['sinh nhat', 'qua'],
+        // ====== THU NHẬP ======
+        ['luong', 'luong'], ['salary', 'luong'], ['lương về', 'luong'],
+        ['thuong', 'thuong'], ['bonus', 'thuong'],
+        ['day them', 'mo lop day'], ['day hoc', 'mo lop'], ['lop', 'mo lop']
       ];
       let normSearch = norm;
       for (const [from, to] of aliasMap) {
