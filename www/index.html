@@ -2014,6 +2014,13 @@ html[data-theme="dark"] .rec-type-pill.on{
 #txBulkBar{display:none}
 #txBulkBar.open{display:flex}
 
+/* Category voice keywords chip */
+.cat-kw-chip{display:inline-flex;align-items:center;gap:4px;background:#fff5e6;color:#856404;padding:4px 10px;border-radius:14px;font-size:12px;font-weight:600;border:1px solid #f4d77c}
+.cat-kw-chip .cat-kw-x{cursor:pointer;font-weight:700;opacity:.7;padding:0 2px}
+.cat-kw-suggestion{padding:4px 10px;border-radius:14px;background:var(--surface2);color:var(--text2);font-size:11px;cursor:pointer;border:1px dashed var(--border)}
+.cat-kw-suggestion:active{background:#fff5e6;color:#856404}
+html[data-theme="dark"] .cat-kw-chip{background:#3a2f1a;color:#f4d77c;border-color:#6b5520}
+
 /* Tx tags chip + suggestion */
 .tx-tag-chip{display:inline-flex;align-items:center;gap:4px;background:var(--acl);color:var(--accent);padding:4px 10px;border-radius:14px;font-size:12px;font-weight:600}
 .tx-tag-chip .tx-tag-x{cursor:pointer;font-weight:700;opacity:.7;padding:0 2px}
@@ -2227,6 +2234,12 @@ html[data-theme="dark"] .rec-type-pill.on{
           <option value="">— Không có (danh mục cha) —</option>
         </select>
         <div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.5">Chọn danh mục cha để biến mục này thành <strong>danh mục con</strong>. Vd: cha "Ăn uống" → con "Cà phê", "Trà sữa".</div>
+      </div>
+      <div class="fg">
+        <label class="fl">🎙️ Từ khoá voice <span style="color:var(--text3);font-weight:400">(để mic nhận diện đúng danh mục này)</span></label>
+        <div id="catKeywordsWrap" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;border:1px solid var(--border);border-radius:8px;min-height:42px;background:var(--surface)"></div>
+        <input id="catKeywordInput" type="text" placeholder="Gõ từ khoá rồi Enter (vd: cafe, coffee, đi cà phê)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);margin-top:6px;font-size:13px;outline:none">
+        <div id="catKeywordSuggestions" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px"></div>
       </div>
       <div class="fg">
         <label class="fl">Màu</label>

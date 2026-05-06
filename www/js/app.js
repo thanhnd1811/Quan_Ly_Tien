@@ -4526,6 +4526,58 @@ const App = {
     await this.reload();
     $('#txModal').classList.remove('open');
     this.switchTab(this.state.currentTab);
+
+    // Learning loop: nếu trước đó voice gợi ý 1 category nhưng user
+    // chọn category KHÁC → hỏi học từ khoá.
+    const vc = this.state._voiceContext;
+    if (vc && vc.text && t.categoryId && t.categoryId !== vc.suggestedCatId
+        && (Date.now() - vc.ts) < 5 * 60 * 1000  // còn fresh (5 phút)
+        && t.type === vc.type) {
+      this.state._voiceContext = null;
+      this._maybeLearnKeyword(vc.text, t.categoryId);
+    }
+
+    this.autoSync();
+  },
+
+  // Học từ khoá từ câu nói: trích từ "đặc trưng" (key term không phải số/đơn vị/connector)
+  // và đề xuất user thêm vào category.keywords
+  async _maybeLearnKeyword(spokenText, categoryId) {
+    const cat = this.state.categories.find(c => c.id === categoryId);
+    if (!cat) return;
+    // Trích key terms: bỏ số, đơn vị, từ stop phổ biến
+    const norm = normalizeVi(spokenText);
+    const STOP = new Set(['het','la','o','khoang','tam','khoang chung','di','cho','va','voi','cua','nay','hom nay','minh','toi','tien','luc','sau','ngay','thang','rồi','thi','roi']);
+    const UNITS = /^(k|nghin|ngan|tr|trieu|ty|dong|d|vnd)$/;
+    const tokens = norm.split(/[\s,.\-]+/)
+      .filter(t => t && !UNITS.test(t) && !/^\d/.test(t) && t.length >= 3 && !STOP.has(t));
+    // Chọn cụm 2-3 từ liên tiếp KHÔNG có trong tên category + chưa có trong keywords
+    const catNorm = normalizeVi(cat.name);
+    const exNorm = new Set((cat.keywords || []).map(k => normalizeVi(k)));
+    if (tokens.length === 0) return;
+    // Ưu tiên cụm 2 từ liên tiếp (vd "trà sữa", "đi cà phê") rồi đến đơn từ
+    let candidate = null;
+    for (let i = 0; i < tokens.length - 1; i++) {
+      const c2 = tokens[i] + ' ' + tokens[i + 1];
+      if (!catNorm.includes(c2) && !exNorm.has(c2) && c2.length <= 24) { candidate = c2; break; }
+    }
+    if (!candidate) {
+      for (const t of tokens) {
+        if (!catNorm.includes(t) && !exNorm.has(t) && t.length <= 16) { candidate = t; break; }
+      }
+    }
+    if (!candidate) return;
+
+    const ok = await QLT_UI.confirm(
+      `Lưu "${candidate}" làm từ khoá voice cho danh mục "${cat.name}"?\n\nLần sau nói câu chứa "${candidate}" → tự chọn danh mục này.`,
+      { title: '🎙️ Học từ khoá', okLabel: 'Lưu', cancelLabel: 'Bỏ qua' }
+    );
+    if (!ok) return;
+    cat.keywords = Array.isArray(cat.keywords) ? cat.keywords.slice() : [];
+    cat.keywords.push(candidate);
+    await window.QLT_Store.put('categories', cat);
+    await this.reload();
+    QLT_UI.toast(`✓ Đã thêm "${candidate}" vào ${cat.name}`, { type: 'success' });
     this.autoSync();
   },
 
@@ -4753,12 +4805,21 @@ const App = {
       let best = null, bestLen = 0;
       for (const c of cands) {
         const cn = normalizeVi(c.name);
+        // 1) ƯU TIÊN: match keywords user đã đặt riêng cho danh mục
+        if (Array.isArray(c.keywords)) {
+          for (const kw of c.keywords) {
+            const kn = normalizeVi(kw);
+            if (kn && kn.length > bestLen && normSearch.includes(kn)) {
+              best = c; bestLen = kn.length;
+            }
+          }
+        }
         if (!cn) continue;
-        // Match dài nhất substring
+        // 2) Match tên danh mục (substring dài nhất)
         if (cn.length > bestLen && normSearch.includes(cn)) {
           best = c; bestLen = cn.length;
         }
-        // Match 2 chiều: từng từ của danh mục có trong câu (ưu tiên thấp hơn)
+        // 3) Match từng từ ≥3 ký tự của tên danh mục (ưu tiên thấp nhất)
         if (!best || bestLen < cn.length) {
           const words = cn.split(/[\s/]+/).filter(w => w.length >= 3);
           for (const w of words) {
@@ -4789,6 +4850,15 @@ const App = {
       onPartial: (p) => { status.textContent = '🎙️ ' + p; },
       onResult: (text) => {
         const parsed = this.parseVoiceTransaction(text);
+
+        // Lưu metadata để learning loop sau khi user save:
+        // text gốc, categoryId mà voice gợi ý, có match được không
+        this.state._voiceContext = {
+          text,
+          suggestedCatId: parsed.categoryId,
+          type: parsed.type,
+          ts: Date.now()
+        };
 
         // Đổi type pill + UI nếu khác type hiện tại
         const curType = $('#txForm').dataset.type;
@@ -5273,8 +5343,9 @@ const App = {
       c = this.state.categories.find(x => x.id === id);
       if (!c) return;
     }
-    this.state.editingCat = { ...c };
+    this.state.editingCat = { ...c, keywords: Array.isArray(c.keywords) ? [...c.keywords] : [] };
     $('#catName').value = c.name;
+    this.renderCatKeywords();
     const catIconPicker = this.renderIconPicker({
       containerId: 'catIconGrid',
       currentIcon: c.icon || 'other',
@@ -5300,6 +5371,112 @@ const App = {
     };
 
     $('#catModal').classList.add('open');
+  },
+
+  // ====== Voice Keywords cho danh mục ======
+  // Gợi ý keywords dựa trên tên danh mục (match từ aliasMap)
+  _suggestCatKeywords(catName, existing = []) {
+    if (!catName) return [];
+    const n = normalizeVi(catName);
+    // Map ngược: với cat name có chứa từ key → đề xuất các synonym/từ khoá phổ biến
+    const reverse = {
+      'ca phe': ['cafe', 'café', 'coffee', 'tra sua', 'highlands', 'starbucks', 'di ca phe'],
+      'tra sua': ['tra sua', 'bubble tea', 'milk tea', 'tocotoco', 'gong cha'],
+      'an uong': ['com', 'an trua', 'an sang', 'an toi', 'di an', 'an ngoai', 'pho', 'bun'],
+      'an ngoai': ['di an', 'an trua', 'an toi', 'nha hang', 'quan an'],
+      'dua vo': ['di cho', 'cho', 'vo', 'ba xa', 'gia dinh'],
+      'gia dinh': ['gia dinh', 'cha me', 'bo me', 'ba ngoai', 'ong ba'],
+      'dien': ['tien dien', 'hoa don dien', 'evn'],
+      'nuoc': ['tien nuoc', 'hoa don nuoc'],
+      'dien thoai': ['phone', 'sim', 'cuoc', '5g', '4g', 'mobi', 'viettel', 'vina'],
+      'internet': ['wifi', 'mang', 'fpt', 'vnpt'],
+      'xang': ['gas', 'fuel', 'do xang', 'petrolimex'],
+      'xang xe': ['gas', 'fuel', 'do xang', 'a95', 'a92'],
+      'di lai': ['grab', 'taxi', 'be', 'gojek', 'xe om'],
+      'shopping': ['mua sam', 'shopee', 'lazada', 'tiki'],
+      'mua sam': ['shopee', 'lazada', 'tiki', 'shopping', 'quan ao', 'giay dep'],
+      'suc khoe': ['thuoc', 'benh vien', 'phong kham', 'kham', 'nha si', 'rang'],
+      'giai tri': ['xem phim', 'rap', 'cgv', 'galaxy', 'karaoke', 'game', 'di choi'],
+      'hoc': ['sach', 'truong', 'lop hoc', 'gia su', 'hoc them'],
+      'gia su': ['hoc them', 'thay', 'co giao', 'day kem'],
+      'hoc chinh': ['truong', 'trung tam', 'lop chinh'],
+      'qua': ['biếu', 'sinh nhat', 'cuoi hoi', 'le'],
+      'luong': ['salary', 'tien luong', 'luong ve'],
+      'thuong': ['bonus', 'tien thuong', 'tet'],
+      'mo lop': ['day them', 'day hoc', 'lop hoc']
+    };
+    const out = new Set();
+    for (const [key, vals] of Object.entries(reverse)) {
+      if (n.includes(key) || key.includes(n)) {
+        vals.forEach(v => out.add(v));
+      }
+    }
+    // Bỏ các keyword đã có
+    const exNorm = new Set(existing.map(x => normalizeVi(x)));
+    return [...out].filter(x => !exNorm.has(normalizeVi(x))).slice(0, 8);
+  },
+
+  renderCatKeywords() {
+    const c = this.state.editingCat;
+    const wrap = $('#catKeywordsWrap');
+    const sugWrap = $('#catKeywordSuggestions');
+    const input = $('#catKeywordInput');
+    if (!wrap || !c) return;
+
+    const renderChips = () => {
+      wrap.innerHTML = (c.keywords || []).length === 0
+        ? `<span style="color:var(--text3);font-size:12px;font-style:italic">Chưa có từ khoá — gõ để thêm hoặc bấm gợi ý bên dưới</span>`
+        : c.keywords.map(k =>
+            `<span class="cat-kw-chip">${this.escapeHtml(k)} <span class="cat-kw-x" data-kw-rm="${this.escapeHtml(k)}">✕</span></span>`
+          ).join('');
+      wrap.querySelectorAll('[data-kw-rm]').forEach(el => {
+        el.onclick = () => {
+          c.keywords = c.keywords.filter(x => x !== el.dataset.kwRm);
+          renderChips();
+          renderSuggestions();
+        };
+      });
+    };
+
+    const renderSuggestions = () => {
+      const name = $('#catName').value || c.name || '';
+      const sug = this._suggestCatKeywords(name, c.keywords || []);
+      if (sug.length === 0) { sugWrap.innerHTML = ''; return; }
+      sugWrap.innerHTML = '<div style="font-size:11px;color:var(--text3);width:100%;margin-bottom:2px">💡 Gợi ý cho "' + this.escapeHtml(name) + '":</div>'
+        + sug.map(s => `<span class="cat-kw-suggestion" data-kw-add="${this.escapeHtml(s)}">+ ${this.escapeHtml(s)}</span>`).join('');
+      sugWrap.querySelectorAll('[data-kw-add]').forEach(el => {
+        el.onclick = () => {
+          c.keywords = c.keywords || [];
+          if (!c.keywords.some(x => normalizeVi(x) === normalizeVi(el.dataset.kwAdd))) {
+            c.keywords.push(el.dataset.kwAdd);
+          }
+          renderChips();
+          renderSuggestions();
+        };
+      });
+    };
+
+    renderChips();
+    renderSuggestions();
+
+    input.value = '';
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ',') {
+        e.preventDefault();
+        const v = input.value.trim();
+        if (!v) return;
+        c.keywords = c.keywords || [];
+        if (!c.keywords.some(x => normalizeVi(x) === normalizeVi(v))) {
+          c.keywords.push(v);
+        }
+        input.value = '';
+        renderChips();
+        renderSuggestions();
+      }
+    };
+
+    // Refresh suggestions khi user đổi tên
+    $('#catName').oninput = () => renderSuggestions();
   },
 
   // Lọc các danh mục cha hợp lệ:
@@ -5339,6 +5516,17 @@ const App = {
     c.type = $('#catType').value;
     c.parentId = $('#catParent').value || null;
     c.bookId = c.bookId || this.state.currentBookId;
+    // keywords đã được editingCat.keywords nắm sẵn qua renderCatKeywords;
+    // dedupe + bỏ keyword rỗng
+    if (Array.isArray(c.keywords)) {
+      const seen = new Set();
+      c.keywords = c.keywords.filter(k => {
+        const n = normalizeVi(k || '').trim();
+        if (!n || seen.has(n)) return false;
+        seen.add(n);
+        return true;
+      });
+    } else c.keywords = [];
     if (!c.name) { QLT_UI.toast('Nhập tên danh mục', { type: 'error' }); return; }
 
     // Nếu chọn parent, đảm bảo cùng type
