@@ -54,7 +54,7 @@ jobs:
       - name: Inject deeplink intent-filter qltien:// + Location permissions
         run: |
           python3 - <<'PY'
-          import re
+          import re, sys
           path = 'android/app/src/main/AndroidManifest.xml'
           with open(path, 'r', encoding='utf-8') as f:
               m = f.read()
@@ -75,43 +75,60 @@ jobs:
               else:
                   print('::warning::missed qltien intent-filter')
 
-          # 2) Location permissions (an toàn — đảm bảo có dù plugin sync miss)
+          # FIX QUAN TRỌNG: regex dùng \b (word boundary) chứ KHÔNG phải literal space
+          # Capacitor sinh manifest <application\n    android:...> — sau <application là \n
+          # Regex '(\s*<application )' với space cứng sẽ KHÔNG match → permissions miss
+
+          # 2) Location permissions
           if 'ACCESS_FINE_LOCATION' not in m:
               perms = ('    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n'
                        '    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n')
-              new_m, n = re.subn(r'(\s*<application )', '\n' + perms + r'\1', m, count=1)
+              new_m, n = re.subn(r'(\s*<application\b)', '\n' + perms + r'\1', m, count=1)
               if n > 0:
                   m = new_m
                   print('OK: Location permissions added')
               else:
-                  print('::warning::missed Location permissions')
+                  print('::error::FAILED to add Location permissions — regex không match <application')
+                  sys.exit(1)
 
-          # 3) Microphone (an toàn cho Speech Recognition)
+          # 3) Microphone (Speech Recognition)
           if 'RECORD_AUDIO' not in m:
               perm = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n'
-              new_m, n = re.subn(r'(\s*<application )', '\n' + perm + r'\1', m, count=1)
+              new_m, n = re.subn(r'(\s*<application\b)', '\n' + perm + r'\1', m, count=1)
               if n > 0:
                   m = new_m
                   print('OK: RECORD_AUDIO permission added')
+              else:
+                  print('::error::FAILED to add RECORD_AUDIO')
+                  sys.exit(1)
 
           # 4) Biometric (vân tay / Face ID)
           if 'USE_BIOMETRIC' not in m:
               perms = ('    <uses-permission android:name="android.permission.USE_BIOMETRIC" />\n'
                        '    <uses-permission android:name="android.permission.USE_FINGERPRINT" />\n')
-              new_m, n = re.subn(r'(\s*<application )', '\n' + perms + r'\1', m, count=1)
+              new_m, n = re.subn(r'(\s*<application\b)', '\n' + perms + r'\1', m, count=1)
               if n > 0:
                   m = new_m
                   print('OK: Biometric permissions added')
+              else:
+                  print('::error::FAILED to add Biometric permissions')
+                  sys.exit(1)
 
           if m != original:
               with open(path, 'w', encoding='utf-8') as f:
                   f.write(m)
 
-          # In ra để debug
+          # Verify cuối: nếu thiếu permission nào → fail build ngay
+          required = ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'RECORD_AUDIO', 'USE_BIOMETRIC']
+          missing = [p for p in required if p not in m]
           print('--- Permissions trong AndroidManifest:')
           for line in m.split('\n'):
               if 'uses-permission' in line:
                   print(line.strip())
+          if missing:
+              print('::error::Manifest thiếu permissions: ' + ', '.join(missing))
+              sys.exit(1)
+          print('✓ Tất cả permissions đã có trong AndroidManifest')
           PY
 
       - name: Decode release keystore
