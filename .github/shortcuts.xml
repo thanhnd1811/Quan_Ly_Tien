@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="add_expense"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortLabel="Thêm chi"
+        android:longLabel="Thêm khoản chi tiêu">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="qltien://add?type=expense"
+            android:targetPackage="com.thanh.quanlytien"
+            android:targetClass="com.thanh.quanlytien.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="add_income"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortLabel="Thêm thu"
+        android:longLabel="Thêm khoản thu nhập">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="qltien://add?type=income"
+            android:targetPackage="com.thanh.quanlytien"
+            android:targetClass="com.thanh.quanlytien.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="add_voice"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortLabel="Voice"
+        android:longLabel="Thêm bằng giọng nói">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="qltien://voice"
+            android:targetPackage="com.thanh.quanlytien"
+            android:targetClass="com.thanh.quanlytien.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="charts"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortLabel="Biểu đồ"
+        android:longLabel="Xem biểu đồ chi tiêu">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="qltien://charts"
+            android:targetPackage="com.thanh.quanlytien"
+            android:targetClass="com.thanh.quanlytien.MainActivity" />
+    </shortcut>
+</shortcuts>

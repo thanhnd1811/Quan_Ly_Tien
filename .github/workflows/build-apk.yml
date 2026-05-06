@@ -34,6 +34,48 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
+      - name: Inject App Shortcuts (Thêm chi/thu/voice/biểu đồ — long-press icon)
+        run: |
+          mkdir -p android/app/src/main/res/xml
+          cp .github/shortcuts.xml android/app/src/main/res/xml/shortcuts.xml
+          python3 - <<'PY'
+          import re, sys
+          path = 'android/app/src/main/AndroidManifest.xml'
+          with open(path, 'r', encoding='utf-8') as f:
+              m = f.read()
+
+          # 1) Thêm <meta-data android:name="android.app.shortcuts" .../> trong activity MainActivity (nếu chưa có)
+          if 'android.app.shortcuts' not in m:
+              # Chèn ngay trước </activity> đầu tiên (MainActivity)
+              meta_tag = '            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />\n'
+              m_new, n = re.subn(r'(\n\s*)(</activity>)', r'\1' + meta_tag + r'\1\2', m, count=1)
+              if n == 0:
+                  print('::warning::Không tìm thấy </activity> để chèn shortcuts meta-data')
+              else:
+                  m = m_new
+                  print('Đã thêm shortcuts meta-data vào MainActivity')
+
+          # 2) Thêm intent-filter cho deeplink qltien:// (cho shortcuts trỏ tới)
+          if 'android:scheme="qltien"' not in m:
+              filter_tag = '''
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="qltien" />
+            </intent-filter>
+'''
+              m_new, n = re.subn(r'(</intent-filter>)(\s*</activity>)', r'\1' + filter_tag + r'\2', m, count=1)
+              if n == 0:
+                  print('::warning::Không thêm được intent-filter qltien://')
+              else:
+                  m = m_new
+                  print('Đã thêm intent-filter cho qltien:// scheme')
+
+          with open(path, 'w', encoding='utf-8') as f:
+              f.write(m)
+          PY
+
       - name: Override launcher icons (cọc tiền xanh thay vì icon mặc định Capacitor)
         run: |
           sudo apt-get update -qq

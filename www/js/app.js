@@ -545,6 +545,70 @@ const App = {
     editingGoal: null
   },
 
+  // Auto backup hằng tuần lên Drive — chạy khi mở app nếu cần
+  async autoWeeklyBackup() {
+    if (!window.QLT_Auth?.user || !window.QLT_Sync?.pushNow) return;
+    const lastAuto = parseInt(localStorage.getItem('qlt_last_auto_backup') || '0', 10);
+    const SEVEN_DAYS = 7 * 86400 * 1000;
+    if (Date.now() - lastAuto < SEVEN_DAYS) return;
+    try {
+      await window.QLT_Sync.pushNow();
+      localStorage.setItem('qlt_last_auto_backup', String(Date.now()));
+      QLT_UI.toast('☁️ Tự sao lưu lên Drive', { type: 'success', duration: 2200 });
+    } catch (e) { console.warn('Auto backup lỗi:', e); }
+  },
+
+  // Schedule notification "Tổng kết hôm nay" 20h hằng ngày
+  async scheduleDailySummaryNotif() {
+    if (!window.Capacitor?.Plugins?.LocalNotifications) return;
+    if (localStorage.getItem('qlt_daily_notif_off') === '1') return;
+    const LN = window.Capacitor.Plugins.LocalNotifications;
+    try {
+      await LN.requestPermissions();
+      const id = 99001;
+      await LN.cancel({ notifications: [{ id }] });
+
+      // Tính tổng chi hôm nay (đến lúc gọi notif sẽ là tổng chi cả ngày)
+      const todayStr = today();
+      const expToday = this.state.transactions
+        .filter(t => t.type === 'expense' && t.date === todayStr)
+        .reduce((s, t) => s + t.amount, 0);
+      const body = expToday > 0
+        ? `Hôm nay đã chi ${fmt(expToday)} đ. Bấm để xem chi tiết.`
+        : 'Hôm nay chưa ghi giao dịch nào. Đừng quên ghi lại nhé!';
+
+      await LN.schedule({
+        notifications: [{
+          id,
+          title: '💰 Tổng kết hôm nay',
+          body,
+          schedule: { on: { hour: 20, minute: 0 }, allowWhileIdle: true },
+          sound: 'default'
+        }]
+      });
+    } catch (e) { console.warn('Daily summary notif lỗi:', e); }
+  },
+
+  // Xử lý deeplink từ App shortcuts (qltien://add?type=expense)
+  _handleDeeplink(url) {
+    if (!url) return;
+    const m = String(url).match(/^qltien:\/\/([^?]+)(?:\?(.*))?/i);
+    if (!m) return;
+    const action = m[1].toLowerCase();
+    const params = new URLSearchParams(m[2] || '');
+    if (action === 'add') {
+      const type = params.get('type') || 'expense';
+      this.openTxModal(null, ['expense','income','transfer'].includes(type) ? type : 'expense');
+    } else if (action === 'voice') {
+      this.openTxModal(null, 'expense');
+      setTimeout(() => this.voiceInput(), 350);
+    } else if (action === 'charts') {
+      this.switchTab('charts');
+    } else if (action === 'home') {
+      this.switchTab('home');
+    }
+  },
+
   // ============ ONBOARDING TOUR ============
   // Hiện 1 lần duy nhất khi user mở app lần đầu (chưa từng dismiss).
   // Có thể mở lại từ Cài đặt → Trợ giúp.
@@ -697,6 +761,23 @@ const App = {
 
       // Render home dưới TRƯỚC để khi unlock app sẵn sàng (lock screen z-index cao hơn)
       this.switchTab('home');
+
+      // Auto backup hằng tuần lên Drive (nếu đã đăng nhập + chưa sync trong 7 ngày)
+      try { await this.autoWeeklyBackup(); } catch (_) {}
+
+      // Schedule daily summary notification (8h tối) nếu user cho phép
+      try { await this.scheduleDailySummaryNotif(); } catch (_) {}
+
+      // Lắng nghe deeplink qltien:// từ App shortcuts (long-press icon)
+      try {
+        const AppPlugin = window.Capacitor?.Plugins?.App;
+        if (AppPlugin) {
+          AppPlugin.addListener?.('appUrlOpen', ({ url }) => this._handleDeeplink(url));
+          // Cũng xử lý launch URL nếu app khởi động từ shortcut
+          const launch = await AppPlugin.getLaunchUrl?.();
+          if (launch?.url) setTimeout(() => this._handleDeeplink(launch.url), 400);
+        }
+      } catch (e) { console.warn('Deeplink listener lỗi:', e); }
 
       // Show onboarding nếu user mở app lần đầu (chưa từng skip/finish)
       if (!this.isOnboardSeen()) {
@@ -1356,6 +1437,9 @@ const App = {
 
     // ----- Forecast cuối tháng -----
     this.renderHomeForecast();
+
+    // ----- Smart insights -----
+    this.renderHomeInsights();
 
     // ----- Budget widget -----
     this.renderHomeBudgets();
@@ -2138,6 +2222,140 @@ const App = {
     wrap.querySelectorAll('[data-acc]').forEach(el => {
       el.onclick = () => this.openAccModal(el.dataset.acc);
     });
+  },
+
+  // ----- Smart insights — phân tích tự động cho user thấy giá trị app -----
+  renderHomeInsights() {
+    const wrap = $('#homeInsights');
+    if (!wrap) return;
+    const insights = [];
+
+    const now = new Date();
+    const ym = now.toISOString().slice(0, 7);
+    const dayOfMonth = now.getDate();
+    const totalDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+
+    const prev = new Date(now); prev.setMonth(prev.getMonth() - 1);
+    const prevYm = prev.toISOString().slice(0, 7);
+    const prevSameDay = Math.min(dayOfMonth, new Date(prev.getFullYear(), prev.getMonth() + 1, 0).getDate());
+
+    const txs = this.state.transactions;
+    const expThis = txs.filter(t => t.type === 'expense' && t.date.startsWith(ym))
+      .reduce((s, t) => s + t.amount, 0);
+    const incThis = txs.filter(t => t.type === 'income' && t.date.startsWith(ym))
+      .reduce((s, t) => s + t.amount, 0);
+
+    // 1) So sánh chi tiêu với cùng kỳ tháng trước
+    const expPrevSameDay = txs.filter(t => t.type === 'expense' && t.date.startsWith(prevYm) &&
+      parseInt(t.date.slice(8, 10), 10) <= prevSameDay
+    ).reduce((s, t) => s + t.amount, 0);
+    if (expPrevSameDay > 100000 && expThis > 100000) {
+      const diff = expThis - expPrevSameDay;
+      const pct = Math.abs(Math.round(diff / expPrevSameDay * 100));
+      if (pct >= 15) {
+        if (diff > 0) insights.push({
+          emoji: '⚠️',
+          text: `Chi tiêu <strong>${pct}%</strong> nhiều hơn cùng kỳ tháng trước (chênh <strong>${fmt(diff)}đ</strong>). Xem lại để cân đối.`
+        });
+        else insights.push({
+          emoji: '✅',
+          text: `Chi tiêu <strong>${pct}%</strong> ít hơn cùng kỳ tháng trước (tiết kiệm <strong>${fmt(-diff)}đ</strong>). Giỏi!`
+        });
+      }
+    }
+
+    // 2) Top danh mục chi tháng này
+    const catSpend = {};
+    for (const t of txs) {
+      if (t.type === 'expense' && t.date.startsWith(ym)) {
+        catSpend[t.categoryId] = (catSpend[t.categoryId] || 0) + t.amount;
+      }
+    }
+    const top = Object.entries(catSpend).sort((a, b) => b[1] - a[1])[0];
+    if (top && top[1] > 0 && expThis > 0) {
+      const cat = this.state.categories.find(c => c.id === top[0]);
+      const pct = Math.round(top[1] / expThis * 100);
+      if (cat && pct >= 25) {
+        insights.push({
+          emoji: '📊',
+          text: `<strong>${this.escapeHtml(cat.name)}</strong> chiếm <strong>${pct}%</strong> chi tiêu tháng (<strong>${fmt(top[1])}đ</strong>) — danh mục đáng chú ý nhất.`
+        });
+      }
+    }
+
+    // 3) Tỷ lệ tiết kiệm tháng này (nếu có thu nhập)
+    if (incThis > 0) {
+      const saving = incThis - expThis;
+      const savingPct = Math.round(saving / incThis * 100);
+      if (saving > 0 && savingPct >= 10) {
+        insights.push({
+          emoji: '🎉',
+          text: `Tháng này tiết kiệm được <strong>${fmt(saving)}đ</strong> (${savingPct}% thu nhập). Đỉnh!`
+        });
+      } else if (saving < 0) {
+        insights.push({
+          emoji: '😬',
+          text: `Tháng này chi <strong>${fmt(-saving)}đ</strong> nhiều hơn thu. Cần cẩn trọng.`
+        });
+      }
+    }
+
+    // 4) Sổ tiết kiệm sắp đáo hạn
+    const upcomingSavings = this.state.accounts.filter(a =>
+      this.isActiveSavings(a) && a.maturityDate
+    ).map(a => {
+      const days = Math.ceil((new Date(a.maturityDate) - now) / 86400000);
+      return { acc: a, days };
+    }).filter(x => x.days >= 0 && x.days <= 14);
+    if (upcomingSavings.length > 0) {
+      const s = upcomingSavings[0];
+      insights.push({
+        emoji: '💎',
+        text: `Sổ <strong>${this.escapeHtml(s.acc.name)}</strong> sẽ đáo hạn trong <strong>${s.days} ngày</strong> (lãi dự kiến ${fmt(this.savingsExpectedInterest(s.acc))}đ).`
+      });
+    }
+
+    // 5) Khoản nợ quá hạn / sắp đến hạn
+    const todayStr = today();
+    const overdueLoans = this.state.loans.filter(l =>
+      l.status !== 'closed' && l.dueDate && l.dueDate <= todayStr
+    );
+    if (overdueLoans.length > 0) {
+      const total = overdueLoans.reduce((s, l) => s + this.loanRemaining(l), 0);
+      insights.push({
+        emoji: '🔴',
+        text: `<strong>${overdueLoans.length}</strong> khoản nợ quá hạn (tổng <strong>${fmt(total)}đ</strong>). Liên hệ đối tác.`
+      });
+    }
+
+    // 6) Ngân sách sắp vượt
+    const overBudgets = (this.state.budgets || []).filter(b => {
+      const spent = txs.filter(t => t.type === 'expense' &&
+        t.date.startsWith(ym) && t.categoryId === b.categoryId).reduce((s, t) => s + t.amount, 0);
+      return b.amount > 0 && spent / b.amount >= 0.8;
+    });
+    if (overBudgets.length > 0) {
+      insights.push({
+        emoji: '🎯',
+        text: `<strong>${overBudgets.length}</strong> ngân sách đang ở mức ≥80%. Vào tab Ngân sách kiểm tra.`
+      });
+    }
+
+    if (insights.length === 0) {
+      wrap.innerHTML = '';
+      return;
+    }
+    wrap.innerHTML = `
+      <div class="insights-card">
+        <div class="insights-head">💡 Phân tích tài chính</div>
+        ${insights.slice(0, 4).map(i => `
+          <div class="insight-row">
+            <div class="insight-emoji">${i.emoji}</div>
+            <div class="insight-text">${i.text}</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
   },
 
   scrollToSavings() {
@@ -3341,6 +3559,24 @@ const App = {
     if (diagBtn) diagBtn.onclick = () => this.showBalanceDiagnosis();
     const showOnb = $('#setShowOnboard');
     if (showOnb) showOnb.onclick = () => this.showOnboarding();
+
+    const dailyNotif = $('#setDailyNotif');
+    if (dailyNotif) {
+      dailyNotif.checked = localStorage.getItem('qlt_daily_notif_off') !== '1';
+      dailyNotif.onchange = async (e) => {
+        if (e.target.checked) {
+          localStorage.removeItem('qlt_daily_notif_off');
+          await this.scheduleDailySummaryNotif();
+          QLT_UI.toast('Đã bật tổng kết 20h hằng ngày', { type: 'success' });
+        } else {
+          localStorage.setItem('qlt_daily_notif_off', '1');
+          if (window.Capacitor?.Plugins?.LocalNotifications) {
+            try { await window.Capacitor.Plugins.LocalNotifications.cancel({ notifications: [{ id: 99001 }] }); } catch (_) {}
+          }
+          QLT_UI.toast('Đã tắt thông báo tổng kết', { type: 'success' });
+        }
+      };
+    }
     const showFaq = $('#setShowFAQ');
     if (showFaq) showFaq.onclick = () => $('#faqModal').classList.add('open');
     const showPriv = $('#setShowPrivacy');
@@ -3401,6 +3637,7 @@ const App = {
       { key: 'forecast', label: '📊 Dự báo cuối tháng' },
       { key: 'budgets',  label: '🎯 Ngân sách tháng' },
       { key: 'loans',    label: '🤝 Cho vay / Nợ' },
+      { key: 'insights', label: '💡 Phân tích tài chính' },
       { key: 'recent',   label: 'Giao dịch gần đây' }
     ];
     wrap.innerHTML = items.map(it => `

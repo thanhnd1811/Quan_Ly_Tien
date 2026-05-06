@@ -651,6 +651,16 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
   .calc-current{font-size:32px}
 }
 
+/* Smart insights card */
+.insights-card{background:linear-gradient(135deg,#fff7e6,#fef3d3);border:1px solid #f4d77c;border-radius:14px;padding:14px 16px;margin:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+html[data-theme="dark"] .insights-card{background:linear-gradient(135deg,#3a2f1a,#2d2412);border-color:#6b5520}
+.insights-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;font-weight:700;color:#856404}
+html[data-theme="dark"] .insights-head{color:#f4d77c}
+.insight-row{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-top:1px dashed rgba(133,100,4,.2);font-size:13px;color:var(--text);line-height:1.5}
+.insight-row:first-child{border-top:none;padding-top:0}
+.insight-emoji{font-size:18px;flex-shrink:0;width:24px;text-align:center}
+.insight-text strong{color:var(--text);font-weight:700}
+
 /* Sổ tiết kiệm — trang quản lý */
 .savings-summary{background:linear-gradient(135deg,#1a4730,#2d6a4f);color:#fff;padding:18px 16px;text-align:center}
 .savings-summary-lbl{font-size:12px;opacity:.85}
@@ -849,6 +859,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     <div data-home-widget="forecast"><div id="homeForecast" style="display:none"></div></div>
     <div data-home-widget="budgets"><div id="homeBudgetWidget" style="display:none"></div></div>
     <div data-home-widget="loans"><div id="homeLoanShortcut" style="display:none"></div></div>
+    <div data-home-widget="insights"><div id="homeInsights" style="display:none"></div></div>
     <div data-home-widget="recent">
       <div class="section">
         <div class="sec-label">
@@ -1727,6 +1738,13 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       <span class="setting-label">Theo hệ thống (Auto)</span>
       <label class="qlt-switch">
         <input type="checkbox" id="setAutoTheme">
+        <span class="qlt-switch-slider"></span>
+      </label>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">🔔 Tổng kết hằng ngày (20h)</span>
+      <label class="qlt-switch">
+        <input type="checkbox" id="setDailyNotif">
         <span class="qlt-switch-slider"></span>
       </label>
     </div>
