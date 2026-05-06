@@ -7623,9 +7623,29 @@ const App = {
       wrap.querySelectorAll('[data-maint-log]').forEach(el => {
         el.onclick = () => this.openMaintLogModal(el.dataset.maintLog);
       });
+      // Quick add — pre-fill xe + lock field
+      wrap.querySelectorAll('[data-quick-fuel]').forEach(el => {
+        el.onclick = () => {
+          const [name, type] = el.dataset.quickFuel.split('|');
+          this.openFuelLogModal(null, { vehicleName: name, vehicleType: type });
+        };
+      });
+      wrap.querySelectorAll('[data-quick-maint]').forEach(el => {
+        el.onclick = () => {
+          const [name, type] = el.dataset.quickMaint.split('|');
+          this.openMaintLogModal(null, { vehicleName: name, vehicleType: type });
+        };
+      });
     }
 
-    // FAB handlers
+    // FAB handlers — chỉ giữ cho case CHƯA CÓ XE NÀO
+    if (vehicles.length === 0) {
+      $('#fuelAddFab').style.display = 'flex';
+      $('#fuelMaintFab').style.display = 'flex';
+    } else {
+      $('#fuelAddFab').style.display = 'none';
+      $('#fuelMaintFab').style.display = 'none';
+    }
     $('#fuelAddFab').onclick = () => this.openFuelLogModal(null);
     $('#fuelMaintFab').onclick = () => this.openMaintLogModal(null);
   },
@@ -7693,6 +7713,10 @@ const App = {
         </div>
         ${oilHtml}
         <div class="fuel-log-list">${logsHtml}</div>
+        <div class="fuel-card-actions">
+          <button class="btn btn-secondary fuel-add-quick" data-quick-fuel="${this.escapeHtml(v.name)}|${v.type}">⛽ Đổ xăng</button>
+          <button class="btn btn-secondary fuel-add-quick" data-quick-maint="${this.escapeHtml(v.name)}|${v.type}" style="color:#cc7a4f;border-color:#cc7a4f">🔧 Bảo dưỡng</button>
+        </div>
       </div>
     `;
   },
@@ -7769,7 +7793,8 @@ const App = {
   },
 
   // ====== MODAL: ĐỔ XĂNG ======
-  openFuelLogModal(id) {
+  // preset (optional): { vehicleName, vehicleType } — khi mở từ card xe, khoá field
+  openFuelLogModal(id, preset) {
     this._populateFuelOptions();
     let log;
     if (id) {
@@ -7778,7 +7803,8 @@ const App = {
     } else {
       log = {
         id: null, date: today(),
-        vehicleName: '', vehicleType: 'motorbike',
+        vehicleName: preset?.vehicleName || '',
+        vehicleType: preset?.vehicleType || 'motorbike',
         amount: 0, liters: 0, pricePerLiter: 0, odometer: 0,
         station: '',
         accountId: this.state.accounts.find(a => this.isPayment(a))?.id || null,
@@ -7801,6 +7827,21 @@ const App = {
     // Type pills
     $$('.fuel-type-pill').forEach(el =>
       el.classList.toggle('on', el.dataset.vt === (log.vehicleType || 'motorbike')));
+
+    // Khoá tên xe + loại xe nếu là quick-add từ card xe (hoặc đang edit)
+    const lockVehicle = !!preset || !!id;
+    const nameInput = $('#fuelVehicleName');
+    if (lockVehicle) {
+      nameInput.setAttribute('readonly', 'readonly');
+      nameInput.style.background = 'var(--surface2)';
+      nameInput.style.color = 'var(--text2)';
+      $$('.fuel-type-pill').forEach(el => { el.style.opacity = '0.5'; el.style.pointerEvents = 'none'; });
+    } else {
+      nameInput.removeAttribute('readonly');
+      nameInput.style.background = '';
+      nameInput.style.color = '';
+      $$('.fuel-type-pill').forEach(el => { el.style.opacity = ''; el.style.pointerEvents = ''; });
+    }
 
     // Hint odometer cuối cùng (nếu có)
     this._updateFuelOdometerHint(log.vehicleName, log.vehicleType || 'motorbike', id);
@@ -7838,8 +7879,15 @@ const App = {
       .filter(f => this.fuelVehicleKey(f.vehicleName, f.vehicleType) === k && f.id !== currentLogId)
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     const last = others[0];
-    if (last) hint.textContent = `Lần trước: ${fmt(last.odometer)} km (${this.formatDate(last.date)})`;
-    else hint.textContent = `Lần đầu cho xe này — số odometer này sẽ là mốc bắt đầu để tính tiêu thụ.`;
+    if (last) {
+      const litStr = last.liters ? ` · ${last.liters}L` : '';
+      const amtStr = last.amount ? ` · ${fmt(last.amount)} đ` : '';
+      const daysAgo = Math.floor((new Date(today()) - new Date(last.date)) / 86400000);
+      const dayLbl = daysAgo === 0 ? 'hôm nay' : daysAgo === 1 ? 'hôm qua' : `${daysAgo} ngày trước`;
+      hint.innerHTML = `📊 <strong>Lần trước</strong> (${this.formatDate(last.date)} · ${dayLbl}): <strong>${fmt(last.odometer)} km</strong>${litStr}${amtStr}`;
+    } else {
+      hint.textContent = `Lần đầu cho xe này — odometer này sẽ là mốc bắt đầu để tính tiêu thụ.`;
+    }
   },
 
   _fuelAutoCompute() {
@@ -7952,7 +8000,8 @@ const App = {
   },
 
   // ====== MODAL: BẢO DƯỠNG ======
-  openMaintLogModal(id) {
+  // preset (optional): { vehicleName, vehicleType } — khi mở từ card xe, khoá field
+  openMaintLogModal(id, preset) {
     this._populateFuelOptions();
     let log;
     if (id) {
@@ -7961,7 +8010,8 @@ const App = {
     } else {
       log = {
         id: null, date: today(),
-        vehicleName: '', vehicleType: 'motorbike',
+        vehicleName: preset?.vehicleName || '',
+        vehicleType: preset?.vehicleType || 'motorbike',
         kind: 'oil', label: '',
         amount: 0, odometer: 0,
         accountId: this.state.accounts.find(a => this.isPayment(a))?.id || null,
@@ -7983,6 +8033,21 @@ const App = {
 
     $$('.maint-type-pill').forEach(el =>
       el.classList.toggle('on', el.dataset.vt === (log.vehicleType || 'motorbike')));
+
+    // Khoá tên xe + loại xe khi là quick-add từ card xe (hoặc đang edit)
+    const lockVehicle = !!preset || !!id;
+    const nameInput = $('#maintVehicleName');
+    if (lockVehicle) {
+      nameInput.setAttribute('readonly', 'readonly');
+      nameInput.style.background = 'var(--surface2)';
+      nameInput.style.color = 'var(--text2)';
+      $$('.maint-type-pill').forEach(el => { el.style.opacity = '0.5'; el.style.pointerEvents = 'none'; });
+    } else {
+      nameInput.removeAttribute('readonly');
+      nameInput.style.background = '';
+      nameInput.style.color = '';
+      $$('.maint-type-pill').forEach(el => { el.style.opacity = ''; el.style.pointerEvents = ''; });
+    }
     $$('.maint-kind-pill').forEach(el =>
       el.classList.toggle('on', el.dataset.kind === (log.kind || 'oil')));
 
