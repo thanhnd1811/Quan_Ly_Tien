@@ -531,6 +531,8 @@ const App = {
     txFilter: { type: 'all', period: 'month', accountId: 'all', search: '', categoryId: 'all', amountMin: 0, amountMax: 0, photoOnly: false, dateFrom: '', dateTo: '', tags: [] },
     bulkMode: false,
     bulkSelected: new Set(),
+    txViewMode: 'list', // 'list' | 'calendar'
+    calMonth: today().slice(0, 7), // 'YYYY-MM' currently displayed
     chartPeriod: 'month',
     chartFrom: '',
     chartTo: '',
@@ -2076,6 +2078,124 @@ const App = {
     const advBtn = $('#txAdvFilterBtn');
     if (advBtn) advBtn.onclick = () => this.openTxFilterModal();
     this.renderActiveFilterChips();
+
+    // View mode toggle
+    const setViewMode = (mode) => {
+      this.state.txViewMode = mode;
+      const isList = mode === 'list';
+      $('#txList').style.display = isList ? '' : 'none';
+      $('#txCalendar').style.display = isList ? 'none' : 'block';
+      const lstBtn = $('#txViewList'), calBtn = $('#txViewCalendar');
+      if (lstBtn) {
+        lstBtn.classList.toggle('on', isList);
+        lstBtn.style.background = isList ? 'var(--accent)' : 'var(--surface)';
+        lstBtn.style.color = isList ? '#fff' : 'var(--text2)';
+        lstBtn.style.borderColor = isList ? 'var(--accent)' : 'var(--border)';
+      }
+      if (calBtn) {
+        calBtn.classList.toggle('on', !isList);
+        calBtn.style.background = !isList ? 'var(--accent)' : 'var(--surface)';
+        calBtn.style.color = !isList ? '#fff' : 'var(--text2)';
+        calBtn.style.borderColor = !isList ? 'var(--accent)' : 'var(--border)';
+      }
+      if (!isList) this.renderTxCalendar();
+    };
+    const lstBtn = $('#txViewList');
+    const calBtn = $('#txViewCalendar');
+    if (lstBtn) lstBtn.onclick = () => setViewMode('list');
+    if (calBtn) calBtn.onclick = () => setViewMode('calendar');
+    // Apply current mode
+    setViewMode(this.state.txViewMode);
+  },
+
+  renderTxCalendar() {
+    const wrap = $('#txCalendar');
+    if (!wrap) return;
+    const ym = this.state.calMonth || today().slice(0, 7);
+    const [year, month] = ym.split('-').map(n => parseInt(n, 10));
+    const firstDay = new Date(year, month - 1, 1);
+    const lastDay = new Date(year, month, 0);
+    const daysInMonth = lastDay.getDate();
+    const startDow = firstDay.getDay(); // 0=Sun
+
+    // Tổng theo từng ngày
+    const dayMap = {}; // 'YYYY-MM-DD' → { exp, inc }
+    const txInMonth = this.state.transactions.filter(t => t.date.startsWith(ym));
+    for (const t of txInMonth) {
+      if (!dayMap[t.date]) dayMap[t.date] = { exp: 0, inc: 0 };
+      if (t.type === 'expense') dayMap[t.date].exp += t.amount;
+      else if (t.type === 'income') dayMap[t.date].inc += t.amount;
+    }
+
+    let totalExp = 0, totalInc = 0;
+    for (const k in dayMap) { totalExp += dayMap[k].exp; totalInc += dayMap[k].inc; }
+
+    const monthLabels = ['Tháng 1','Tháng 2','Tháng 3','Tháng 4','Tháng 5','Tháng 6',
+      'Tháng 7','Tháng 8','Tháng 9','Tháng 10','Tháng 11','Tháng 12'];
+    const dowLabels = ['CN','T2','T3','T4','T5','T6','T7'];
+    const todayStr = today();
+
+    let cellsHtml = '';
+    // Padding ngày trống đầu
+    for (let i = 0; i < startDow; i++) cellsHtml += '<div class="cal-day muted"></div>';
+    // Từng ngày
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const m = dayMap[dateStr];
+      const cls = ['cal-day'];
+      if (dateStr === todayStr) cls.push('today');
+      if (m) cls.push('has-tx');
+      cellsHtml += `<div class="${cls.join(' ')}" data-cal-day="${dateStr}">
+        <div class="cal-day-num">${d}</div>
+        ${m && m.exp > 0 ? `<div class="cal-day-amt-exp">-${this._fmtShort(m.exp)}</div>` : ''}
+        ${m && m.inc > 0 ? `<div class="cal-day-amt-inc">+${this._fmtShort(m.inc)}</div>` : ''}
+      </div>`;
+    }
+
+    wrap.innerHTML = `
+      <div class="cal-head">
+        <button class="cal-nav" id="calPrev">‹</button>
+        <div>${monthLabels[month - 1]} ${year}</div>
+        <button class="cal-nav" id="calNext">›</button>
+      </div>
+      <div class="cal-grid">
+        ${dowLabels.map(d => `<div class="cal-dow">${d}</div>`).join('')}
+        ${cellsHtml}
+      </div>
+      <div class="cal-summary">
+        Tháng ${month}: <span style="color:#2d8659;font-weight:700">+${fmt(totalInc)}</span> /
+        <span style="color:#e63946;font-weight:700">-${fmt(totalExp)}</span>
+      </div>
+    `;
+    $('#calPrev').onclick = () => {
+      const d = new Date(year, month - 2, 1);
+      this.state.calMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      this.renderTxCalendar();
+    };
+    $('#calNext').onclick = () => {
+      const d = new Date(year, month, 1);
+      this.state.calMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      this.renderTxCalendar();
+    };
+    wrap.querySelectorAll('[data-cal-day]').forEach(el => {
+      el.onclick = () => {
+        const d = el.dataset.calDay;
+        // Switch sang list mode + filter date custom = ngày đó
+        this.state.txFilter.period = 'custom';
+        this.state.txFilter.dateFrom = d;
+        this.state.txFilter.dateTo = d;
+        this.state.txViewMode = 'list';
+        this.renderTransactions();
+      };
+    });
+  },
+
+  // Format số ngắn cho calendar: 1.5tr / 250k / 80
+  _fmtShort(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'tỷ';
+    if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'tr';
+    if (n >= 1000) return Math.round(n / 1000) + 'k';
+    return String(n);
   },
 
   // ============ CHARTS ============
@@ -2185,7 +2305,8 @@ const App = {
     if (donutCanvas) {
       window.QLT_Charts.donut(donutCanvas, slices, {
         centerLabel: fmt(totalExp),
-        centerSub: 'Chi'
+        centerSub: 'Chi',
+        onSliceClick: (sr) => this.openCategoryTxs(sr.id, from, to)
       });
     }
 
