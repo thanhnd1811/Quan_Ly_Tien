@@ -82,6 +82,34 @@ const QLT_UI = (() => {
     }, ms);
   }
 
+  // Insight banner: HTML support + slide từ top, tap để dismiss sớm
+  function insight(html, opts = {}) {
+    let wrap = document.getElementById('qltInsightWrap');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.id = 'qltInsightWrap';
+      document.body.appendChild(wrap);
+    }
+    const el = document.createElement('div');
+    el.className = 'qlt-insight' + (opts.variant ? ' ' + opts.variant : '');
+    const emoji = opts.emoji || '💡';
+    el.innerHTML =
+      '<div class="qlt-insight-emoji">' + escapeText(emoji) + '</div>' +
+      '<div class="qlt-insight-body">' + html + '</div>';
+    wrap.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('show'));
+    let dismissed = false;
+    const dismiss = () => {
+      if (dismissed) return; dismissed = true;
+      el.classList.add('fade');
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 320);
+    };
+    el.onclick = dismiss;
+    setTimeout(dismiss, opts.duration || 5500);
+    try { navigator.vibrate?.([15, 25, 15]); } catch (_) {}
+  }
+
   // Đóng khi bấm nền tối (không tính như xác nhận)
   document.addEventListener('DOMContentLoaded', () => {
     const dlg = document.getElementById('qltDialog');
@@ -97,7 +125,7 @@ const QLT_UI = (() => {
     });
   });
 
-  return { alert, confirm, toast };
+  return { alert, confirm, toast, insight };
 })();
 window.QLT_UI = QLT_UI;
 const fmt = n => (n || 0).toLocaleString('vi-VN');
@@ -4415,6 +4443,20 @@ const App = {
         }
       };
     }
+    // Smart insights real-time toggle (default ON)
+    const smartInsights = $('#setSmartInsights');
+    if (smartInsights) {
+      smartInsights.checked = localStorage.getItem('qlt_smart_insights') !== 'off';
+      smartInsights.onchange = (e) => {
+        if (e.target.checked) {
+          localStorage.removeItem('qlt_smart_insights');
+          QLT_UI.toast('Đã bật gợi ý thông minh', { type: 'success' });
+        } else {
+          localStorage.setItem('qlt_smart_insights', 'off');
+          QLT_UI.toast('Đã tắt gợi ý thông minh', { type: 'success' });
+        }
+      };
+    }
     const showFaq = $('#setShowFAQ');
     if (showFaq) showFaq.onclick = () => $('#faqModal').classList.add('open');
     const showPriv = $('#setShowPrivacy');
@@ -5030,6 +5072,14 @@ const App = {
 
     // Hoàn tác giao dịch cũ (nếu sửa)
     const oldTx = t.id ? this.state.transactions.find(x => x.id === t.id) : null;
+    // Snapshot giá trị oldTx (vì sau reload object reference mất)
+    const oldTxSnap = oldTx ? {
+      amount: oldTx.amount,
+      categoryId: oldTx.categoryId,
+      date: oldTx.date,
+      type: oldTx.type
+    } : null;
+    const isNewTx = !t.id;
     if (oldTx) {
       await this.applyBalanceDelta(oldTx, -1);
     }
@@ -5053,7 +5103,157 @@ const App = {
       this._maybeLearnKeyword(vc.text, t.categoryId);
     }
 
+    // Smart insights real-time (chỉ cho tx mới hoặc sửa số tiền/category lớn)
+    setTimeout(() => this._showRealtimeInsight(t, oldTxSnap, isNewTx), 350);
+
     this.autoSync();
+  },
+
+  // ============ Smart insights real-time ============
+  // Phân tích giao dịch vừa lưu (sau reload) và trả về danh sách insight tiềm năng
+  // tx     : tx đã lưu (giá trị mới)
+  // oldSnap: snapshot giá trị tx CŨ (nếu sửa) — null nếu là tx mới
+  // isNew  : true nếu là tx mới hoàn toàn
+  _realtimeInsight(tx, oldSnap, isNew) {
+    const insights = [];
+    if (!tx || tx.type === 'transfer') return insights;
+
+    const now = new Date();
+    const ym = (tx.date || today()).slice(0, 7);
+    const todayStr = tx.date || today();
+    const txs = this.state.transactions || [];
+
+    // ===== INCOME — chỉ celebrate nếu lớn =====
+    if (tx.type === 'income') {
+      if (isNew && tx.amount >= 1000000) {
+        insights.push({
+          emoji: '🎉',
+          text: `Vừa nhận <strong>${fmt(tx.amount)} đ</strong> — đã cập nhật vào số dư`,
+          variant: 'good',
+          priority: 50
+        });
+      }
+      return insights;
+    }
+
+    // ===== EXPENSE =====
+    const cat = this.state.categories.find(c => c.id === tx.categoryId);
+    const catName = cat ? this.escapeHtml(cat.name) : '?';
+
+    // 1) Vượt ngưỡng ngân sách (50% / 80% / 100%)
+    const budget = (this.state.budgets || []).find(b => b.categoryId === tx.categoryId && (b.amount || 0) > 0);
+    if (budget) {
+      const spentNow = txs.filter(t => t.type === 'expense' && t.date.startsWith(ym) && t.categoryId === tx.categoryId)
+        .reduce((s, t) => s + t.amount, 0);
+      // spentBefore = trừ tx mới + cộng oldSnap (nếu sửa và cùng category/tháng)
+      let spentBefore = spentNow - tx.amount;
+      if (oldSnap && oldSnap.type === 'expense'
+          && oldSnap.categoryId === tx.categoryId
+          && oldSnap.date && oldSnap.date.startsWith(ym)) {
+        spentBefore += oldSnap.amount;
+      }
+      const oldPct = spentBefore / budget.amount;
+      const newPct = spentNow / budget.amount;
+      const left = Math.max(0, budget.amount - spentNow);
+
+      if (newPct >= 1 && oldPct < 1) {
+        insights.push({
+          emoji: '🚨',
+          text: `Vượt 100% ngân sách <strong>${catName}</strong>! Đã chi <strong>${fmt(spentNow)} đ</strong> / ${fmt(budget.amount)} đ`,
+          variant: 'alert',
+          priority: 100
+        });
+      } else if (newPct >= 0.8 && oldPct < 0.8) {
+        insights.push({
+          emoji: '⚠️',
+          text: `Đã chạm <strong>80%</strong> ngân sách <strong>${catName}</strong> — còn ${fmt(left)} đ`,
+          variant: 'warn',
+          priority: 90
+        });
+      } else if (newPct >= 0.5 && oldPct < 0.5) {
+        insights.push({
+          emoji: '📊',
+          text: `Đã đi qua nửa ngân sách <strong>${catName}</strong> (${Math.round(newPct * 100)}%)`,
+          priority: 60
+        });
+      }
+    }
+
+    // 2) Khoản này lớn bất thường so với trung bình category 90 ngày
+    if (cat && tx.amount >= 100000) {
+      const since = new Date(now); since.setDate(since.getDate() - 90);
+      const sinceStr = since.toISOString().slice(0, 10);
+      const past = txs.filter(t => t.type === 'expense'
+          && t.categoryId === tx.categoryId
+          && t.date >= sinceStr
+          && t.id !== tx.id);
+      if (past.length >= 5) {
+        const avg = past.reduce((s, t) => s + t.amount, 0) / past.length;
+        if (avg >= 20000 && tx.amount >= avg * 2.5) {
+          const ratio = (tx.amount / avg).toFixed(1);
+          insights.push({
+            emoji: '💸',
+            text: `Khoản <strong>${fmt(tx.amount)} đ</strong> này gấp <strong>${ratio}×</strong> trung bình ${catName} (${fmt(Math.round(avg))} đ)`,
+            variant: 'warn',
+            priority: 70
+          });
+        }
+      }
+    }
+
+    // 3) Tổng chi hôm nay vượt nhiều so với trung bình ngày 30 ngày qua
+    const todayTotal = txs.filter(t => t.type === 'expense' && t.date === todayStr)
+      .reduce((s, t) => s + t.amount, 0);
+    if (todayTotal >= 200000) {
+      const days30 = new Date(now); days30.setDate(days30.getDate() - 30);
+      const days30Str = days30.toISOString().slice(0, 10);
+      const past30 = txs.filter(t => t.type === 'expense' && t.date >= days30Str && t.date < todayStr);
+      if (past30.length >= 3) {
+        const distinctDays = new Set(past30.map(t => t.date));
+        const avgDaily = past30.reduce((s, t) => s + t.amount, 0) / Math.max(1, distinctDays.size);
+        if (avgDaily >= 50000 && todayTotal >= avgDaily * 2) {
+          const ratio = (todayTotal / avgDaily).toFixed(1);
+          insights.push({
+            emoji: '🔥',
+            text: `Hôm nay đã chi <strong>${fmt(todayTotal)} đ</strong> — gấp ${ratio}× trung bình ngày (${fmt(Math.round(avgDaily))} đ)`,
+            variant: 'warn',
+            priority: 75
+          });
+        }
+      }
+    }
+
+    // 4) Cùng category xuất hiện ≥5 lần trong 7 ngày
+    if (cat) {
+      const week = new Date(now); week.setDate(week.getDate() - 6);
+      const weekStr = week.toISOString().slice(0, 10);
+      const sameCatWeek = txs.filter(t => t.type === 'expense'
+          && t.categoryId === tx.categoryId
+          && t.date >= weekStr).length;
+      if (sameCatWeek >= 5) {
+        insights.push({
+          emoji: '🔁',
+          text: `Đã <strong>${sameCatWeek} lần</strong> chi cho ${catName} trong 7 ngày qua`,
+          priority: 50
+        });
+      }
+    }
+
+    return insights;
+  },
+
+  _showRealtimeInsight(tx, oldSnap, isNew) {
+    // User có thể tắt trong Cài đặt
+    if (localStorage.getItem('qlt_smart_insights') === 'off') return;
+    const insights = this._realtimeInsight(tx, oldSnap, isNew);
+    if (!insights.length) return;
+    insights.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+    const top = insights[0];
+    QLT_UI.insight(top.text, {
+      emoji: top.emoji,
+      variant: top.variant,
+      duration: 5500
+    });
   },
 
   // Học từ khoá từ câu nói: trích từ "đặc trưng" (key term không phải số/đơn vị/connector)
