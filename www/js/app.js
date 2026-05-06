@@ -544,6 +544,58 @@ const App = {
     editingGoal: null
   },
 
+  // ============ ONBOARDING TOUR ============
+  // Hiện 1 lần duy nhất khi user mở app lần đầu (chưa từng dismiss).
+  // Có thể mở lại từ Cài đặt → Trợ giúp.
+  isOnboardSeen() { return localStorage.getItem('qlt_onboard_seen') === '1'; },
+  markOnboardSeen() { localStorage.setItem('qlt_onboard_seen', '1'); },
+  showOnboarding() {
+    const modal = document.getElementById('onboardModal');
+    if (!modal) return;
+    const pages = modal.querySelectorAll('.onboard-page');
+    const dots = document.getElementById('onboardDots');
+    const total = pages.length;
+    let cur = 0;
+    dots.innerHTML = '';
+    for (let i = 0; i < total; i++) {
+      const d = document.createElement('div');
+      d.className = 'onboard-dot' + (i === 0 ? ' active' : '');
+      dots.appendChild(d);
+    }
+    const apply = () => {
+      pages.forEach((p, i) => p.classList.toggle('active', i === cur));
+      dots.querySelectorAll('.onboard-dot').forEach((d, i) => d.classList.toggle('active', i === cur));
+      const nextBtn = document.getElementById('onboardNext');
+      nextBtn.textContent = cur === total - 1 ? '✓ Bắt đầu' : 'Tiếp →';
+    };
+    apply();
+
+    document.getElementById('onboardNext').onclick = () => {
+      if (cur < total - 1) { cur++; apply(); }
+      else { this.closeOnboarding(true); }
+    };
+    document.getElementById('onboardSkip').onclick = () => this.closeOnboarding(true);
+    // Swipe gesture đơn giản
+    let touchStart = null;
+    modal.addEventListener('touchstart', e => { touchStart = e.touches[0].clientX; }, { passive: true });
+    modal.addEventListener('touchend', e => {
+      if (touchStart == null) return;
+      const dx = e.changedTouches[0].clientX - touchStart;
+      if (Math.abs(dx) > 60) {
+        if (dx < 0 && cur < total - 1) { cur++; apply(); }
+        if (dx > 0 && cur > 0) { cur--; apply(); }
+      }
+      touchStart = null;
+    }, { passive: true });
+
+    modal.classList.add('open');
+  },
+  closeOnboarding(markSeen) {
+    const modal = document.getElementById('onboardModal');
+    if (modal) modal.classList.remove('open');
+    if (markSeen) this.markOnboardSeen();
+  },
+
   // ============ THEME (Dark/Light mode) ============
   // Lưu pref trong localStorage. Mode: 'light' | 'dark' | 'auto' (theo OS)
   getThemePref() {
@@ -635,6 +687,16 @@ const App = {
 
       // Render home dưới TRƯỚC để khi unlock app sẵn sàng (lock screen z-index cao hơn)
       this.switchTab('home');
+
+      // Show onboarding nếu user mở app lần đầu (chưa từng skip/finish)
+      if (!this.isOnboardSeen()) {
+        // Trễ 600ms để layout xong + tránh đè lock screen
+        setTimeout(() => {
+          if (!document.getElementById('lockScreen')?.classList.contains('open')) {
+            this.showOnboarding();
+          }
+        }, 600);
+      }
 
       // Migrate PIN từ meta cũ (nếu user đã setup trước bản này) sang localStorage device-wide
       try { if (window.QLT_Lock) await window.QLT_Lock.migrate(); } catch (_) {}

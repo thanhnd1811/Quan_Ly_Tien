@@ -139,6 +139,25 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:10px}
 .empty-msg{text-align:center;padding:40px 20px;color:var(--text3);font-size:13px}
 
+/* Onboarding tour first-launch */
+.onboard{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9000;display:none;align-items:center;justify-content:center;padding:20px}
+.onboard.open{display:flex;animation:fadeIn .25s}
+.onboard-card{background:var(--bg);width:100%;max-width:420px;border-radius:24px;padding:30px 24px 20px;box-shadow:0 30px 80px rgba(0,0,0,.4);position:relative;overflow:hidden}
+.onboard-pages{position:relative;min-height:240px}
+.onboard-page{position:absolute;inset:0;opacity:0;transform:translateX(20px);transition:opacity .3s ease,transform .3s ease;pointer-events:none;text-align:center;display:flex;flex-direction:column;justify-content:center}
+.onboard-page.active{opacity:1;transform:translateX(0);pointer-events:auto;position:relative}
+.onboard-illu{font-size:80px;margin-bottom:14px;animation:emptyBounce 2.5s ease-in-out infinite}
+.onboard-title{font-size:20px;font-weight:700;color:var(--text);margin-bottom:10px;line-height:1.3}
+.onboard-desc{font-size:14px;color:var(--text2);line-height:1.6;max-width:360px;margin:0 auto}
+.onboard-dots{display:flex;justify-content:center;gap:6px;margin:18px 0 14px}
+.onboard-dot{width:7px;height:7px;border-radius:50%;background:var(--border);transition:width .25s,background .25s}
+.onboard-dot.active{width:22px;background:var(--accent)}
+.onboard-actions{display:flex;justify-content:space-between;align-items:center}
+.onboard-skip{background:transparent;color:var(--text3);font-size:13px;font-weight:500;padding:8px 14px;border-radius:8px}
+.onboard-skip:active{background:var(--surface2)}
+.onboard-next{background:var(--accent);color:#fff;padding:10px 22px;border-radius:24px;font-weight:600;font-size:14px;border:none}
+.onboard-next:active{transform:scale(.96)}
+
 /* Skeleton loaders — placeholder boxes có shimmer effect khi đang load */
 .skeleton{background:linear-gradient(90deg,var(--surface2) 0%,var(--border) 50%,var(--surface2) 100%);background-size:200% 100%;animation:shimmer 1.4s linear infinite;border-radius:8px}
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
@@ -1644,6 +1663,49 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
   </div>
 </div>
 <div id="drawerOverlay" class="drawer-overlay"></div>
+
+<!-- ========== ONBOARDING TOUR (first launch) ========== -->
+<div id="onboardModal" class="onboard">
+  <div class="onboard-card">
+    <div class="onboard-pages">
+      <div class="onboard-page active" data-page="0">
+        <div class="onboard-illu">💰</div>
+        <div class="onboard-title">Chào mừng đến Quản Lý Tiền!</div>
+        <div class="onboard-desc">App quản lý thu chi cá nhân — đa sổ, đa thiết bị, đồng bộ Google Drive. Hãy lướt qua để biết các tính năng chính.</div>
+      </div>
+      <div class="onboard-page" data-page="1">
+        <div class="onboard-illu">📋</div>
+        <div class="onboard-title">Ghi giao dịch siêu nhanh</div>
+        <div class="onboard-desc">Bấm <strong>+</strong> giữa thanh dưới → nhập tiền + chọn ví + danh mục. Hoặc bấm <strong>🎙️ mic</strong> để nói: "Cà phê 50 nghìn".</div>
+      </div>
+      <div class="onboard-page" data-page="2">
+        <div class="onboard-illu">📷</div>
+        <div class="onboard-title">Chụp hoá đơn — auto điền số tiền</div>
+        <div class="onboard-desc">Bấm <strong>📷 camera</strong> trong modal Thêm giao dịch → chụp ảnh hoá đơn / chuyển khoản. App tự đọc số tiền (OCR) + đính kèm ảnh làm minh chứng.</div>
+      </div>
+      <div class="onboard-page" data-page="3">
+        <div class="onboard-illu">🎯</div>
+        <div class="onboard-title">Ngân sách + Mục tiêu</div>
+        <div class="onboard-desc">Đặt giới hạn chi tháng cho từng danh mục → app cảnh báo khi gần vượt. Tạo mục tiêu tiết kiệm dài hạn → tự nhắc đóng góp hàng tháng.</div>
+      </div>
+      <div class="onboard-page" data-page="4">
+        <div class="onboard-illu">💎</div>
+        <div class="onboard-title">Sổ tiết kiệm + Cho vay/Nợ</div>
+        <div class="onboard-desc">Theo dõi sổ ngân hàng (lãi tích luỹ, đáo hạn, gia hạn). Quản lý các khoản cho vay / đi vay với hạn trả + nhắc nhở.</div>
+      </div>
+      <div class="onboard-page" data-page="5">
+        <div class="onboard-illu">☁️</div>
+        <div class="onboard-title">Sao lưu Google Drive</div>
+        <div class="onboard-desc">Vào Cài đặt → Đăng nhập Google → bấm Đồng bộ. Dữ liệu lưu trên Drive cá nhân, đổi điện thoại vẫn còn nguyên.</div>
+      </div>
+    </div>
+    <div class="onboard-dots" id="onboardDots"></div>
+    <div class="onboard-actions">
+      <button id="onboardSkip" class="onboard-skip">Bỏ qua</button>
+      <button id="onboardNext" class="onboard-next">Tiếp →</button>
+    </div>
+  </div>
+</div>
 
 <!-- ========== BOTTOM NAV ========== -->
 <nav class="bnav">
