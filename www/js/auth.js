@@ -171,6 +171,13 @@
       return this.user;
     },
 
+    // Xoá token cache để buộc lấy lại lần sau (dùng khi gặp 401 từ Drive)
+    invalidateToken() {
+      this.accessToken = null;
+      this.tokenExpiry = 0;
+      this.saveCached();
+    },
+
     async ensureToken() {
       if (this.accessToken && Date.now() < this.tokenExpiry) return this.accessToken;
 

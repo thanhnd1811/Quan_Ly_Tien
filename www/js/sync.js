@@ -2,16 +2,31 @@
 // File JSON duy nhất tên QLT_CONFIG.DRIVE_FILENAME
 
 (function () {
+  // Wrapper fetch tự động retry 1 lần khi gặp 401 (token Google hết hạn / bị thu hồi)
+  async function authFetch(url, init = {}) {
+    let token = await window.QLT_Auth.ensureToken();
+    const doFetch = (t) => fetch(url, {
+      ...init,
+      headers: { ...(init.headers || {}), Authorization: 'Bearer ' + t }
+    });
+    let r = await doFetch(token);
+    if (r.status === 401) {
+      // Token cũ hết hiệu lực dù chưa đến tokenExpiry — buộc refresh
+      window.QLT_Auth.invalidateToken();
+      token = await window.QLT_Auth.ensureToken();
+      r = await doFetch(token);
+    }
+    return r;
+  }
+
   const Sync = {
     fileId: null,
 
     async findFile() {
-      const token = await window.QLT_Auth.ensureToken();
       const cfg = window.QLT_CONFIG;
       const q = encodeURIComponent(`name='${cfg.DRIVE_FILENAME}' and trashed=false`);
-      const r = await fetch(
-        `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${q}&fields=files(id,modifiedTime)`,
-        { headers: { Authorization: 'Bearer ' + token } }
+      const r = await authFetch(
+        `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${q}&fields=files(id,modifiedTime)`
       );
       if (!r.ok) throw new Error('Drive list lỗi: ' + r.status);
       const data = await r.json();
@@ -27,17 +42,12 @@
         const f = await this.findFile();
         if (!f) return null;
       }
-      const token = await window.QLT_Auth.ensureToken();
-      const r = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${this.fileId}?alt=media`,
-        { headers: { Authorization: 'Bearer ' + token } }
-      );
+      const r = await authFetch(`https://www.googleapis.com/drive/v3/files/${this.fileId}?alt=media`);
       if (!r.ok) throw new Error('Drive download lỗi: ' + r.status);
       return await r.json();
     },
 
     async upload(data) {
-      const token = await window.QLT_Auth.ensureToken();
       const cfg = window.QLT_CONFIG;
       const meta = {
         name: cfg.DRIVE_FILENAME,
@@ -59,12 +69,9 @@
         : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
       const method = this.fileId ? 'PATCH' : 'POST';
 
-      const r = await fetch(url, {
+      const r = await authFetch(url, {
         method,
-        headers: {
-          Authorization: 'Bearer ' + token,
-          'Content-Type': `multipart/related; boundary=${boundary}`
-        },
+        headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
         body
       });
       if (!r.ok) throw new Error('Drive upload lỗi: ' + r.status);
