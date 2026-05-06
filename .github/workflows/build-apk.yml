@@ -34,46 +34,6 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Inject App Shortcuts (Thêm chi/thu/voice/biểu đồ — long-press icon)
-        run: |
-          mkdir -p android/app/src/main/res/xml
-          cp .github/shortcuts.xml android/app/src/main/res/xml/shortcuts.xml
-          python3 - <<'PY'
-          import re, sys
-          path = 'android/app/src/main/AndroidManifest.xml'
-          with open(path, 'r', encoding='utf-8') as f:
-              m = f.read()
-
-          # 1) Thêm <meta-data android:name="android.app.shortcuts" .../> trong activity MainActivity (nếu chưa có)
-          if 'android.app.shortcuts' not in m:
-              # Chèn ngay trước </activity> đầu tiên (MainActivity)
-              meta_tag = '            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />\n'
-              m_new, n = re.subn(r'(\n\s*)(</activity>)', r'\1' + meta_tag + r'\1\2', m, count=1)
-              if n == 0:
-                  print('::warning::Không tìm thấy </activity> để chèn shortcuts meta-data')
-              else:
-                  m = m_new
-                  print('Đã thêm shortcuts meta-data vào MainActivity')
-
-          # 2) Thêm intent-filter cho deeplink qltien:// (cho shortcuts trỏ tới)
-          if 'android:scheme="qltien"' not in m:
-              filter_tag = ('\n            <intent-filter>'
-                            '\n                <action android:name="android.intent.action.VIEW" />'
-                            '\n                <category android:name="android.intent.category.DEFAULT" />'
-                            '\n                <category android:name="android.intent.category.BROWSABLE" />'
-                            '\n                <data android:scheme="qltien" />'
-                            '\n            </intent-filter>\n')
-              m_new, n = re.subn(r'(</intent-filter>)(\s*</activity>)', r'\1' + filter_tag + r'\2', m, count=1)
-              if n == 0:
-                  print('::warning::Không thêm được intent-filter qltien://')
-              else:
-                  m = m_new
-                  print('Đã thêm intent-filter cho qltien:// scheme')
-
-          with open(path, 'w', encoding='utf-8') as f:
-              f.write(m)
-          PY
-
       - name: Override launcher icons (cọc tiền xanh thay vì icon mặc định Capacitor)
         run: |
           sudo apt-get update -qq
@@ -90,6 +50,56 @@ jobs:
             convert "$SRC" -resize ${size}x${size} "$DIR/ic_launcher_round.png"
             convert "$SRC" -resize ${size}x${size} "$DIR/ic_launcher_foreground.png"
           done
+
+      - name: Inject App Shortcuts (long-press icon menu)
+        run: |
+          mkdir -p android/app/src/main/res/xml
+          cp .github/shortcuts.xml android/app/src/main/res/xml/shortcuts.xml
+          python3 - <<'PY'
+          import re, sys
+          path = 'android/app/src/main/AndroidManifest.xml'
+          with open(path, 'r', encoding='utf-8') as f:
+              m = f.read()
+          original = m
+
+          # 1) Thêm meta-data shortcuts vào MainActivity (nếu chưa có)
+          if 'android.app.shortcuts' not in m:
+              meta_tag = '            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />\n'
+              # Tìm </activity> ĐẦU TIÊN — thường là MainActivity
+              new_m, n = re.subn(r'(\n\s*</activity>)', r'\n' + meta_tag.rstrip() + r'\1', m, count=1)
+              if n > 0:
+                  m = new_m
+                  print('OK: shortcuts meta-data')
+              else:
+                  print('::warning::missed shortcuts meta-data')
+
+          # 2) Thêm intent-filter qltien:// (deeplink cho shortcut)
+          if 'android:scheme="qltien"' not in m:
+              filter_tag = ('            <intent-filter>\n'
+                            '                <action android:name="android.intent.action.VIEW" />\n'
+                            '                <category android:name="android.intent.category.DEFAULT" />\n'
+                            '                <category android:name="android.intent.category.BROWSABLE" />\n'
+                            '                <data android:scheme="qltien" />\n'
+                            '            </intent-filter>')
+              # Chèn ngay sau </intent-filter> ĐẦU TIÊN (intent-filter MAIN/LAUNCHER của MainActivity)
+              new_m, n = re.subn(r'(</intent-filter>)', r'\1\n' + filter_tag, m, count=1)
+              if n > 0:
+                  m = new_m
+                  print('OK: intent-filter qltien://')
+              else:
+                  print('::warning::missed intent-filter')
+
+          if m != original:
+              with open(path, 'w', encoding='utf-8') as f:
+                  f.write(m)
+              print('--- Patched AndroidManifest.xml ---')
+          else:
+              print('::warning::AndroidManifest unchanged — patches did not apply')
+          PY
+          echo '----- AndroidManifest.xml final -----'
+          cat android/app/src/main/AndroidManifest.xml
+          echo '----- shortcuts.xml -----'
+          cat android/app/src/main/res/xml/shortcuts.xml
 
       - name: Decode release keystore
         env:
