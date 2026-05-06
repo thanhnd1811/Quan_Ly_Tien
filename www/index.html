@@ -89,7 +89,18 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .book-edit-btn{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:50%;color:var(--text2);background:var(--surface2);flex-shrink:0}
 .book-edit-btn:active{background:var(--border)}
 .book-edit-btn svg{width:18px;height:18px}
-.dr-list{flex:1;overflow-y:auto;padding:8px 0}
+.dr-list-wrap{flex:1;position:relative;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.dr-list-wrap::before,.dr-list-wrap::after{content:'';position:absolute;left:0;right:0;height:28px;pointer-events:none;z-index:2;transition:opacity .15s ease}
+.dr-list-wrap::before{top:0;background:linear-gradient(to bottom,var(--book-accent) 10%,rgba(0,0,0,0));opacity:0}
+.dr-list-wrap::after{bottom:0;background:linear-gradient(to top,var(--book-accent) 10%,rgba(0,0,0,0));opacity:0}
+.dr-list-wrap.has-top-overflow::before{opacity:1}
+.dr-list-wrap.has-bottom-overflow::after{opacity:1}
+.dr-list{flex:1;overflow-y:auto;padding:8px 0;
+  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.45) transparent;-webkit-overflow-scrolling:touch;
+}
+.dr-list::-webkit-scrollbar{width:5px;background:transparent}
+.dr-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.45);border-radius:3px}
+.dr-list::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.65)}
 .dr-item{display:flex;align-items:center;gap:14px;padding:11px 18px;cursor:pointer;font-size:14px}
 .dr-item:active{background:rgba(255,255,255,.08)}
 .dr-item svg{width:22px;height:22px;opacity:.85}
@@ -1537,7 +1548,8 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
       <span>Quản lý sổ</span>
     </div>
   </div>
-  <div class="dr-list">
+  <div class="dr-list-wrap" id="drListWrap">
+  <div class="dr-list" id="drList">
     <div class="dr-section-label">Tổng quan</div>
     <div class="dr-item" data-action="home"><span class="dr-emoji">🏠</span> Trang chủ</div>
     <div class="dr-item" data-action="transactions"><span class="dr-emoji">📋</span> Giao dịch</div>
@@ -1562,6 +1574,7 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
     <div class="dr-item" id="syncItem" data-action="sync" style="display:none"><span class="dr-emoji">☁️</span> Đồng bộ Drive</div>
     <div class="dr-item" id="loginItem" data-action="login"><span class="dr-emoji">🔐</span> Đăng nhập Google</div>
     <div class="dr-item" id="logoutItem" data-action="logout" style="display:none"><span class="dr-emoji">🔓</span> Đăng xuất</div>
+  </div>
   </div>
 </div>
 <div id="drawerOverlay" class="drawer-overlay"></div>

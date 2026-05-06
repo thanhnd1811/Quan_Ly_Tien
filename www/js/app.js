@@ -697,8 +697,16 @@ const App = {
     });
 
     // Drawer
-    $('#menuBtn').onclick = () => $('#drawer').classList.add('open');
+    $('#menuBtn').onclick = () => {
+      $('#drawer').classList.add('open');
+      // Update fade indicators sau khi drawer hiển thị (cần đợi layout)
+      requestAnimationFrame(() => this._updateDrawerOverflowHints());
+    };
     $('#drawerOverlay').onclick = () => $('#drawer').classList.remove('open');
+    // Bind scroll event để cập nhật fade gradient
+    const drList = $('#drList');
+    if (drList) drList.addEventListener('scroll', () => this._updateDrawerOverflowHints());
+    window.addEventListener('resize', () => this._updateDrawerOverflowHints());
     $$('#drawer .dr-item, #drawer .dr-mini-item').forEach(el => {
       el.onclick = () => {
         const action = el.dataset.action;
@@ -980,6 +988,17 @@ const App = {
   render() {
     this.renderAuthUI();
     this.renderBookHeader();
+  },
+
+  // Cập nhật fade gradient mép trên/dưới của drawer list để báo hiệu nội dung scroll
+  _updateDrawerOverflowHints() {
+    const list = document.getElementById('drList');
+    const wrap = document.getElementById('drListWrap');
+    if (!list || !wrap) return;
+    const hasTop = list.scrollTop > 4;
+    const hasBottom = list.scrollTop + list.clientHeight < list.scrollHeight - 4;
+    wrap.classList.toggle('has-top-overflow', hasTop);
+    wrap.classList.toggle('has-bottom-overflow', hasBottom);
   },
 
   switchTab(name) {
