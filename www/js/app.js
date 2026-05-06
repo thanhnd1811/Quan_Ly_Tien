@@ -549,6 +549,72 @@ const App = {
     editingGoal: null
   },
 
+  // ====== PHOTO GALLERY ======
+  renderPhotoGallery() {
+    const wrap = $('#photoGallery');
+    const stats = $('#photoStats');
+    if (!wrap) return;
+
+    // Gom tất cả ảnh từ tx có photos, sort newest first
+    const items = []; // {tx, photo, idx, photos[]}
+    for (const t of this.state.transactions) {
+      const photos = this.getTxPhotos(t);
+      photos.forEach((p, i) => items.push({ tx: t, photo: p, idx: i, photos }));
+    }
+    items.sort((a, b) => (b.tx.date + (b.tx._updatedAt || ''))
+      .localeCompare(a.tx.date + (a.tx._updatedAt || '')));
+
+    if (items.length === 0) {
+      wrap.innerHTML = this.emptyState({
+        icon: '📷', title: 'Chưa có ảnh nào',
+        desc: 'Thêm ảnh hoá đơn / chuyển khoản vào giao dịch — chúng sẽ hiện ở đây.'
+      });
+      stats.textContent = '';
+      return;
+    }
+
+    // Group by month
+    const byMonth = {};
+    items.forEach(x => {
+      const ym = x.tx.date.slice(0, 7);
+      (byMonth[ym] = byMonth[ym] || []).push(x);
+    });
+
+    stats.innerHTML = `📷 <strong style="color:var(--text)">${items.length}</strong> ảnh từ <strong style="color:var(--text)">${new Set(items.map(x => x.tx.id)).size}</strong> giao dịch`;
+
+    let html = '';
+    for (const ym of Object.keys(byMonth).sort().reverse()) {
+      const [y, mo] = ym.split('-');
+      html += `<div class="photo-gal-section">Tháng ${parseInt(mo, 10)}/${y} (${byMonth[ym].length})</div>`;
+      html += '<div class="photo-gallery-grid">' + byMonth[ym].map((x, i) => {
+        const cat = this.state.categories.find(c => c.id === x.tx.categoryId);
+        const sign = x.tx.type === 'income' ? '+' : (x.tx.type === 'expense' ? '-' : '');
+        return `
+          <div class="photo-gal-item" data-photo-tx="${x.tx.id}" data-photo-idx="${x.idx}">
+            <img src="${x.photo}" alt="">
+            <div class="photo-gal-item-info">
+              <div class="photo-gal-item-amt">${sign}${this._fmtShort(x.tx.amount)}</div>
+              <div class="photo-gal-item-date">${this.formatDate(x.tx.date)}${cat ? ' · ' + this.escapeHtml(cat.name).slice(0, 14) : ''}</div>
+            </div>
+          </div>
+        `;
+      }).join('') + '</div>';
+    }
+    wrap.innerHTML = html;
+
+    wrap.querySelectorAll('[data-photo-tx]').forEach(el => {
+      el.onclick = () => {
+        const txId = el.dataset.photoTx;
+        const idx = parseInt(el.dataset.photoIdx, 10);
+        const tx = this.state.transactions.find(t => t.id === txId);
+        if (!tx) return;
+        const photos = this.getTxPhotos(tx);
+        // Mở lightbox với điều hướng giữa các ảnh của tx này
+        this.openLightbox(photos[idx], photos, idx);
+      };
+    });
+  },
+
   // ====== BULK SELECT ======
   _bulkToggle(txId, el) {
     if (this.state.bulkSelected.has(txId)) {
@@ -1517,6 +1583,7 @@ const App = {
     else if (name === 'fuel') this.renderFuel();
     else if (name === 'savings') this.renderSavings();
     else if (name === 'recurring') this.renderRecurring();
+    else if (name === 'photos') this.renderPhotoGallery();
   },
 
   // ============ HOME ============
