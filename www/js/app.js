@@ -2249,33 +2249,121 @@ const App = {
     if (advBtn) advBtn.onclick = () => this.openTxFilterModal();
     this.renderActiveFilterChips();
 
-    // View mode toggle
+    // View mode toggle: list | calendar | map
     const setViewMode = (mode) => {
       this.state.txViewMode = mode;
-      const isList = mode === 'list';
-      $('#txList').style.display = isList ? '' : 'none';
-      $('#txCalendar').style.display = isList ? 'none' : 'block';
-      const lstBtn = $('#txViewList'), calBtn = $('#txViewCalendar');
-      if (lstBtn) {
-        lstBtn.classList.toggle('on', isList);
-        lstBtn.style.background = isList ? 'var(--accent)' : 'var(--surface)';
-        lstBtn.style.color = isList ? '#fff' : 'var(--text2)';
-        lstBtn.style.borderColor = isList ? 'var(--accent)' : 'var(--border)';
-      }
-      if (calBtn) {
-        calBtn.classList.toggle('on', !isList);
-        calBtn.style.background = !isList ? 'var(--accent)' : 'var(--surface)';
-        calBtn.style.color = !isList ? '#fff' : 'var(--text2)';
-        calBtn.style.borderColor = !isList ? 'var(--accent)' : 'var(--border)';
-      }
-      if (!isList) this.renderTxCalendar();
+      $('#txList').style.display = mode === 'list' ? '' : 'none';
+      $('#txCalendar').style.display = mode === 'calendar' ? 'block' : 'none';
+      $('#txMap').style.display = mode === 'map' ? 'block' : 'none';
+      $('#txMapEmpty').style.display = 'none';
+      const btns = { list: $('#txViewList'), calendar: $('#txViewCalendar'), map: $('#txViewMap') };
+      Object.entries(btns).forEach(([k, b]) => {
+        if (!b) return;
+        const on = k === mode;
+        b.classList.toggle('on', on);
+        b.style.background = on ? 'var(--accent)' : 'var(--surface)';
+        b.style.color = on ? '#fff' : 'var(--text2)';
+        b.style.borderColor = on ? 'var(--accent)' : 'var(--border)';
+      });
+      if (mode === 'calendar') this.renderTxCalendar();
+      if (mode === 'map') this.renderTxMap();
     };
-    const lstBtn = $('#txViewList');
-    const calBtn = $('#txViewCalendar');
-    if (lstBtn) lstBtn.onclick = () => setViewMode('list');
-    if (calBtn) calBtn.onclick = () => setViewMode('calendar');
-    // Apply current mode
+    if ($('#txViewList')) $('#txViewList').onclick = () => setViewMode('list');
+    if ($('#txViewCalendar')) $('#txViewCalendar').onclick = () => setViewMode('calendar');
+    if ($('#txViewMap')) $('#txViewMap').onclick = () => setViewMode('map');
     setViewMode(this.state.txViewMode);
+  },
+
+  // Lazy load Leaflet (~40KB) chỉ khi user vào tab Bản đồ
+  async _loadLeaflet() {
+    if (window.L) return;
+    await new Promise((resolve, reject) => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+      const s = document.createElement('script');
+      s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Không tải được Leaflet'));
+      document.head.appendChild(s);
+    });
+  },
+
+  async renderTxMap() {
+    const mapEl = $('#txMap');
+    const emptyEl = $('#txMapEmpty');
+    if (!mapEl) return;
+
+    // Lọc tx có location
+    const txs = this.state.transactions.filter(t => t.location?.lat && t.location?.lng);
+    if (txs.length === 0) {
+      mapEl.style.display = 'none';
+      emptyEl.style.display = 'block';
+      emptyEl.innerHTML = QLT_Geo.isEnabled()
+        ? '🗺️ Chưa có giao dịch nào kèm vị trí.<br>Tạo GD mới sẽ tự ghi vị trí — quay lại đây xem.'
+        : '🗺️ Tính năng vị trí đang TẮT.<br><a style="color:var(--accent);font-weight:600" href="#" onclick="QLT_App.switchTab(\'settings\');return false">Vào Cài đặt → Quyền riêng tư để bật</a>';
+      return;
+    }
+
+    try {
+      await this._loadLeaflet();
+    } catch (e) {
+      mapEl.style.display = 'none';
+      emptyEl.style.display = 'block';
+      emptyEl.innerHTML = '⚠️ Không tải được bản đồ. Cần có internet.';
+      return;
+    }
+
+    // Init map (or reuse)
+    if (!this._txMapObj) {
+      this._txMapObj = window.L.map(mapEl).setView([16.0544, 108.2022], 12); // Đà Nẵng default
+      window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap'
+      }).addTo(this._txMapObj);
+      this._txMapMarkers = [];
+    } else {
+      // Clear cũ
+      this._txMapMarkers.forEach(m => m.remove());
+      this._txMapMarkers = [];
+      // Force resize sau khi display
+      setTimeout(() => this._txMapObj.invalidateSize(), 100);
+    }
+
+    // Add markers
+    const bounds = [];
+    for (const t of txs) {
+      const cat = this.state.categories.find(c => c.id === t.categoryId);
+      const acc = this.state.accounts.find(a => a.id === t.accountId);
+      const sign = t.type === 'income' ? '+' : '-';
+      const color = t.type === 'income' ? '#2d8659' : '#e63946';
+      const popup = `
+        <div style="font-size:13px;line-height:1.5;min-width:160px">
+          <div style="font-weight:700;color:${color}">${sign}${fmt(t.amount)} đ</div>
+          <div style="color:#555">${this.escapeHtml(cat?.name || '')} · ${this.escapeHtml(acc?.name || '')}</div>
+          <div style="color:#777;font-size:11px">${this.formatDate(t.date)}</div>
+          ${t.note ? `<div style="margin-top:4px">${this.escapeHtml(t.note)}</div>` : ''}
+          ${t.location.address ? `<div style="font-size:11px;color:#0a558c;margin-top:4px">📍 ${this.escapeHtml(t.location.address)}</div>` : ''}
+        </div>
+      `;
+      const marker = window.L.circleMarker([t.location.lat, t.location.lng], {
+        radius: 8,
+        color: '#fff',
+        weight: 2,
+        fillColor: color,
+        fillOpacity: 0.85
+      }).addTo(this._txMapObj).bindPopup(popup);
+      this._txMapMarkers.push(marker);
+      bounds.push([t.location.lat, t.location.lng]);
+    }
+
+    // Auto-fit bounds
+    if (bounds.length === 1) {
+      this._txMapObj.setView(bounds[0], 15);
+    } else if (bounds.length > 1) {
+      this._txMapObj.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+    }
   },
 
   renderTxCalendar() {

@@ -901,6 +901,7 @@ html[data-theme="dark"] .rec-type-pill.on{
     <div style="padding:0 16px 6px;display:flex;justify-content:flex-end;gap:6px">
       <button id="txViewList" class="pill on" style="padding:5px 12px;font-size:12px;background:var(--accent);color:#fff;border-color:var(--accent)">📋 List</button>
       <button id="txViewCalendar" class="pill" style="padding:5px 12px;font-size:12px">📅 Lịch</button>
+      <button id="txViewMap" class="pill" style="padding:5px 12px;font-size:12px">🗺️ Bản đồ</button>
     </div>
     <div id="txActiveFilters" style="display:none;padding:0 16px 8px"></div>
     <div id="txBulkBar" style="display:none;background:var(--accent);color:#fff;padding:10px 16px;align-items:center;gap:10px;position:sticky;top:0;z-index:5">
@@ -911,6 +912,8 @@ html[data-theme="dark"] .rec-type-pill.on{
     </div>
     <div id="txList"></div>
     <div id="txCalendar" style="display:none;padding:8px 16px"></div>
+    <div id="txMap" style="display:none;height:60vh;margin:8px 16px;border-radius:12px;overflow:hidden;border:1px solid var(--border)"></div>
+    <div id="txMapEmpty" style="display:none;padding:30px 16px;text-align:center;color:var(--text3);font-size:13px;line-height:1.7"></div>
     <div style="padding:10px 16px;text-align:center">
       <button id="txEnterBulkBtn" style="background:transparent;border:1px dashed var(--border);color:var(--text2);padding:8px 14px;border-radius:14px;font-size:12px;cursor:pointer">☑ Chọn nhiều</button>
     </div>
