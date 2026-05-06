@@ -4682,12 +4682,44 @@ const App = {
     let categoryId = null;
     if (type !== 'transfer') {
       const cands = this.state.categories.filter(c => c.type === type);
-      // Tìm match dài nhất để tránh "ăn" trùng "ăn vặt" thay vì "ăn uống"
+      // Bước 1: tìm match dài nhất (substring trực tiếp, không dấu)
+      // Bước 2: alias mapping (cafe→cà phê, an→ăn, xang→xăng...)
+      // Bước 3: substring 2 chiều — danh mục chứa từ trong câu hoặc câu chứa từ trong danh mục
+      const aliasMap = [
+        ['cafe', 'ca phe'], ['café', 'ca phe'], ['ca fe', 'ca phe'],
+        ['coffee', 'ca phe'], ['trà sữa', 'tra sua'], ['tra sua', 'ca phe'],
+        ['xang', 'xang xe'], ['gas', 'xang xe'],
+        ['an', 'an uong'], ['an uong', 'an uong'], ['com', 'an uong'],
+        ['nuoc', 'tien nuoc'], ['dien', 'tien dien'], ['internet', 'internet'],
+        ['nha', 'tien nha'], ['thue nha', 'tien nha'],
+        ['shopping', 'mua sam'], ['quan ao', 'mua sam'],
+        ['thuoc', 'suc khoe'], ['benh vien', 'suc khoe'],
+        ['xem phim', 'giai tri'], ['game', 'giai tri'],
+        ['hoc', 'hoc hanh'], ['sach', 'hoc hanh'],
+        ['qua', 'gia dinh / bieu tang'], ['cuoi', 'gia dinh / bieu tang'],
+        ['luong', 'luong'], ['thuong', 'thuong']
+      ];
+      let normSearch = norm;
+      for (const [from, to] of aliasMap) {
+        if (normSearch.includes(from)) normSearch += ' ' + to;
+      }
+
       let best = null, bestLen = 0;
       for (const c of cands) {
         const cn = normalizeVi(c.name);
-        if (cn && cn.length > bestLen && norm.includes(cn)) {
+        if (!cn) continue;
+        // Match dài nhất substring
+        if (cn.length > bestLen && normSearch.includes(cn)) {
           best = c; bestLen = cn.length;
+        }
+        // Match 2 chiều: từng từ của danh mục có trong câu (ưu tiên thấp hơn)
+        if (!best || bestLen < cn.length) {
+          const words = cn.split(/[\s/]+/).filter(w => w.length >= 3);
+          for (const w of words) {
+            if (normSearch.includes(w) && w.length > bestLen) {
+              best = c; bestLen = w.length;
+            }
+          }
         }
       }
       categoryId = best?.id || null;
@@ -4743,6 +4775,13 @@ const App = {
           this.state.editingTx.categoryId = parsed.categoryId;
           $$('#txCategoryList .picker-item').forEach(el =>
             el.classList.toggle('on', el.dataset.cat === parsed.categoryId));
+        } else if (parsed.type !== 'transfer') {
+          // Không tìm được danh mục → scroll xuống picker + nhắc user
+          setTimeout(() => {
+            const sec = document.getElementById('txCategorySection');
+            if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            QLT_UI.toast('Chọn danh mục cho giao dịch (không tìm thấy danh mục phù hợp từ câu nói)', { type: 'info', duration: 3000 });
+          }, 600);
         }
 
         // Ghi chú = câu nói gốc
