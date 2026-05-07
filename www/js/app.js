@@ -5518,19 +5518,31 @@ const App = {
 
   // Phân tích câu nói tiếng Việt → {type, amount, accountId, toAccountId, categoryId, note}
   parseVoiceTransaction(text) {
-    const norm = normalizeVi(text);
+    // 0) Phát hiện trigger auto-save ở cuối câu ("lưu", "save", "xong", "done")
+    let workText = (text || '').trim();
+    let autoSave = false;
+    const saveTrigger = /[\s,.;]*(lưu|luu|save|xong|done)\s*[!.?]*\s*$/i;
+    if (saveTrigger.test(workText)) {
+      autoSave = true;
+      workText = workText.replace(saveTrigger, '').trim();
+    }
 
-    // 1) Detect type — keyword "chuyển" mạnh nhất, sau đó "thu/lương/nhận", còn lại expense
+    const norm = normalizeVi(workText);
+
+    // 1) Detect type — "chuyển" phải đi kèm directional ("từ/sang/đến/qua/tới")
+    //    XUẤT HIỆN SAU "chuyển" mới là transfer. Tránh false positive với "ăn sáng".
+    //    "chuyển khoản bằng X" chỉ là cách thanh toán → vẫn là expense
     let type = 'expense';
-    if (/\bchuyen\b/.test(norm)) type = 'transfer';
-    else if (/\b(thu nhap|thu nhập|thu|nhan|luong|tien luong|thưởng|thuong)\b/.test(norm)) {
-      // Tránh nhầm "thu" trong "thu phí" hay "đi thu" → ưu tiên cụm rõ ràng;
-      // ở đây nếu có 'thu' đứng riêng thì coi là income.
+    const chuyenMatch = norm.match(/\bchuyen\b(.{0,60})/);
+    const hasTransferContext = chuyenMatch && /\b(tu|sang|den|qua|toi)\b/.test(chuyenMatch[1]);
+    if (hasTransferContext) {
+      type = 'transfer';
+    } else if (/\b(thu nhap|nhan|luong|tien luong|thuong|bonus|salary)\b/.test(norm)) {
       type = 'income';
     }
 
     // 2) Số tiền
-    const amount = parseVoiceAmount(text);
+    const amount = parseVoiceAmount(workText);
 
     // 3) Tìm các ví xuất hiện trong câu (theo thứ tự)
     const accIdxs = [];
@@ -5666,7 +5678,33 @@ const App = {
       categoryId = best?.id || null;
     }
 
-    return { type, amount, accountId, toAccountId, categoryId, tags, note: text.trim() };
+    // 5) Smart note — cắt phần trước số tiền + bỏ từ giao dịch + bỏ tên ví
+    let cleanNote = workText;
+    // 5a) Lấy phần TRƯỚC số tiền
+    const amountMatch = workText.match(/\b(\d[\d.,]*)\s*(k|nghin|nghìn|ngan|ngàn|tr|trieu|triệu|ty|tỷ|đồng|dong|đ)\b/i);
+    if (amountMatch && amountMatch.index > 2) {
+      cleanNote = workText.slice(0, amountMatch.index).trim();
+    }
+    // 5b) Bỏ từ giao dịch / cụm thanh toán phổ biến (giữ nội dung gốc)
+    cleanNote = cleanNote
+      .replace(/\b(chuyển khoản bằng|chuyen khoan bang|thanh toán bằng|thanh toan bang|trả bằng|tra bang|chi bằng|chi bang)\b.*/i, '')
+      .replace(/\b(hết|het|tốn|ton|mất|mat|mua|cho|chi|thu)\s*$/i, '')
+      .replace(/\s+/g, ' ')
+      .replace(/[,;.]+\s*$/, '')
+      .trim();
+    // 5c) Bỏ tên ví ở cuối (vd "ăn sáng MBBank" → "ăn sáng")
+    for (const a of this.state.accounts) {
+      if (!a.name) continue;
+      const re = new RegExp('\\b' + a.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
+      cleanNote = cleanNote.replace(re, '').trim();
+    }
+    cleanNote = cleanNote.replace(/[,;.]+\s*$/, '').trim();
+    // 5d) Bỏ tag pattern "thẻ X" khỏi note (đã được parse riêng)
+    cleanNote = cleanNote.replace(/\bthẻ\s+\S+(\s+\S+)?/gi, '').replace(/\bthe\s+\S+(\s+\S+)?/gi, '').trim();
+    // Fallback: nếu cắt sạch quá → dùng workText
+    if (cleanNote.length < 2) cleanNote = workText;
+
+    return { type, amount, accountId, toAccountId, categoryId, tags, note: cleanNote, autoSave };
   },
 
   async voiceInput() {
@@ -5677,7 +5715,7 @@ const App = {
     const status = $('#txOcrStatus');
     status.style.display = 'block';
     status.style.color = '';
-    status.textContent = '🎙️ Đang nghe... nói "cà phê 50 nghìn", "lương 10 triệu", "chuyển 500k VCB sang MB"...';
+    status.textContent = '🎙️ Nói: "ăn sáng 150k MBBank lưu" (kết "lưu" để tự lưu) · "lương 10tr" · "chuyển 500k VCB sang MB"';
 
     QLT_Voice.listen({
       lang: 'vi-VN',
@@ -5744,11 +5782,37 @@ const App = {
           this.renderTxTags();
         }
 
-        // Ghi chú = câu nói gốc
+        // Ghi chú đã smart-trim (bỏ "lưu", bỏ tên ví, bỏ phần sau số tiền)
         if (parsed.note) $('#txNote').value = parsed.note;
 
         const typeLabel = parsed.type === 'expense' ? 'Chi phí'
           : parsed.type === 'income' ? 'Thu nhập' : 'Chuyển khoản';
+
+        // ===== Auto-save khi user nói "lưu" / "save" cuối câu =====
+        if (parsed.autoSave) {
+          // Validate đủ field trước khi save (tránh toast lỗi)
+          const tx = this.state.editingTx;
+          const missing = [];
+          if (!parsed.amount || parsed.amount <= 0) missing.push('số tiền');
+          if (!tx.accountId) missing.push('ví');
+          if (parsed.type !== 'transfer' && !tx.categoryId) missing.push('danh mục');
+          if (parsed.type === 'transfer' && !tx.toAccountId) missing.push('ví đích');
+
+          if (missing.length > 0) {
+            status.style.color = '#cc7a4f';
+            status.textContent = `⚠️ Còn thiếu: ${missing.join(', ')} — vui lòng chọn rồi bấm Lưu`;
+            setTimeout(() => { status.style.display = 'none'; status.style.color = ''; }, 4000);
+          } else {
+            status.textContent = `💾 Đang lưu: ${typeLabel} ${fmt(parsed.amount)} đ...`;
+            // Delay nhỏ để user thấy xác nhận trước khi modal đóng
+            setTimeout(() => {
+              status.style.display = 'none';
+              this.saveTx();
+            }, 700);
+          }
+          return;
+        }
+
         status.textContent = `✓ ${typeLabel} · "${text}"`;
         setTimeout(() => { status.style.display = 'none'; }, 2500);
       },
