@@ -1466,6 +1466,88 @@ const App = {
       }, { passive: true });
     });
 
+    // Pull-to-refresh — chỉ apply cho home + accounts + transactions
+    const ptrTabs = ['home', 'accounts', 'transactions'];
+    document.querySelectorAll('.scroll-body').forEach(body => {
+      const screen = body.closest('.screen');
+      if (!screen) return;
+      const tabId = (screen.id || '').replace('screen-', '');
+      if (!ptrTabs.includes(tabId)) return;
+
+      // Inject indicator nếu chưa có
+      if (!body.querySelector('.ptr-indicator')) {
+        const ind = document.createElement('div');
+        ind.className = 'ptr-indicator';
+        ind.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><polyline points="12 7 12 12 15 14"/></svg>';
+        body.insertBefore(ind, body.firstChild);
+      }
+      const indicator = body.querySelector('.ptr-indicator');
+
+      let startY = 0, currentY = 0, pulling = false, refreshing = false;
+      const THRESHOLD = 70;
+
+      body.addEventListener('touchstart', (e) => {
+        if (refreshing) return;
+        if (body.scrollTop > 0) return;
+        startY = e.touches[0].clientY;
+        pulling = true;
+      }, { passive: true });
+
+      body.addEventListener('touchmove', (e) => {
+        if (!pulling || refreshing) return;
+        currentY = e.touches[0].clientY;
+        const delta = currentY - startY;
+        if (delta <= 0) {
+          indicator.style.transform = 'translate(-50%,-100%)';
+          indicator.classList.remove('pulling');
+          return;
+        }
+        // Resistance — kéo càng xa càng nặng
+        const dragged = Math.min(120, delta * 0.5);
+        indicator.style.transform = `translate(-50%,${dragged - 50}px)`;
+        indicator.classList.add('pulling');
+        // Rotate svg theo % progress
+        const progress = Math.min(1, dragged / THRESHOLD);
+        const svg = indicator.querySelector('svg');
+        if (svg) svg.style.transform = `rotate(${progress * 270}deg)`;
+      }, { passive: true });
+
+      body.addEventListener('touchend', async () => {
+        if (!pulling || refreshing) return;
+        pulling = false;
+        const delta = currentY - startY;
+        const dragged = Math.min(120, delta * 0.5);
+        if (dragged >= THRESHOLD) {
+          // Trigger refresh
+          refreshing = true;
+          indicator.classList.add('refreshing');
+          indicator.style.transform = '';
+          try { navigator.vibrate?.(15); } catch (_) {}
+          try {
+            await this.reload();
+            this.switchTab(this.state.currentTab);
+            // Sync nếu đăng nhập
+            if (window.QLT_Auth?.user) {
+              try { await window.QLT_Sync.smartSync(); } catch (_) {}
+            }
+          } catch (_) {}
+          setTimeout(() => {
+            indicator.classList.remove('refreshing', 'pulling');
+            indicator.style.transform = 'translate(-50%,-100%)';
+            const svg = indicator.querySelector('svg');
+            if (svg) svg.style.transform = '';
+            refreshing = false;
+          }, 600);
+        } else {
+          // Snap back
+          indicator.classList.remove('pulling');
+          indicator.style.transform = 'translate(-50%,-100%)';
+          const svg = indicator.querySelector('svg');
+          if (svg) svg.style.transform = '';
+        }
+      }, { passive: true });
+    });
+
     // Eye buttons (ẩn/hiện số dư)
     const homeEye = $('#homeEyeBtn');
     if (homeEye) homeEye.onclick = (e) => { e.stopPropagation(); this.toggleHideAmounts(); };
