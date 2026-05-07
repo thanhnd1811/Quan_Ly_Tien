@@ -88,6 +88,18 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 
 .screen{display:none;flex-direction:column;min-height:100vh}
 .screen.active{display:flex;animation:screenIn .28s cubic-bezier(.2,.8,.3,1)}
+
+/* Splash screen — hiện khi app khởi động */
+#qltSplash{position:fixed;inset:0;background:linear-gradient(135deg,#2d6a4f,#52b788);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;animation:splashIn .15s ease}
+#qltSplash.fade{animation:splashOut .35s ease forwards}
+#qltSplash .splash-logo{width:96px;height:96px;border-radius:24px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 12px 40px rgba(0,0,0,0.25);animation:splashLogo .6s cubic-bezier(.2,.8,.3,1.4)}
+#qltSplash .splash-logo img{width:80px;height:80px;border-radius:18px}
+#qltSplash .splash-title{font-size:18px;font-weight:700;letter-spacing:-0.2px;animation:splashFade .8s .15s ease both}
+#qltSplash .splash-tag{font-size:12px;opacity:.85;animation:splashFade .8s .25s ease both}
+@keyframes splashIn{from{opacity:0}to{opacity:1}}
+@keyframes splashOut{from{opacity:1}to{opacity:0;visibility:hidden}}
+@keyframes splashLogo{0%{transform:scale(.5);opacity:0}60%{transform:scale(1.08);opacity:1}100%{transform:scale(1)}}
+@keyframes splashFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes screenIn{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:translateX(0)}}
 
@@ -216,13 +228,18 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .btn,.dr-item,.tx-item,.cat-item,.picker-item,.acc-item{transition:transform .12s ease,background-color .15s ease}
 .btn:active,.tx-item:active,.cat-item:active,.acc-item:active{transform:scale(.98)}
 .tx-amount,.balance-hero-amount{transition:opacity .25s ease}
-.empty-state{text-align:center;padding:48px 20px 24px;line-height:1.6}
-.empty-state-icon{font-size:64px;margin-bottom:12px;animation:emptyBounce 2s ease-in-out infinite}
+.empty-state{text-align:center;padding:56px 24px 32px;line-height:1.6}
+.empty-state-illu{position:relative;width:140px;height:140px;margin:0 auto 18px;display:flex;align-items:center;justify-content:center}
+.empty-state-illu::before{content:'';position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,rgba(82,183,136,0.18) 0%,rgba(82,183,136,0.08) 50%,transparent 75%);animation:emptyGlow 3s ease-in-out infinite}
+.empty-state-illu::after{content:'';position:absolute;inset:14px;border-radius:50%;background:radial-gradient(circle,rgba(82,183,136,0.10) 0%,transparent 60%)}
+.empty-state-icon{font-size:72px;animation:emptyFloat 3s ease-in-out infinite;position:relative;z-index:2;line-height:1;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.10))}
+@keyframes emptyFloat{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-8px) rotate(2deg)}}
+@keyframes emptyGlow{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.08);opacity:1}}
 @keyframes emptyBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
-.empty-state-title{font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px}
-.empty-state-desc{font-size:13px;color:var(--text2);max-width:280px;margin:0 auto 16px}
-.empty-state-cta{display:inline-block;padding:10px 20px;background:var(--accent);color:#fff;border-radius:24px;font-size:13px;font-weight:600;cursor:pointer;border:none;text-decoration:none}
-.empty-state-cta:active{transform:scale(.97)}
+.empty-state-title{font-size:17px;font-weight:700;color:var(--text);margin-bottom:8px;letter-spacing:-0.2px}
+.empty-state-desc{font-size:13.5px;color:var(--text2);max-width:300px;margin:0 auto 20px;line-height:1.6}
+.empty-state-cta{display:inline-flex;align-items:center;gap:6px;padding:12px 24px;background:linear-gradient(135deg,var(--accent),var(--accent-light));color:#fff;border-radius:24px;font-size:13.5px;font-weight:600;cursor:pointer;border:none;text-decoration:none;box-shadow:0 4px 14px rgba(45,106,79,.35);transition:all .15s ease}
+.empty-state-cta:active{transform:scale(.95);box-shadow:0 2px 8px rgba(45,106,79,.3)}
 
 /* Home — premium hero card với glassmorphism layer */
 .balance-hero{background:linear-gradient(135deg,var(--book-accent) 0%,var(--book-accent-light) 100%);color:#fff;border-radius:20px;padding:24px 22px 22px;margin:16px;box-shadow:var(--sh3);transition:background .25s ease;position:relative;overflow:hidden}
@@ -925,6 +942,12 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
 </style>
 </head>
 <body>
+<!-- Splash screen — ẩn khi app init xong -->
+<div id="qltSplash">
+  <div class="splash-logo"><img src="icons/icon-192.png" alt="Quản Lý Tiền"></div>
+  <div class="splash-title">Quản Lý Tiền</div>
+  <div class="splash-tag">Đang chuẩn bị…</div>
+</div>
 
 <!-- ========== HOME ========== -->
 <div id="screen-home" class="screen">

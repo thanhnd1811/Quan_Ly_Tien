@@ -61,6 +61,8 @@
         loss:    '#a02431'   // đỏ đậm
       };
 
+      // Group bounding boxes — để tap detect
+      const groupBoxes = [];
       enriched.forEach((d, i) => {
         const groupX = padLeft + i * barGroupW + barGroupW / 2;
         // 4 bar offset từ trung tâm: -1.5, -0.5, +0.5, +1.5 (tính từ trung tâm group)
@@ -85,7 +87,30 @@
         ctx.font = '10px DM Sans, sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText(d.label, groupX, H - padBottom + 14);
+
+        // Lưu bbox để tap detect
+        groupBoxes.push({
+          xMin: padLeft + i * barGroupW,
+          xMax: padLeft + (i + 1) * barGroupW,
+          data: d
+        });
       });
+
+      // Tap để show tooltip
+      if (typeof opts.onBarClick === 'function') {
+        canvas.style.cursor = 'pointer';
+        canvas.onclick = (e) => {
+          const rect = canvas.getBoundingClientRect();
+          const x = (e.clientX - rect.left) * (W / rect.width);
+          const y = (e.clientY - rect.top) * (H / rect.height);
+          if (y < padTop || y > padTop + innerH) return;
+          const found = groupBoxes.find(b => x >= b.xMin && x <= b.xMax);
+          if (found) opts.onBarClick(found.data);
+        };
+      } else {
+        canvas.style.cursor = '';
+        canvas.onclick = null;
+      }
 
       // Legend 2 hàng (4 series chia 2 hàng cho gọn)
       const legend = [

@@ -1840,7 +1840,9 @@ const App = {
       : '';
     return `
       <div class="empty-state">
-        <div class="empty-state-icon">${icon}</div>
+        <div class="empty-state-illu">
+          <div class="empty-state-icon">${icon}</div>
+        </div>
         <div class="empty-state-title">${this.escapeHtml(title)}</div>
         ${desc ? `<div class="empty-state-desc">${desc}</div>` : ''}
         ${ctaHtml}
@@ -2951,12 +2953,44 @@ const App = {
       `;
     }
 
-    // Bar chart Thu/Chi theo kỳ
+    // Bar chart Thu/Chi theo kỳ — có tap-tooltip
     const barCanvas = $('#chartBar');
     if (barCanvas) {
       const groups = this.groupByPeriod(period);
-      window.QLT_Charts.bar(barCanvas, groups);
+      window.QLT_Charts.bar(barCanvas, groups, {
+        onBarClick: (d) => this._showBarTooltip(d)
+      });
     }
+  },
+
+  _showBarTooltip(d) {
+    const inc = d.income || 0;
+    const exp = d.expense || 0;
+    const profit = Math.max(0, inc - exp);
+    const loss = Math.max(0, exp - inc);
+    const html = `
+      <div style="text-align:left;font-size:13px;line-height:1.7">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+          <span><span style="display:inline-block;width:10px;height:10px;background:#52b788;border-radius:2px;margin-right:8px"></span>Thu nhập</span>
+          <strong style="color:#52b788">${fmt(inc)} đ</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+          <span><span style="display:inline-block;width:10px;height:10px;background:#e76f51;border-radius:2px;margin-right:8px"></span>Chi phí</span>
+          <strong style="color:#e76f51">${fmt(exp)} đ</strong>
+        </div>
+        ${profit > 0 ? `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+          <span><span style="display:inline-block;width:10px;height:10px;background:#1b4d3e;border-radius:2px;margin-right:8px"></span>Lợi nhuận</span>
+          <strong style="color:#1b4d3e">+${fmt(profit)} đ</strong>
+        </div>` : ''}
+        ${loss > 0 ? `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0">
+          <span><span style="display:inline-block;width:10px;height:10px;background:#a02431;border-radius:2px;margin-right:8px"></span>Lỗ</span>
+          <strong style="color:#a02431">-${fmt(loss)} đ</strong>
+        </div>` : ''}
+      </div>
+    `;
+    QLT_UI.alert(html, { title: `📊 Chi tiết ${d.label}`, html: true });
   },
 
   // Mở modal: liệt kê giao dịch của 1 danh mục trong khoảng [from, to]
@@ -9649,6 +9683,16 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
     this.renderBookHeader();
     this.switchTab('home');
     this.autoSync();
+
+    // Splash screen: fade out sau khi UI sẵn sàng (≥800ms để user nhìn animation)
+    const splash = document.getElementById('qltSplash');
+    if (splash && !splash._dismissed) {
+      splash._dismissed = true;
+      setTimeout(() => {
+        splash.classList.add('fade');
+        setTimeout(() => splash.remove(), 400);
+      }, 600);
+    }
   }
 };
 
