@@ -2067,106 +2067,20 @@ const App = {
   },
 
   // Helper: build markup cho empty state đẹp (icon + title + desc + CTA)
-  // Registry SVG illustrations cho empty state — vẽ tay, on-brand
-  _emptyIllustrations: {
-    transactions: `<svg viewBox="0 0 140 140" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="70" cy="70" r="60" fill="#52b788" opacity=".10"/>
-      <path d="M40 38h50a4 4 0 014 4v66l-8-6-8 6-8-6-8 6-8-6-8 6-8-6-8 6V42a4 4 0 014-4z" fill="#fff" stroke="#2d6a4f" stroke-width="2.5" stroke-linejoin="round"/>
-      <line x1="50" y1="56" x2="84" y2="56" stroke="#52b788" stroke-width="3" stroke-linecap="round"/>
-      <line x1="50" y1="68" x2="74" y2="68" stroke="#52b788" stroke-width="3" stroke-linecap="round" opacity=".6"/>
-      <line x1="50" y1="80" x2="80" y2="80" stroke="#52b788" stroke-width="3" stroke-linecap="round" opacity=".5"/>
-      <circle cx="100" cy="100" r="18" fill="#e76f51" stroke="#fff" stroke-width="3"/>
-      <line x1="100" y1="92" x2="100" y2="108" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
-      <line x1="92" y1="100" x2="108" y2="100" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
-    </svg>`,
-    wallets: `<svg viewBox="0 0 140 140" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="70" cy="70" r="60" fill="#52b788" opacity=".10"/>
-      <ellipse cx="70" cy="78" rx="38" ry="28" fill="#52b788"/>
-      <path d="M70 50c-12 0-22 6-26 14h52c-4-8-14-14-26-14z" fill="#2d6a4f"/>
-      <circle cx="86" cy="76" r="3.5" fill="#1a2a1f"/>
-      <rect x="62" y="62" width="16" height="3.5" rx="1.5" fill="#1a2a1f"/>
-      <path d="M32 76 Q26 76 26 82 Q26 88 32 88" fill="none" stroke="#52b788" stroke-width="6" stroke-linecap="round"/>
-      <rect x="52" y="98" width="5" height="14" rx="2" fill="#2d6a4f"/>
-      <rect x="84" y="98" width="5" height="14" rx="2" fill="#2d6a4f"/>
-      <circle cx="50" cy="44" r="9" fill="#f4b942" stroke="#fff" stroke-width="2.5"/>
-      <text x="50" y="48.5" text-anchor="middle" fill="#fff" font-size="11" font-weight="700" font-family="DM Sans, sans-serif">$</text>
-    </svg>`,
-    goals: `<svg viewBox="0 0 140 140" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="70" cy="70" r="60" fill="#52b788" opacity=".10"/>
-      <circle cx="70" cy="70" r="38" fill="none" stroke="#e76f51" stroke-width="4"/>
-      <circle cx="70" cy="70" r="26" fill="none" stroke="#e76f51" stroke-width="4" opacity=".7"/>
-      <circle cx="70" cy="70" r="14" fill="#e76f51"/>
-      <circle cx="70" cy="70" r="5" fill="#fff"/>
-      <line x1="98" y1="42" x2="76" y2="64" stroke="#2d6a4f" stroke-width="3" stroke-linecap="round"/>
-      <polygon points="98,42 96,52 88,50" fill="#2d6a4f"/>
-      <polygon points="76,64 80,60 82,68" fill="#f4b942"/>
-    </svg>`,
-    budgets: `<svg viewBox="0 0 140 140" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="70" cy="70" r="60" fill="#52b788" opacity=".10"/>
-      <circle cx="70" cy="70" r="38" fill="none" stroke="#52b788" stroke-width="14" stroke-dasharray="160 240"/>
-      <circle cx="70" cy="70" r="38" fill="none" stroke="#e76f51" stroke-width="14" stroke-dasharray="60 240" stroke-dashoffset="-160"/>
-      <circle cx="70" cy="70" r="38" fill="none" stroke="#f4b942" stroke-width="14" stroke-dasharray="40 240" stroke-dashoffset="-220"/>
-      <circle cx="70" cy="70" r="22" fill="#fff"/>
-      <text x="70" y="74" text-anchor="middle" fill="#2d6a4f" font-size="14" font-weight="800" font-family="DM Sans, sans-serif">%</text>
-    </svg>`,
-    photos: `<svg viewBox="0 0 140 140" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="70" cy="70" r="60" fill="#52b788" opacity=".10"/>
-      <rect x="32" y="42" width="76" height="56" rx="6" fill="#fff" stroke="#2d6a4f" stroke-width="2.5"/>
-      <circle cx="50" cy="58" r="6" fill="#f4b942"/>
-      <path d="M32 88 L52 70 L72 86 L88 74 L108 92 L108 92 L108 96 a2 2 0 01-2 2 H34 a2 2 0 01-2-2 z" fill="#52b788"/>
-      <circle cx="100" cy="50" r="14" fill="#e76f51" stroke="#fff" stroke-width="3"/>
-      <line x1="100" y1="44" x2="100" y2="56" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
-      <line x1="94" y1="50" x2="106" y2="50" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
-    </svg>`,
-    savings: `<svg viewBox="0 0 140 140" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="70" cy="70" r="60" fill="#52b788" opacity=".10"/>
-      <polygon points="70,30 100,58 70,108 40,58" fill="#52b788" stroke="#2d6a4f" stroke-width="2.5" stroke-linejoin="round"/>
-      <polygon points="70,30 100,58 70,58 40,58" fill="#74c69d" stroke="#2d6a4f" stroke-width="2.5" stroke-linejoin="round"/>
-      <line x1="70" y1="30" x2="70" y2="58" stroke="#2d6a4f" stroke-width="2"/>
-      <line x1="55" y1="44" x2="85" y2="44" stroke="#2d6a4f" stroke-width="2" opacity=".6"/>
-      <circle cx="100" cy="36" r="8" fill="#f4b942" stroke="#fff" stroke-width="2"/>
-      <text x="100" y="40" text-anchor="middle" fill="#fff" font-size="10" font-weight="800" font-family="DM Sans, sans-serif">★</text>
-    </svg>`,
-    fuel: `<svg viewBox="0 0 140 140" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="70" cy="70" r="60" fill="#52b788" opacity=".10"/>
-      <rect x="46" y="50" width="34" height="58" rx="4" fill="#fff" stroke="#2d6a4f" stroke-width="2.5"/>
-      <rect x="46" y="50" width="34" height="14" rx="4" fill="#2d6a4f"/>
-      <line x1="52" y1="74" x2="74" y2="74" stroke="#52b788" stroke-width="2"/>
-      <line x1="52" y1="82" x2="74" y2="82" stroke="#52b788" stroke-width="2"/>
-      <line x1="52" y1="90" x2="74" y2="90" stroke="#52b788" stroke-width="2"/>
-      <line x1="52" y1="98" x2="68" y2="98" stroke="#52b788" stroke-width="2"/>
-      <path d="M84 60 L94 60 L94 86 a4 4 0 008 0 V70 a4 4 0 00-4-4" fill="none" stroke="#2d6a4f" stroke-width="2.5" stroke-linecap="round"/>
-      <circle cx="98" cy="98" r="14" fill="#e76f51" stroke="#fff" stroke-width="3"/>
-      <text x="98" y="103" text-anchor="middle" fill="#fff" font-size="14" font-weight="800" font-family="DM Sans, sans-serif">+</text>
-    </svg>`
-  },
-
-  emptyState({ icon = '📭', illu = null, title = 'Chưa có gì', desc = '', ctaLabel = '', ctaAction = null }) {
+  emptyState({ icon = '📭', title = 'Chưa có gì', desc = '', ctaLabel = '', ctaAction = null }) {
     const ctaHtml = ctaLabel
       ? `<button class="empty-state-cta" data-empty-cta="1">${this.escapeHtml(ctaLabel)}</button>`
       : '';
-    // Ưu tiên SVG illustration nếu có illu key, fallback emoji
-    const illuKey = illu || this._guessIlluKey(icon);
-    const inner = (illuKey && this._emptyIllustrations[illuKey])
-      ? `<div class="empty-state-svg">${this._emptyIllustrations[illuKey]}</div>`
-      : `<div class="empty-state-icon">${icon}</div>`;
     return `
       <div class="empty-state">
-        <div class="empty-state-illu">${inner}</div>
+        <div class="empty-state-illu">
+          <div class="empty-state-icon">${icon}</div>
+        </div>
         <div class="empty-state-title">${this.escapeHtml(title)}</div>
         ${desc ? `<div class="empty-state-desc">${desc}</div>` : ''}
         ${ctaHtml}
       </div>
     `;
-  },
-  // Map emoji → illu key tự động (nếu caller chưa truyền illu)
-  _guessIlluKey(emoji) {
-    const m = {
-      '📭': 'transactions', '💼': 'wallets', '💰': 'wallets',
-      '🏆': 'goals', '🎯': 'budgets', '📷': 'photos',
-      '💎': 'savings', '🚗': 'fuel', '⛽': 'fuel'
-    };
-    return m[emoji] || null;
   },
   // Bind CTA action sau khi render empty state
   bindEmptyCTA(parentEl, action) {
