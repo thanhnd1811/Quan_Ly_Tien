@@ -511,6 +511,12 @@ html[data-theme="dark"] .empty-state-svg svg path[fill="#fff"]{fill:var(--surfac
 .tx-budget-hint{font-size:11px;color:var(--text2);margin-top:6px;padding:6px 10px;background:var(--surface2);border-radius:8px;border-left:3px solid var(--accent)}
 .tx-budget-hint.warn{border-left-color:#f59e0b;color:#b45309}
 .tx-budget-hint.over{border-left-color:var(--danger);color:#b91c1c}
+/* Loan type segmented (Cho vay / Đi vay) — override seg-item màu cho light bg */
+.loan-type-pill{font-weight:600;transition:all .2s ease;cursor:pointer}
+.loan-type-pill.on{background:var(--surface);color:var(--text)!important;box-shadow:0 2px 8px rgba(0,0,0,.10);font-weight:700}
+.loan-type-pill[data-type="lend"].on{color:var(--pos)!important}
+.loan-type-pill[data-type="borrow"].on{color:var(--accent2)!important}
+
 /* Loans (Cho vay / Nợ) */
 .loan-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 16px;background:var(--book-accent);color:#fff}
 .loan-summary-card{background:rgba(255,255,255,.16);border-radius:var(--rsm);padding:10px 12px}

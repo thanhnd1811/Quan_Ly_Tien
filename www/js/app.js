@@ -1516,7 +1516,10 @@ const App = {
       body.addEventListener('touchstart', (e) => {
         if (refreshing) return;
         if (body.scrollTop > 0) return;
+        // Skip nếu tap vào button/picker — tránh nhầm tap thành PTR (vd: eye toggle)
+        if (e.target && e.target.closest && e.target.closest('button, .balance-eye, [role="button"], .ni, .ni-fab, .picker-item')) return;
         startY = e.touches[0].clientY;
+        currentY = startY;  // QUAN TRỌNG: reset, tránh trigger refresh nhầm
         pulling = true;
       }, { passive: true });
 
@@ -1826,19 +1829,42 @@ const App = {
     if (catTxClose) catTxClose.onclick = () => $('#catTxModal').classList.remove('open');
   },
 
+  // Hash chuỗi email → 6 chữ hex màu (cùng email luôn ra cùng màu)
+  _avatarBgColor(seed) {
+    const colors = ['2d6a4f', '52b788', '1e6091', '4a90c2', 'c45934', 'e88c5f', '6b4d8b', '9c7ab9'];
+    let h = 0;
+    const s = String(seed || '');
+    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    return colors[Math.abs(h) % colors.length];
+  },
+
   renderAuthUI() {
     const u = window.QLT_Auth.user;
+    const avatarEl = $('#drUserAvatar');
     if (u) {
       $('#drUserName').textContent = u.name || u.email;
       $('#drUserEmail').textContent = u.email;
-      if (u.picture) $('#drUserAvatar').src = u.picture;
+      if (u.picture) {
+        // Google profile URL có thể fail load (CORS / referrer / sized) → fallback
+        avatarEl.onerror = () => {
+          avatarEl.onerror = null;
+          // Tạo avatar SVG có chữ cái đầu của tên
+          const letter = (u.name || u.email || '?').trim().charAt(0).toUpperCase();
+          const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%23${this._avatarBgColor(u.email)}'/><text x='50' y='62' text-anchor='middle' fill='white' font-size='42' font-weight='700' font-family='DM Sans,sans-serif'>${encodeURIComponent(letter)}</text></svg>`;
+          avatarEl.src = 'data:image/svg+xml,' + svg;
+        };
+        avatarEl.src = u.picture;
+      } else {
+        avatarEl.src = 'icons/icon-192.png';
+      }
       $('#loginItem').style.display = 'none';
       $('#logoutItem').style.display = 'flex';
       $('#syncItem').style.display = 'flex';
     } else {
       $('#drUserName').textContent = 'Khách';
       $('#drUserEmail').textContent = 'Chưa đăng nhập';
-      $('#drUserAvatar').src = 'icons/icon-192.png';
+      avatarEl.onerror = null;
+      avatarEl.src = 'icons/icon-192.png';
       $('#loginItem').style.display = 'flex';
       $('#logoutItem').style.display = 'none';
       $('#syncItem').style.display = 'none';
