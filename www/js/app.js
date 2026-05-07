@@ -1838,6 +1838,14 @@ const App = {
     return colors[Math.abs(h) % colors.length];
   },
 
+  // Tạo avatar SVG fallback: chữ cái đầu trên màu hash từ email
+  _letterAvatarDataUrl(name, email) {
+    const letter = (name || email || '?').trim().charAt(0).toUpperCase();
+    const bg = this._avatarBgColor(email);
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%23${bg}'/><text x='50' y='62' text-anchor='middle' fill='white' font-size='42' font-weight='700' font-family='DM Sans,sans-serif'>${encodeURIComponent(letter)}</text></svg>`;
+    return 'data:image/svg+xml,' + svg;
+  },
+
   renderAuthUI() {
     const u = window.QLT_Auth.user;
     const avatarEl = $('#drUserAvatar');
@@ -1845,17 +1853,33 @@ const App = {
       $('#drUserName').textContent = u.name || u.email;
       $('#drUserEmail').textContent = u.email;
       if (u.picture) {
-        // Google profile URL có thể fail load (CORS / referrer / sized) → fallback
-        avatarEl.onerror = () => {
-          avatarEl.onerror = null;
-          // Tạo avatar SVG có chữ cái đầu của tên
-          const letter = (u.name || u.email || '?').trim().charAt(0).toUpperCase();
-          const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%23${this._avatarBgColor(u.email)}'/><text x='50' y='62' text-anchor='middle' fill='white' font-size='42' font-weight='700' font-family='DM Sans,sans-serif'>${encodeURIComponent(letter)}</text></svg>`;
-          avatarEl.src = 'data:image/svg+xml,' + svg;
+        // Google profile URL có thể fail load → thử nhiều variants trước khi fallback letter
+        // Variants:
+        //  1. URL gốc
+        //  2. Đổi size về s200-c (tương thích nhiều)
+        //  3. Bỏ size suffix
+        const tryUrls = [u.picture];
+        const m = u.picture.match(/^(.+)=s\d+-c$/);
+        if (m) {
+          tryUrls.push(m[1] + '=s200-c');
+          tryUrls.push(m[1]);
+        }
+        let attempt = 0;
+        const tryNext = () => {
+          if (attempt < tryUrls.length) {
+            avatarEl.src = tryUrls[attempt++];
+          } else {
+            // Hết variants → letter avatar
+            avatarEl.onerror = null;
+            avatarEl.src = this._letterAvatarDataUrl(u.name, u.email);
+          }
         };
-        avatarEl.src = u.picture;
+        avatarEl.onerror = tryNext;
+        tryNext();
       } else {
-        avatarEl.src = 'icons/icon-192.png';
+        // Không có URL → letter avatar luôn
+        avatarEl.onerror = null;
+        avatarEl.src = this._letterAvatarDataUrl(u.name, u.email);
       }
       $('#loginItem').style.display = 'none';
       $('#logoutItem').style.display = 'flex';
