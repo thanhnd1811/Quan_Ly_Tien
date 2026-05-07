@@ -1382,6 +1382,16 @@ const App = {
           <button onclick="location.reload()" style="margin-top:16px;padding:10px 20px;background:#2d6a4f;color:#fff;border:none;border-radius:8px;font-weight:600">Tải lại</button>`;
         body.appendChild(err);
       }
+    } finally {
+      // ALWAYS dismiss splash — dù init thành công hay thất bại
+      const splash = document.getElementById('qltSplash');
+      if (splash && !splash._dismissed) {
+        splash._dismissed = true;
+        setTimeout(() => {
+          splash.classList.add('fade');
+          setTimeout(() => { if (splash.parentNode) splash.remove(); }, 400);
+        }, 400);
+      }
     }
   },
 
@@ -9943,16 +9953,6 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
     this.renderBookHeader();
     this.switchTab('home');
     this.autoSync();
-
-    // Splash screen: fade out sau khi UI sẵn sàng (≥800ms để user nhìn animation)
-    const splash = document.getElementById('qltSplash');
-    if (splash && !splash._dismissed) {
-      splash._dismissed = true;
-      setTimeout(() => {
-        splash.classList.add('fade');
-        setTimeout(() => splash.remove(), 400);
-      }, 600);
-    }
   }
 };
 

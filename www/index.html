@@ -986,6 +986,17 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
   <div class="splash-title">Quản Lý Tiền</div>
   <div class="splash-tag">Đang chuẩn bị…</div>
 </div>
+<script>
+  // Safety net: nếu init() throw không dismiss được splash, vẫn ẩn sau 2.5s
+  setTimeout(function(){
+    var s = document.getElementById('qltSplash');
+    if (s && !s._dismissed) {
+      s._dismissed = true;
+      s.classList.add('fade');
+      setTimeout(function(){ if (s.parentNode) s.remove(); }, 400);
+    }
+  }, 2500);
+</script>
 
 <!-- ========== HOME ========== -->
 <div id="screen-home" class="screen">
