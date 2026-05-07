@@ -4746,6 +4746,9 @@ const App = {
 
   // ============ MODAL: TRANSACTION ============
   openTxModal(id, defaultType) {
+    // Ẩn suggest banner mỗi khi mở modal mới
+    const sg = $('#txCatSuggest');
+    if (sg) { sg.style.display = 'none'; sg.innerHTML = ''; }
     const isNew = !id;
     let tx;
     if (isNew) {
@@ -5517,6 +5520,195 @@ const App = {
   },
 
   // Phân tích câu nói tiếng Việt → {type, amount, accountId, toAccountId, categoryId, note}
+  // ============ SMART CATEGORY SUGGESTIONS (cho voice không match) ============
+  // Trả về top 5 danh mục có khả năng cao nhất dựa trên context: giờ, ví, lịch sử
+  _suggestCategories(type, accountId) {
+    const cands = this.state.categories.filter(c => c.type === type && !this._catHasChildren(c.id));
+    if (!cands.length) return [];
+    const txs = (this.state.transactions || []).filter(t => t.type === type);
+    const now = new Date();
+    const hour = now.getHours();
+    const days7 = new Date(now); days7.setDate(days7.getDate() - 7);
+    const days90 = new Date(now); days90.setDate(days90.getDate() - 90);
+
+    const scores = {};
+    const reasons = {};
+    for (const c of cands) { scores[c.id] = 0; reasons[c.id] = []; }
+
+    // 1) Giờ trong ngày — match tên danh mục
+    const timeKeywords = [];
+    if (hour >= 5 && hour < 10) timeKeywords.push('sang', 'sáng', 'cafe', 'ca phe', 'cà phê');
+    else if (hour >= 10 && hour < 14) timeKeywords.push('trua', 'trưa');
+    else if (hour >= 17 && hour < 22) timeKeywords.push('toi', 'tối');
+    else if (hour >= 14 && hour < 17) timeKeywords.push('xe', 'xế', 'cafe', 'ca phe');
+    for (const c of cands) {
+      const cn = normalizeVi(c.name);
+      for (const kw of timeKeywords) {
+        if (cn.includes(normalizeVi(kw))) {
+          scores[c.id] += 50;
+          reasons[c.id].push('giờ này');
+          break;
+        }
+      }
+    }
+
+    // 2) Tương quan với ví — top categories từng dùng với ví này
+    if (accountId) {
+      const walletTxs = txs.filter(t => t.accountId === accountId && t.date >= days90.toISOString().slice(0, 10));
+      const walletCount = {};
+      for (const t of walletTxs) {
+        if (t.categoryId) walletCount[t.categoryId] = (walletCount[t.categoryId] || 0) + 1;
+      }
+      const top = Object.entries(walletCount).sort((a, b) => b[1] - a[1]).slice(0, 3);
+      for (const [cid, cnt] of top) {
+        if (scores[cid] !== undefined && cnt >= 2) {
+          scores[cid] += 30;
+          reasons[cid].push('hay với ví này');
+        }
+      }
+    }
+
+    // 3) Gần đây (7 ngày)
+    const recentCount = {};
+    for (const t of txs) {
+      if (t.date >= days7.toISOString().slice(0, 10) && t.categoryId) {
+        recentCount[t.categoryId] = (recentCount[t.categoryId] || 0) + 1;
+      }
+    }
+    const topRecent = Object.entries(recentCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    for (const [cid, cnt] of topRecent) {
+      if (scores[cid] !== undefined && cnt >= 1) {
+        scores[cid] += 20;
+        reasons[cid].push('gần đây');
+      }
+    }
+
+    // 4) All-time frequency
+    const allCount = {};
+    for (const t of txs) {
+      if (t.categoryId) allCount[t.categoryId] = (allCount[t.categoryId] || 0) + 1;
+    }
+    const topAll = Object.entries(allCount).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    for (const [cid, cnt] of topAll) {
+      if (scores[cid] !== undefined && cnt >= 3) {
+        scores[cid] += 10;
+        reasons[cid].push('phổ biến');
+      }
+    }
+
+    // Sort + pick top 5
+    let sorted = cands.map(c => ({
+      cat: c,
+      score: scores[c.id] || 0,
+      reason: reasons[c.id][0] || ''
+    })).filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 5);
+
+    // Fallback: nếu chưa có gì → top 3 all-time hoặc 3 cands đầu
+    if (!sorted.length) {
+      const fb = topAll.slice(0, 3).map(([cid]) => cands.find(c => c.id === cid)).filter(Boolean);
+      const list = fb.length ? fb : cands.slice(0, 3);
+      sorted = list.map(c => ({ cat: c, score: 1, reason: 'có sẵn' }));
+    }
+    return sorted;
+  },
+
+  _catHasChildren(catId) {
+    return this.state.categories.some(c => c.parentId === catId);
+  },
+
+  // Render banner gợi ý sau voice không match. autoSaveAfter=true → user tap chip xong tự lưu
+  _renderCatSuggestions(parsed, autoSaveAfter) {
+    const wrap = $('#txCatSuggest');
+    if (!wrap) return;
+    const type = parsed.type || $('#txForm').dataset.type;
+    if (type === 'transfer') { wrap.style.display = 'none'; return; }
+
+    const accountId = this.state.editingTx?.accountId;
+    const suggestions = this._suggestCategories(type, accountId);
+
+    // Note đã smart-trim — ngắn (2-30 ký tự) thì cho phép tạo mới
+    const noteText = ($('#txNote')?.value || this.state.editingTx?.note || '').trim();
+    const cleanedNote = noteText.length >= 2 && noteText.length <= 30 ? noteText : null;
+
+    if (!suggestions.length && !cleanedNote) {
+      wrap.style.display = 'none';
+      return;
+    }
+
+    let html = '<div class="tx-cat-suggest-head">💡 <strong>Không match được danh mục</strong> — tap để chọn nhanh:</div>';
+    html += '<div class="tx-cat-suggest-row">';
+    for (const s of suggestions) {
+      const c = s.cat;
+      const emoji = (c.icon || '').startsWith('emoji:') ? c.icon.slice(6) : '📁';
+      html += `<span class="tx-cat-suggest-chip" data-pick-cat="${c.id}">
+        <span class="tx-cat-suggest-chip-emoji">${emoji}</span>
+        ${this.escapeHtml(c.name)}
+        ${s.reason ? `<span class="tx-cat-suggest-chip-reason">· ${s.reason}</span>` : ''}
+      </span>`;
+    }
+    if (cleanedNote) {
+      html += `<span class="tx-cat-suggest-chip create" data-create-cat="${this.escapeHtml(cleanedNote)}">
+        ➕ Tạo "${this.escapeHtml(cleanedNote)}"
+      </span>`;
+    }
+    html += '</div>';
+
+    wrap.innerHTML = html;
+    wrap.style.display = 'block';
+
+    wrap.querySelectorAll('[data-pick-cat]').forEach(el => {
+      el.onclick = () => this._pickSuggestedCategory(el.dataset.pickCat, autoSaveAfter);
+    });
+    wrap.querySelectorAll('[data-create-cat]').forEach(el => {
+      el.onclick = () => this._createCategoryFromNote(el.dataset.createCat, type, autoSaveAfter);
+    });
+  },
+
+  _pickSuggestedCategory(catId, autoSave) {
+    if (!this.state.editingTx) return;
+    this.state.editingTx.categoryId = catId;
+    $$('#txCategoryList .picker-item').forEach(el =>
+      el.classList.toggle('on', el.dataset.cat === catId));
+    const wrap = $('#txCatSuggest');
+    if (wrap) wrap.style.display = 'none';
+    const status = $('#txOcrStatus');
+    if (status) { status.style.display = 'none'; status.style.color = ''; }
+    if (autoSave) setTimeout(() => this.saveTx(), 250);
+  },
+
+  async _createCategoryFromNote(noteName, type, autoSave) {
+    if (!this.state.editingTx) return;
+    // Tránh tạo trùng: nếu đã có category cùng type + cùng tên (case-insensitive) → chọn thay vì tạo
+    const existing = this.state.categories.find(c =>
+      c.type === type && normalizeVi(c.name) === normalizeVi(noteName));
+    if (existing) {
+      this._pickSuggestedCategory(existing.id, autoSave);
+      QLT_UI.toast(`Đã có danh mục "${existing.name}" — chọn cái đó`, { type: 'info', duration: 2500 });
+      return;
+    }
+    const colors = ['#52b788', '#cc7a4f', '#f4b942', '#7b8cde', '#a04fc4', '#4f86c6', '#d97757', '#9c8c5e'];
+    const newCat = {
+      bookId: this.state.currentBookId,
+      type,
+      name: noteName,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      icon: type === 'income' ? 'emoji:💰' : 'emoji:📁',
+      keywords: [],
+      parentId: null,
+      _createdAt: new Date().toISOString()
+    };
+    await window.QLT_Store.put('categories', newCat);
+    await this.reload();
+    this.renderTxCategoryPicker(type);
+    this.state.editingTx.categoryId = newCat.id;
+    $$('#txCategoryList .picker-item').forEach(el =>
+      el.classList.toggle('on', el.dataset.cat === newCat.id));
+    const wrap = $('#txCatSuggest');
+    if (wrap) wrap.style.display = 'none';
+    QLT_UI.toast(`✨ Đã tạo danh mục "${noteName}"`, { type: 'success', duration: 2200 });
+    if (autoSave) setTimeout(() => this.saveTx(), 350);
+  },
+
   parseVoiceTransaction(text) {
     // 0) Phát hiện trigger auto-save ở cuối câu ("lưu", "save", "xong", "done")
     let workText = (text || '').trim();
@@ -5763,13 +5955,18 @@ const App = {
           this.state.editingTx.categoryId = parsed.categoryId;
           $$('#txCategoryList .picker-item').forEach(el =>
             el.classList.toggle('on', el.dataset.cat === parsed.categoryId));
+          // Ẩn banner gợi ý nếu trước đó có hiện
+          const sg = $('#txCatSuggest');
+          if (sg) sg.style.display = 'none';
         } else if (parsed.type !== 'transfer') {
-          // Không tìm được danh mục → scroll xuống picker + nhắc user
+          // Không match → hiện banner Smart Suggestions + Tạo từ note
+          // Note đã được điền vào txNote ở trên, lấy từ editingTx
+          this.state.editingTx.note = parsed.note || '';
+          this._renderCatSuggestions(parsed, !!parsed.autoSave);
           setTimeout(() => {
             const sec = document.getElementById('txCategorySection');
             if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            QLT_UI.toast('Chọn danh mục cho giao dịch (không tìm thấy danh mục phù hợp từ câu nói)', { type: 'info', duration: 3000 });
-          }, 600);
+          }, 350);
         }
 
         // Tags từ câu nói (pattern "thẻ X")
@@ -5799,9 +5996,13 @@ const App = {
           if (parsed.type === 'transfer' && !tx.toAccountId) missing.push('ví đích');
 
           if (missing.length > 0) {
+            // Nếu chỉ thiếu danh mục → banner suggest đã hiện, dùng message thân thiện
+            const onlyCat = missing.length === 1 && missing[0] === 'danh mục';
             status.style.color = '#cc7a4f';
-            status.textContent = `⚠️ Còn thiếu: ${missing.join(', ')} — vui lòng chọn rồi bấm Lưu`;
-            setTimeout(() => { status.style.display = 'none'; status.style.color = ''; }, 4000);
+            status.textContent = onlyCat
+              ? '👆 Tap 1 gợi ý phía dưới để tự lưu giao dịch'
+              : `⚠️ Còn thiếu: ${missing.join(', ')} — chọn rồi bấm Lưu`;
+            setTimeout(() => { status.style.display = 'none'; status.style.color = ''; }, 5000);
           } else {
             status.textContent = `💾 Đang lưu: ${typeLabel} ${fmt(parsed.amount)} đ...`;
             // Delay nhỏ để user thấy xác nhận trước khi modal đóng

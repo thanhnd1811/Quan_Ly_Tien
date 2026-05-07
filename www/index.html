@@ -818,6 +818,18 @@ html[data-theme="dark"] .rec-type-pill.on{
 .qlt-toast.error{background:#a8324a}
 .qlt-toast.fade{animation:toastOut .25s ease forwards}
 
+/* Smart category suggestions banner (sau voice nếu không match) */
+.tx-cat-suggest{background:linear-gradient(180deg,rgba(244,185,66,.12),rgba(244,185,66,.04));border:1px solid rgba(244,185,66,.4);border-radius:10px;padding:10px 12px;margin-bottom:10px}
+.tx-cat-suggest-head{font-size:12px;color:var(--text2);margin-bottom:8px;line-height:1.4}
+.tx-cat-suggest-head strong{color:var(--text)}
+.tx-cat-suggest-row{display:flex;flex-wrap:wrap;gap:6px}
+.tx-cat-suggest-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;background:var(--surface);border:1px solid var(--border);border-radius:18px;font-size:12px;color:var(--text);cursor:pointer;transition:all .15s ease;line-height:1}
+.tx-cat-suggest-chip:active{transform:scale(.95)}
+.tx-cat-suggest-chip.create{border-color:#52b788;color:#1f5239;background:rgba(82,183,136,.12)}
+.tx-cat-suggest-chip.create:active{background:rgba(82,183,136,.24)}
+.tx-cat-suggest-chip-emoji{font-size:14px;line-height:1}
+.tx-cat-suggest-chip-reason{font-size:10px;color:var(--text3);margin-left:2px}
+
 /* Eye button — ẩn/hiện số dư */
 .balance-eye{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.18);border:none;color:#fff;cursor:pointer;margin-left:8px;vertical-align:middle;font-size:13px;line-height:1;padding:0;transition:transform .15s ease;flex-shrink:0}
 .balance-eye:active{transform:scale(.88)}
@@ -2237,6 +2249,7 @@ html[data-theme="dark"] .tx-loc-badge{background:#1a3a5c;color:#7eb6e8}
       <div class="fg" id="txCategorySection">
         <div id="txBudgetHint" class="tx-budget-hint" style="display:none"></div>
         <label class="fl">Danh mục</label>
+        <div id="txCatSuggest" class="tx-cat-suggest" style="display:none"></div>
         <div id="txCategoryList" class="picker-list"></div>
       </div>
       <div class="fg" id="txParticipantsSection" style="display:none">
