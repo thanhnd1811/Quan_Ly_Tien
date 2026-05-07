@@ -459,19 +459,35 @@ const QLT_Geo = (() => {
     // Rate limit 1 req/s — đủ cho dùng cá nhân (1 GD ~ 1 geocode)
     async reverseGeocode(lat, lng) {
       try {
+        // zoom=18 để Nominatim trả thông tin chi tiết hơn (số nhà / tên đường)
         const r = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=vi&zoom=16`,
+          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=vi&zoom=18&addressdetails=1`,
           { headers: { 'User-Agent': 'QuanLyTien/1.0 (personal-finance-app)' } }
         );
         if (!r.ok) return null;
         const data = await r.json();
-        // Format ngắn: "Phường X, Quận Y, TP.Z"
+        // Format ngắn: "[Số nhà] Phố/Đường, Phường, Quận, TP" — bỏ trùng lặp
         const a = data.address || {};
+        const norm = s => (s || '').trim().toLowerCase();
+        const seen = new Set();
+        const push = (val) => {
+          if (!val) return;
+          const k = norm(val);
+          if (!k || seen.has(k)) return;
+          seen.add(k);
+          parts.push(val);
+        };
         const parts = [];
-        if (a.suburb || a.quarter || a.neighbourhood) parts.push(a.suburb || a.quarter || a.neighbourhood);
-        if (a.city_district || a.district) parts.push(a.city_district || a.district);
-        if (a.city || a.town || a.village) parts.push(a.city || a.town || a.village);
-        const short = parts.length > 0 ? parts.join(', ') : (data.display_name || '').split(',').slice(0, 3).join(',');
+        // 1) Số nhà + tên phố / đường (cái user thực sự cần)
+        const road = a.road || a.pedestrian || a.footway || a.path;
+        if (road) push(a.house_number ? `${a.house_number} ${road}` : road);
+        // 2) Phường / khu phố
+        push(a.suburb || a.quarter || a.neighbourhood);
+        // 3) Quận / huyện
+        push(a.city_district || a.district || a.county);
+        // 4) Tỉnh / Thành phố
+        push(a.city || a.town || a.village || a.state);
+        const short = parts.length > 0 ? parts.join(', ') : (data.display_name || '').split(',').slice(0, 4).join(',').trim();
         return { address: short, full: data.display_name || '' };
       } catch (e) {
         console.warn('Reverse geocode lỗi:', e);
