@@ -9236,7 +9236,8 @@ const App = {
     $('#bookEditTitle').textContent = isNew ? 'Tạo sổ mới' : 'Sửa sổ';
     $('#bookDelete').style.display = (isNew || this.state.books.length <= 1) ? 'none' : 'block';
     $('#bookExportSection').style.display = isNew ? 'none' : 'block';
-    $('#bookMembersSection').style.display = isNew ? 'none' : 'block';
+    // Members section hiện CẢ khi tạo mới — user có thể thêm thành viên ngay khi tạo sổ chung (đi chơi, quỹ chung)
+    $('#bookMembersSection').style.display = 'block';
 
     this.renderIconPicker({
       containerId: 'bookIconGrid',
