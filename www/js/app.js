@@ -131,6 +131,21 @@ window.QLT_UI = QLT_UI;
 const fmt = n => (n || 0).toLocaleString('vi-VN');
 const today = () => new Date().toISOString().slice(0, 10);
 
+// Privacy mode: ẩn số dư lớn (giống app ngân hàng)
+const isAmountHidden = () => localStorage.getItem('qlt_hide_amounts') === '1';
+// fmtBal(amount, opts) → ra '••••• đ' nếu ẩn, ngược lại '1.234.000 đ'
+//   opts.signed = true để giữ dấu +/- khi ẩn (vd '-•••• đ' cho chi tiêu)
+const fmtBal = (amount, opts = {}) => {
+  if (isAmountHidden()) {
+    if (opts.signed) {
+      const s = (amount || 0) > 0 ? '+' : ((amount || 0) < 0 ? '-' : '');
+      return s + '••••• đ';
+    }
+    return '••••• đ';
+  }
+  return fmt(amount) + ' đ';
+};
+
 // Lazy-load SortableJS (kéo-thả sắp xếp lại) — chỉ tải khi user thật sự reorder
 let _sortableLoading = null;
 function loadSortable() {
@@ -1335,6 +1350,27 @@ const App = {
     if (this.state.currentTab) this.switchTab(this.state.currentTab);
   },
 
+  // Toggle ẩn/hiện số dư (giống banking app — eye icon)
+  toggleHideAmounts() {
+    const cur = isAmountHidden();
+    if (cur) localStorage.removeItem('qlt_hide_amounts');
+    else localStorage.setItem('qlt_hide_amounts', '1');
+    this._refreshEyeIcons();
+    // Re-render tab hiện tại để cập nhật số tiền
+    if (this.state.currentTab === 'home') this.renderHome();
+    else if (this.state.currentTab === 'accounts') this.renderAccounts();
+    else if (this.state.currentTab === 'savings') this.renderSavings && this.renderSavings();
+    else this.switchTab(this.state.currentTab);
+  },
+
+  _refreshEyeIcons() {
+    const hidden = isAmountHidden();
+    document.querySelectorAll('.balance-eye').forEach(el => {
+      el.textContent = hidden ? '🙈' : '👁';
+      el.title = hidden ? 'Hiện số tiền' : 'Ẩn số tiền';
+    });
+  },
+
   bindEvents() {
     // Bottom nav
     $$('.ni').forEach(el => {
@@ -1344,6 +1380,13 @@ const App = {
         else this.switchTab(tab);
       };
     });
+
+    // Eye buttons (ẩn/hiện số dư)
+    const homeEye = $('#homeEyeBtn');
+    if (homeEye) homeEye.onclick = (e) => { e.stopPropagation(); this.toggleHideAmounts(); };
+    const accEye = $('#accEyeBtn');
+    if (accEye) accEye.onclick = (e) => { e.stopPropagation(); this.toggleHideAmounts(); };
+    this._refreshEyeIcons();
 
     // Drawer
     $('#menuBtn').onclick = () => {
@@ -1834,14 +1877,16 @@ const App = {
     const savingsAccs = this.state.accounts.filter(a => this.isActiveSavings(a));
     const totalBalance = paymentAccs.reduce((s, a) => s + (a.balance || 0), 0);
     const totalSavings = savingsAccs.reduce((s, a) => s + (a.balance || 0), 0);
-    $('#homeBalance').textContent = fmt(totalBalance) + ' đ';
+    $('#homeBalance').textContent = fmtBal(totalBalance);
+    if (isAmountHidden()) $('#homeBalance').classList.add('amount-hidden');
+    else $('#homeBalance').classList.remove('amount-hidden');
 
     // Hint sổ tiết kiệm dưới hero
     const savingsLink = $('#homeSavingsLink');
     if (savingsLink) {
       if (totalSavings > 0) {
         savingsLink.style.display = 'inline-flex';
-        savingsLink.innerHTML = `+ ${fmt(totalSavings)} đ trong tiết kiệm <span style="font-size:14px">→</span>`;
+        savingsLink.innerHTML = `+ ${fmtBal(totalSavings).replace(' đ', '')} đ trong tiết kiệm <span style="font-size:14px">→</span>`;
       } else {
         savingsLink.style.display = 'none';
       }
@@ -1867,8 +1912,8 @@ const App = {
         accChange[t.toAccountId] = (accChange[t.toAccountId] || 0) + t.amount;
       }
     }
-    $('#homeIncome').textContent = fmt(inc) + ' đ';
-    $('#homeExpense').textContent = fmt(exp) + ' đ';
+    $('#homeIncome').textContent = fmtBal(inc);
+    $('#homeExpense').textContent = fmtBal(exp);
     // Streak badge (nếu ≥3 ngày liên tiếp)
     const streak = this.computeStreak();
     const streakHtml = streak >= 3 ? `<span class="streak-badge">🔥 ${streak} ngày liên tiếp</span>` : '';
@@ -1896,7 +1941,7 @@ const App = {
         if (change !== 0) {
           const cls = change > 0 ? 'pos' : 'neg';
           const arrow = change > 0 ? '↑' : '↓';
-          changeHtml = `<div class="wallet-change ${cls}">${arrow} ${fmt(Math.abs(change))} đ</div>`;
+          changeHtml = `<div class="wallet-change ${cls}">${arrow} ${fmtBal(Math.abs(change))}</div>`;
         } else {
           changeHtml = `<div class="wallet-change zero">— Không đổi</div>`;
         }
@@ -1910,7 +1955,7 @@ const App = {
               <div class="wallet-bar"><div class="wallet-bar-fill" style="width:${pct}%;background:${accentColor}"></div></div>
             </div>
             <div class="wallet-amounts">
-              <div class="wallet-bal">${fmt(bal)} đ</div>
+              <div class="wallet-bal">${fmtBal(bal)}</div>
               ${changeHtml}
             </div>
           </div>
@@ -2075,7 +2120,9 @@ const App = {
     const savAccs = this.state.accounts.filter(a => this.isActiveSavings(a)).sort(sortByOrder);
     const totalPay = payAccs.reduce((s, a) => s + (a.balance || 0), 0);
     const totalSav = savAccs.reduce((s, a) => s + (a.balance || 0), 0);
-    $('#accTotalBalance').textContent = fmt(totalPay + totalSav) + ' đ';
+    $('#accTotalBalance').textContent = fmtBal(totalPay + totalSav);
+    if (isAmountHidden()) $('#accTotalBalance').classList.add('amount-hidden');
+    else $('#accTotalBalance').classList.remove('amount-hidden');
 
     const list = $('#accList');
     if (this.state.accounts.length === 0) {
@@ -2100,18 +2147,18 @@ const App = {
             <div class="tx-cat">${this.escapeHtml(a.name)}</div>
             <div class="tx-meta">${this.escapeHtml(meta)}</div>
           </div>
-          <div class="tx-amount ${(a.balance || 0) < 0 ? 'amount-neg' : ''}">${fmt(a.balance)} đ</div>
+          <div class="tx-amount ${(a.balance || 0) < 0 ? 'amount-neg' : ''}">${fmtBal(a.balance)}</div>
         </div>
       `;
     };
 
     let html = '';
     if (payAccs.length) {
-      html += `<div class="sec-label" style="padding:14px 16px 6px">💳 Tiền dùng được — ${fmt(totalPay)} đ <span style="color:var(--text3);font-weight:400;font-size:11px">· giữ để kéo</span></div>`;
+      html += `<div class="sec-label" style="padding:14px 16px 6px">💳 Tiền dùng được — ${fmtBal(totalPay)} <span style="color:var(--text3);font-weight:400;font-size:11px">· giữ để kéo</span></div>`;
       html += `<div id="accListPay">${payAccs.map(renderAcc).join('')}</div>`;
     }
     if (savAccs.length) {
-      html += `<div class="sec-label" style="padding:14px 16px 6px">💎 Sổ tiết kiệm — ${fmt(totalSav)} đ <span style="color:var(--text3);font-weight:400;font-size:11px">· giữ để kéo</span></div>`;
+      html += `<div class="sec-label" style="padding:14px 16px 6px">💎 Sổ tiết kiệm — ${fmtBal(totalSav)} <span style="color:var(--text3);font-weight:400;font-size:11px">· giữ để kéo</span></div>`;
       html += `<div id="accListSav">${savAccs.map(renderAcc).join('')}</div>`;
     }
     list.innerHTML = html;
@@ -3078,7 +3125,7 @@ const App = {
     wrap.innerHTML = `
       <div class="savings-section-card">
         <div class="savings-section-head">💎 Tài sản dài hạn — sổ tiết kiệm</div>
-        <div class="savings-section-total">${fmt(totalSavings)} đ</div>
+        <div class="savings-section-total">${fmtBal(totalSavings)}</div>
         <div class="savings-list">
           ${savAccs.map(a => {
             const due = a.maturityDate || '';
@@ -3098,7 +3145,7 @@ const App = {
                   <div class="savings-item-meta">${a.interestRate || 0}%/năm · ${a.termMonths || 0} tháng</div>
                 </div>
                 <div class="savings-item-amt">
-                  <div class="savings-item-bal">${fmt(a.balance || 0)} đ</div>
+                  <div class="savings-item-bal">${fmtBal(a.balance || 0)}</div>
                   <div class="savings-item-due ${dueCls}">${dueLabel}</div>
                 </div>
               </div>
@@ -3107,7 +3154,7 @@ const App = {
         </div>
         <div class="savings-grand">
           <span>Tổng tài sản (tiền dùng + tiết kiệm)</span>
-          <strong>${fmt((totalPayment || 0) + totalSavings)} đ</strong>
+          <strong>${fmtBal((totalPayment || 0) + totalSavings)}</strong>
         </div>
       </div>
     `;

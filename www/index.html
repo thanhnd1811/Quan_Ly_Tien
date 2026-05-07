@@ -818,6 +818,12 @@ html[data-theme="dark"] .rec-type-pill.on{
 .qlt-toast.error{background:#a8324a}
 .qlt-toast.fade{animation:toastOut .25s ease forwards}
 
+/* Eye button — ẩn/hiện số dư */
+.balance-eye{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.18);border:none;color:#fff;cursor:pointer;margin-left:8px;vertical-align:middle;font-size:13px;line-height:1;padding:0;transition:transform .15s ease;flex-shrink:0}
+.balance-eye:active{transform:scale(.88)}
+.balance-eye.dark{background:var(--surface2);color:var(--text)}
+.amount-hidden{letter-spacing:2px;font-family:'DM Sans',sans-serif}
+
 /* Drag-to-reorder (SortableJS) */
 .qlt-sort-ghost{opacity:.4;background:var(--surface2)!important}
 .qlt-sort-chosen{background:rgba(45,106,79,.10)!important;box-shadow:0 6px 18px rgba(0,0,0,.18)!important;z-index:5;position:relative}
@@ -854,7 +860,7 @@ html[data-theme="dark"] .rec-type-pill.on{
   </div>
   <div class="scroll-body">
     <div class="balance-hero">
-      <div class="balance-label">Tổng số dư (tiền dùng được)</div>
+      <div class="balance-label">Tổng số dư (tiền dùng được) <button id="homeEyeBtn" class="balance-eye" title="Ẩn / hiện số tiền">👁</button></div>
       <div class="balance-amount" id="homeBalance">0 đ</div>
       <div class="balance-month" id="homeMonth">Tháng này</div>
       <div class="balance-hero-extra" id="homeSavingsLink" style="display:none" onclick="QLT_App.scrollToSavings()"></div>
@@ -950,7 +956,7 @@ html[data-theme="dark"] .rec-type-pill.on{
     </div>
   </div>
   <div class="account-summary">
-    <div class="account-summary-label">Tổng số dư</div>
+    <div class="account-summary-label">Tổng số dư <button id="accEyeBtn" class="balance-eye" title="Ẩn / hiện số tiền">👁</button></div>
     <div class="account-summary-amount" id="accTotalBalance">0 đ</div>
   </div>
   <div class="scroll-body">
