@@ -11,11 +11,21 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg:#f2f5f0; --surface:#ffffff; --surface2:#f8faf7; --border:#e0e6dc;
+  --bg:#f2f5f0; --surface:#ffffff; --surface2:#f8faf7; --border:#e4ebe0;
   --accent:#2d6a4f; --accent-light:#52b788; --acl:#e8f5ee; --accent2:#e76f51;
   --warn:#f4a261; --danger:#e63946; --pos:#2d8659;
-  --text:#1a2a1f; --text2:#5e6b62; --text3:#9aa39c;
-  --r:14px; --rsm:10px; --sh:0 2px 10px rgba(0,0,0,0.06); --shlg:0 8px 28px rgba(0,0,0,0.12);
+  --text:#0f1f15; --text2:#525c54; --text3:#929b94;
+  --r:16px; --rsm:12px; --rxs:8px;
+  /* Multi-layer shadows — ambient + direct cho cảm giác depth thật */
+  --sh1:0 1px 2px rgba(20,40,30,0.05);
+  --sh2:0 1px 3px rgba(20,40,30,0.06), 0 2px 6px rgba(20,40,30,0.04);
+  --sh3:0 2px 6px rgba(20,40,30,0.06), 0 8px 20px rgba(20,40,30,0.06);
+  --sh4:0 4px 12px rgba(20,40,30,0.08), 0 16px 32px rgba(20,40,30,0.08);
+  --sh5:0 8px 20px rgba(20,40,30,0.10), 0 24px 48px rgba(20,40,30,0.12);
+  /* Backwards compat aliases */
+  --sh:var(--sh2); --shlg:var(--sh4);
+  /* Spacing scale */
+  --sp1:4px; --sp2:8px; --sp3:12px; --sp4:16px; --sp5:20px; --sp6:24px; --sp7:32px;
   /* Theme theo sổ hiện tại — JS cập nhật khi đổi sổ. Mặc định = brand green */
   --book-accent:#2d6a4f; --book-accent-light:#52b788;
 }
@@ -25,7 +35,13 @@ html[data-theme="dark"] {
   --accent:#52b788; --accent-light:#74c69d; --acl:#1f3a2c; --accent2:#f4a261;
   --warn:#f4a261; --danger:#ff6b6b; --pos:#52b788;
   --text:#e8efe9; --text2:#a8b3ac; --text3:#6e7972;
-  --sh:0 2px 10px rgba(0,0,0,0.4); --shlg:0 8px 28px rgba(0,0,0,0.6);
+  /* Dark mode shadows mạnh hơn để giữ depth */
+  --sh1:0 1px 2px rgba(0,0,0,0.30);
+  --sh2:0 2px 6px rgba(0,0,0,0.35), 0 4px 12px rgba(0,0,0,0.25);
+  --sh3:0 4px 12px rgba(0,0,0,0.40), 0 12px 24px rgba(0,0,0,0.30);
+  --sh4:0 8px 20px rgba(0,0,0,0.45), 0 20px 40px rgba(0,0,0,0.35);
+  --sh5:0 12px 32px rgba(0,0,0,0.55), 0 24px 60px rgba(0,0,0,0.45);
+  --sh:var(--sh2); --shlg:var(--sh4);
   --book-accent:#1f3a2c; --book-accent-light:#2d6a4f;
 }
 html[data-theme="dark"] body{background:var(--bg)}
@@ -56,13 +72,16 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 
 .scroll-body{flex:1;overflow-y:auto;padding-bottom:96px}
 
-/* Topbar */
-.topbar{background:var(--book-accent);color:#fff;padding:46px 16px 18px;position:sticky;top:0;z-index:50;transition:background .25s ease}
+/* Topbar — có elevation khi scroll xuống */
+.topbar{background:var(--book-accent);color:#fff;padding:46px 16px 18px;position:sticky;top:0;z-index:50;transition:background .25s ease, box-shadow .2s ease}
+.topbar.scrolled{box-shadow:0 4px 16px rgba(0,0,0,0.18)}
 .tb-row{display:flex;align-items:center;gap:14px}
-.tb-icon{width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.tb-icon{width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:50%;transition:background .15s ease}
+.tb-icon:active{background:rgba(255,255,255,.15)}
 .tb-icon svg{width:24px;height:24px}
-.tb-title{font-size:18px;font-weight:600;flex:1}
-.tb-back{width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.tb-title{font-size:19px;font-weight:600;letter-spacing:-0.2px;flex:1}
+.tb-back{width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:50%;transition:background .15s ease}
+.tb-back:active{background:rgba(255,255,255,.15)}
 .tb-back svg{width:22px;height:22px}
 
 /* Tabs (chi/thu) */
@@ -70,15 +89,17 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .seg-item{flex:1;text-align:center;padding:10px 0;font-size:13px;font-weight:600;letter-spacing:1px;color:rgba(255,255,255,0.6);cursor:pointer;border-bottom:3px solid transparent}
 .seg-item.on{color:#fff;border-bottom-color:#fff}
 
-/* Bottom nav */
-.bnav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--surface);border-top:1px solid var(--border);display:flex;padding:6px 0 env(safe-area-inset-bottom,10px);z-index:100}
-.ni{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:6px 0;color:var(--text3)}
-.ni svg{width:22px;height:22px}
-.ni-label{font-size:10px;font-weight:500}
+/* Bottom nav — premium với FAB nổi cao */
+.bnav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--surface);border-top:1px solid var(--border);display:flex;padding:6px 0 env(safe-area-inset-bottom,10px);z-index:100;box-shadow:0 -2px 12px rgba(0,0,0,0.04)}
+.ni{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;padding:8px 0 6px;color:var(--text3);transition:color .15s ease}
+.ni svg{width:22px;height:22px;transition:transform .2s ease}
+.ni-label{font-size:10.5px;font-weight:500;letter-spacing:0.1px}
 .ni.active{color:var(--accent)}
+.ni.active svg{transform:translateY(-1px)}
 .ni.active .ni-label{font-weight:700}
-.ni-fab{width:48px;height:48px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;margin-top:-22px;box-shadow:0 4px 14px rgba(45,106,79,.4)}
-.ni-fab svg{width:24px;height:24px}
+.ni-fab{width:52px;height:52px;background:linear-gradient(135deg,var(--accent),var(--accent-light));border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;margin-top:-22px;box-shadow:0 6px 18px rgba(45,106,79,.5),0 2px 6px rgba(45,106,79,.3);transition:transform .15s ease, box-shadow .15s ease}
+.ni-fab:active{transform:scale(.94);box-shadow:0 4px 12px rgba(45,106,79,.45)}
+.ni-fab svg{width:26px;height:26px}
 
 /* Drawer */
 .drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.4);opacity:0;visibility:hidden;transition:.2s;z-index:200}
@@ -132,11 +153,11 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .dr-list .dr-section-label{margin-top:14px}
 .dr-list .dr-section-label:first-child{margin-top:6px}
 
-/* Sections */
-.section{padding:18px 16px 0}
-.sec-label{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
-.sec-action{font-size:12px;color:var(--accent);font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:10px}
+/* Sections — typography sang trọng, không uppercase */
+.section{padding:22px 16px 6px}
+.sec-label{font-size:13px;font-weight:600;color:var(--text2);letter-spacing:-0.1px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;line-height:1.3}
+.sec-action{font-size:13px;color:var(--accent);font-weight:600;cursor:pointer;letter-spacing:0}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:10px;box-shadow:var(--sh1)}
 .empty-msg{text-align:center;padding:40px 20px;color:var(--text3);font-size:13px}
 
 /* Onboarding tour first-launch */
@@ -182,20 +203,23 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .empty-state-cta{display:inline-block;padding:10px 20px;background:var(--accent);color:#fff;border-radius:24px;font-size:13px;font-weight:600;cursor:pointer;border:none;text-decoration:none}
 .empty-state-cta:active{transform:scale(.97)}
 
-/* Home */
-.balance-hero{background:linear-gradient(135deg,var(--book-accent),var(--book-accent-light));color:#fff;border-radius:var(--r);padding:18px;margin:16px;box-shadow:var(--sh);transition:background .25s ease}
-.balance-label{font-size:12px;opacity:.9;margin-bottom:4px}
-.balance-amount{font-size:28px;font-weight:700}
-.balance-month{font-size:11px;opacity:.8;margin-top:8px}
-.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
-.stat-card{background:rgba(255,255,255,.18);border-radius:var(--rsm);padding:10px}
-.stat-lbl{font-size:11px;opacity:.85}
-.stat-val{font-size:17px;font-weight:700;margin-top:3px}
+/* Home — premium hero card với glassmorphism layer */
+.balance-hero{background:linear-gradient(135deg,var(--book-accent) 0%,var(--book-accent-light) 100%);color:#fff;border-radius:20px;padding:24px 22px 22px;margin:16px;box-shadow:var(--sh3);transition:background .25s ease;position:relative;overflow:hidden}
+.balance-hero::before{content:'';position:absolute;top:-40%;right:-20%;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,0.16) 0%,rgba(255,255,255,0) 70%);pointer-events:none}
+.balance-hero::after{content:'';position:absolute;bottom:-50%;left:-10%;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,0.08) 0%,rgba(255,255,255,0) 70%);pointer-events:none}
+.balance-label{font-size:12.5px;opacity:.92;margin-bottom:6px;font-weight:500;letter-spacing:0.1px;display:flex;align-items:center;flex-wrap:wrap;position:relative}
+.balance-amount{font-size:34px;font-weight:800;letter-spacing:-0.8px;line-height:1.1;position:relative}
+.balance-month{font-size:11.5px;opacity:.82;margin-top:10px;font-weight:500;position:relative}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px;position:relative}
+.stat-card{background:rgba(255,255,255,.16);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:12px 14px}
+.stat-lbl{font-size:11.5px;opacity:.88;font-weight:500;letter-spacing:0.1px}
+.stat-val{font-size:18px;font-weight:700;margin-top:4px;letter-spacing:-0.3px}
 
-/* Tx item */
-.tx-item{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border);cursor:pointer}
+/* Tx item — premium row design với spacing rộng rãi */
+.tx-item{display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s ease}
 .tx-item:active{background:var(--surface2)}
-.tx-icon{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.tx-item:last-child{border-bottom:none}
+.tx-icon{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--sh1)}
 .tx-icon svg{width:20px;height:20px}
 .tx-info{flex:1;min-width:0}
 .tx-cat{font-size:14px;font-weight:600}

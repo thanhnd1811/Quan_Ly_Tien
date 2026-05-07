@@ -131,6 +131,33 @@ window.QLT_UI = QLT_UI;
 const fmt = n => (n || 0).toLocaleString('vi-VN');
 const today = () => new Date().toISOString().slice(0, 10);
 
+// Animated number counter — count-up smooth từ giá trị cũ → mới (~280ms)
+// Lưu giá trị cuối cùng trên element để biết "from" cho lần animate tiếp theo
+function animateNumber(el, target, opts = {}) {
+  if (!el) return;
+  const dur = opts.duration || 320;
+  const suffix = opts.suffix == null ? ' đ' : opts.suffix;
+  const start = parseFloat(el.dataset._lastValue || '0') || 0;
+  const end = Number(target) || 0;
+  // Skip animation nếu giá trị trùng hoặc đang ẩn
+  if (start === end || (typeof isAmountHidden === 'function' && isAmountHidden())) {
+    el.textContent = (typeof fmtBal === 'function' && opts.useFmtBal !== false) ? fmtBal(end) : (fmt(end) + suffix);
+    el.dataset._lastValue = String(end);
+    return;
+  }
+  el.dataset._lastValue = String(end);
+  const t0 = performance.now();
+  const ease = (t) => 1 - Math.pow(1 - t, 3); // ease-out cubic
+  const step = (now) => {
+    const p = Math.min(1, (now - t0) / dur);
+    const cur = start + (end - start) * ease(p);
+    el.textContent = fmt(Math.round(cur)) + suffix;
+    if (p < 1) requestAnimationFrame(step);
+    else el.textContent = fmt(end) + suffix;
+  };
+  requestAnimationFrame(step);
+}
+
 // Privacy mode: ẩn số dư lớn (giống app ngân hàng)
 const isAmountHidden = () => localStorage.getItem('qlt_hide_amounts') === '1';
 // fmtBal(amount, opts) → ra '••••• đ' nếu ẩn, ngược lại '1.234.000 đ'
@@ -1381,6 +1408,23 @@ const App = {
       };
     });
 
+    // Topbar elevation khi scroll xuống — tạo cảm giác layer
+    document.querySelectorAll('.scroll-body').forEach(body => {
+      const screen = body.closest('.screen');
+      const topbar = screen?.querySelector('.topbar');
+      if (!topbar) return;
+      let ticking = false;
+      body.addEventListener('scroll', () => {
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(() => {
+          if (body.scrollTop > 4) topbar.classList.add('scrolled');
+          else topbar.classList.remove('scrolled');
+          ticking = false;
+        });
+      }, { passive: true });
+    });
+
     // Eye buttons (ẩn/hiện số dư)
     const homeEye = $('#homeEyeBtn');
     if (homeEye) homeEye.onclick = (e) => { e.stopPropagation(); this.toggleHideAmounts(); };
@@ -1877,9 +1921,14 @@ const App = {
     const savingsAccs = this.state.accounts.filter(a => this.isActiveSavings(a));
     const totalBalance = paymentAccs.reduce((s, a) => s + (a.balance || 0), 0);
     const totalSavings = savingsAccs.reduce((s, a) => s + (a.balance || 0), 0);
-    $('#homeBalance').textContent = fmtBal(totalBalance);
-    if (isAmountHidden()) $('#homeBalance').classList.add('amount-hidden');
-    else $('#homeBalance').classList.remove('amount-hidden');
+    if (isAmountHidden()) {
+      $('#homeBalance').textContent = fmtBal(totalBalance);
+      $('#homeBalance').classList.add('amount-hidden');
+      $('#homeBalance').dataset._lastValue = String(totalBalance);
+    } else {
+      $('#homeBalance').classList.remove('amount-hidden');
+      animateNumber($('#homeBalance'), totalBalance);
+    }
 
     // Hint sổ tiết kiệm dưới hero
     const savingsLink = $('#homeSavingsLink');
@@ -2120,9 +2169,14 @@ const App = {
     const savAccs = this.state.accounts.filter(a => this.isActiveSavings(a)).sort(sortByOrder);
     const totalPay = payAccs.reduce((s, a) => s + (a.balance || 0), 0);
     const totalSav = savAccs.reduce((s, a) => s + (a.balance || 0), 0);
-    $('#accTotalBalance').textContent = fmtBal(totalPay + totalSav);
-    if (isAmountHidden()) $('#accTotalBalance').classList.add('amount-hidden');
-    else $('#accTotalBalance').classList.remove('amount-hidden');
+    if (isAmountHidden()) {
+      $('#accTotalBalance').textContent = fmtBal(totalPay + totalSav);
+      $('#accTotalBalance').classList.add('amount-hidden');
+      $('#accTotalBalance').dataset._lastValue = String(totalPay + totalSav);
+    } else {
+      $('#accTotalBalance').classList.remove('amount-hidden');
+      animateNumber($('#accTotalBalance'), totalPay + totalSav);
+    }
 
     const list = $('#accList');
     if (this.state.accounts.length === 0) {
