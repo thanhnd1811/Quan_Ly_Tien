@@ -1182,6 +1182,47 @@ const App = {
       const SB = window.Capacitor?.Plugins?.StatusBar;
       if (SB?.setStyle) SB.setStyle({ style: isDark ? 'DARK' : 'LIGHT' });
     } catch (_) {}
+    // Apply color theme variant
+    this.applyColorTheme();
+  },
+
+  // Theme variants: forest (default) / ocean / sunset / royal
+  getColorTheme() {
+    return localStorage.getItem('qlt_color_theme') || 'forest';
+  },
+  setColorTheme(name) {
+    if (!['forest', 'ocean', 'sunset', 'royal'].includes(name)) name = 'forest';
+    localStorage.setItem('qlt_color_theme', name);
+    this.applyColorTheme();
+    this.renderThemePicker();
+  },
+  applyColorTheme() {
+    const name = this.getColorTheme();
+    if (name === 'forest') document.documentElement.removeAttribute('data-color-theme');
+    else document.documentElement.setAttribute('data-color-theme', name);
+  },
+  renderThemePicker() {
+    const wrap = $('#themePicker');
+    if (!wrap) return;
+    const cur = this.getColorTheme();
+    const themes = [
+      { key: 'forest', name: 'Rừng', swatch: 'linear-gradient(135deg,#2d6a4f,#52b788)' },
+      { key: 'ocean', name: 'Biển',  swatch: 'linear-gradient(135deg,#1e6091,#4a90c2)' },
+      { key: 'sunset', name: 'Hoàng hôn', swatch: 'linear-gradient(135deg,#c45934,#e88c5f)' },
+      { key: 'royal', name: 'Hoàng gia', swatch: 'linear-gradient(135deg,#6b4d8b,#9c7ab9)' }
+    ];
+    wrap.innerHTML = themes.map(t => `
+      <div class="theme-chip ${cur === t.key ? 'on' : ''}" data-theme-key="${t.key}">
+        <div class="theme-chip-swatch" style="background:${t.swatch}"></div>
+        <div class="theme-chip-name">${t.name}</div>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('[data-theme-key]').forEach(el => {
+      el.onclick = () => {
+        this.setColorTheme(el.dataset.themeKey);
+        QLT_UI.toast('Đã đổi bảng màu', { type: 'success', duration: 1200 });
+      };
+    });
   },
 
   async init() {
@@ -4586,6 +4627,9 @@ const App = {
     $('#setImport').onclick = () => this.doImport();
     const showOnb = $('#setShowOnboard');
     if (showOnb) showOnb.onclick = () => this.showOnboarding();
+
+    // Theme variant picker
+    this.renderThemePicker();
 
     // Storage info — đếm tx, photos, size data
     this.renderStorageInfo();

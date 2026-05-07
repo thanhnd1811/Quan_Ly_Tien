@@ -30,6 +30,26 @@
   --book-accent:#2d6a4f; --book-accent-light:#52b788;
 }
 /* DARK THEME — kích hoạt khi <html data-theme="dark"> */
+/* THEME VARIANTS — đổi accent color, giữ nguyên book color */
+html[data-color-theme="ocean"] {
+  --accent:#1e6091; --accent-light:#4a90c2; --acl:#e6f0fa;
+}
+html[data-color-theme="sunset"] {
+  --accent:#c45934; --accent-light:#e88c5f; --acl:#fbecdd;
+}
+html[data-color-theme="royal"] {
+  --accent:#6b4d8b; --accent-light:#9c7ab9; --acl:#f0eaf6;
+}
+html[data-color-theme="ocean"][data-theme="dark"] {
+  --accent:#4a90c2; --accent-light:#7eb4d8; --acl:#1a3045;
+}
+html[data-color-theme="sunset"][data-theme="dark"] {
+  --accent:#e88c5f; --accent-light:#f4b08a; --acl:#3d2418;
+}
+html[data-color-theme="royal"][data-theme="dark"] {
+  --accent:#9c7ab9; --accent-light:#bfa0d4; --acl:#332545;
+}
+
 html[data-theme="dark"] {
   --bg:#0f1714; --surface:#172621; --surface2:#1f2f29; --border:#2c3d36;
   --accent:#52b788; --accent-light:#74c69d; --acl:#1f3a2c; --accent2:#f4a261;
@@ -66,9 +86,10 @@ input,select,textarea,button{font-family:'DM Sans',sans-serif}
 img{max-width:100%}
 button{border:none;background:none;cursor:pointer;color:inherit}
 
-.screen{display:none;flex-direction:column;min-height:100vh;animation:fadeIn .2s ease}
-.screen.active{display:flex}
+.screen{display:none;flex-direction:column;min-height:100vh}
+.screen.active{display:flex;animation:screenIn .28s cubic-bezier(.2,.8,.3,1)}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes screenIn{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:translateX(0)}}
 
 .scroll-body{flex:1;overflow-y:auto;padding-bottom:96px}
 
@@ -808,6 +829,28 @@ html[data-theme="dark"] .rec-type-pill.on{
 
 .setting-row{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border)}
 .setting-label{font-size:14px;color:var(--text)}
+
+/* Premium settings groups — card-based layout */
+.settings-group{background:var(--surface);border:1px solid var(--border);border-radius:16px;margin:0 16px 14px;overflow:hidden;box-shadow:var(--sh1)}
+.settings-group-head{display:flex;align-items:center;gap:12px;padding:14px 16px 10px;border-bottom:1px solid var(--border)}
+.settings-group-icon{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;background:linear-gradient(135deg,rgba(45,106,79,.12),rgba(82,183,136,.12));line-height:1}
+.settings-group-title{font-size:15px;font-weight:700;color:var(--text);letter-spacing:-0.1px}
+.settings-group-body{padding:0}
+.settings-group-body .setting-row{padding:12px 16px;background:transparent;border-bottom:1px solid var(--border)}
+.settings-group-body .setting-row:last-child{border-bottom:none}
+.settings-group-actions{padding:12px 16px 14px;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--border)}
+.settings-group-actions:first-child{border-top:none}
+
+/* Theme picker — chips chọn bảng màu */
+.theme-picker{display:flex;gap:10px;padding:14px 16px;flex-wrap:wrap}
+.theme-chip{flex:1;min-width:62px;display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;border:2px solid var(--border);border-radius:12px;cursor:pointer;background:var(--surface2);transition:all .15s ease;position:relative}
+.theme-chip:active{transform:scale(.96)}
+.theme-chip.on{border-color:var(--accent);background:var(--surface)}
+.theme-chip.on::before{content:'✓';position:absolute;top:4px;right:6px;width:18px;height:18px;background:var(--accent);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
+.theme-chip-swatch{width:32px;height:32px;border-radius:50%;box-shadow:var(--sh1);border:2px solid #fff}
+.theme-chip-name{font-size:11px;font-weight:600;color:var(--text2);letter-spacing:0.1px}
+.theme-chip.on .theme-chip-name{color:var(--text)}
+html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
 .setting-value{font-size:13px;color:var(--text2)}
 .qlt-switch{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0}
 .qlt-switch input{opacity:0;width:0;height:0}
@@ -1844,148 +1887,198 @@ html[data-theme="dark"] .rec-type-pill.on{
       <div class="tb-title">Cài đặt</div>
     </div>
   </div>
-  <div class="scroll-body">
-    <div class="section">
-      <div class="sec-label">Tài khoản Google</div>
-    </div>
-    <div class="setting-row">
-      <span class="setting-label">Email</span>
-      <span class="setting-value" id="setUser">-</span>
-    </div>
-    <div class="setting-row">
-      <span class="setting-label">Đồng bộ gần nhất</span>
-      <span class="setting-value" id="setLastSync">-</span>
-    </div>
-    <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
-      <button id="setLogin" class="btn-google"><span data-icon="google"></span><span>Đăng nhập Google</span></button>
-      <button id="setSync" class="btn btn-primary btn-block">Đồng bộ với Google Drive</button>
-      <button id="setLogout" class="btn btn-secondary btn-block">Đăng xuất</button>
-    </div>
-    <div class="section">
-      <div class="sec-label">🔒 Bảo mật — Khoá app</div>
-    </div>
-    <div class="setting-row">
-      <span class="setting-label">Trạng thái</span>
-      <span class="setting-value" id="setLockStatus">Chưa bật</span>
-    </div>
-    <div class="setting-row" id="setBioRow" style="display:none">
-      <span class="setting-label">Mở khoá bằng sinh trắc</span>
-      <label class="qlt-switch">
-        <input type="checkbox" id="setBiometricToggle">
-        <span class="qlt-switch-slider"></span>
-      </label>
-    </div>
-    <div class="setting-row" id="setTimeoutRow" style="display:none">
-      <span class="setting-label">Khoá lại sau</span>
-      <select id="setLockTimeout" class="setting-value" style="background:transparent;border:none;color:var(--accent);font-weight:600;text-align:right">
-        <option value="0">Ngay khi đóng</option>
-        <option value="60">1 phút</option>
-        <option value="300" selected>5 phút</option>
-        <option value="900">15 phút</option>
-        <option value="3600">1 giờ</option>
-      </select>
-    </div>
-    <div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:10px">
-      <button id="setLockEnable" class="btn btn-primary btn-block">Bật khoá PIN</button>
-      <button id="setLockChangePin" class="btn btn-secondary btn-block" style="display:none">Đổi PIN</button>
-      <button id="setLockDisable" class="btn btn-secondary btn-block" style="display:none;color:var(--danger);border-color:var(--danger)">Tắt khoá PIN</button>
-    </div>
-
-    <div class="section">
-      <div class="sec-label">🎨 Giao diện</div>
-    </div>
-    <div class="setting-row">
-      <span class="setting-label">Chế độ tối (Dark mode)</span>
-      <label class="qlt-switch">
-        <input type="checkbox" id="setDarkMode">
-        <span class="qlt-switch-slider"></span>
-      </label>
-    </div>
-    <div class="setting-row">
-      <span class="setting-label">Theo hệ thống (Auto)</span>
-      <label class="qlt-switch">
-        <input type="checkbox" id="setAutoTheme">
-        <span class="qlt-switch-slider"></span>
-      </label>
-    </div>
-    <div class="setting-row">
-      <span class="setting-label">🔔 Tổng kết hằng ngày (20h)</span>
-      <label class="qlt-switch">
-        <input type="checkbox" id="setDailyNotif">
-        <span class="qlt-switch-slider"></span>
-      </label>
-    </div>
-    <div class="setting-row">
-      <span class="setting-label" style="line-height:1.5">💡 Gợi ý thông minh tức thì
-        <div style="font-size:11px;color:var(--text3);margin-top:2px">Sau mỗi giao dịch, app phân tích &amp; cảnh báo (vượt budget, chi bất thường…)</div>
-      </span>
-      <label class="qlt-switch">
-        <input type="checkbox" id="setSmartInsights">
-        <span class="qlt-switch-slider"></span>
-      </label>
-    </div>
-
-    <div class="section">
-      <div class="sec-label">🔒 Quyền riêng tư</div>
-    </div>
-    <div class="setting-row">
-      <span class="setting-label" style="line-height:1.5">📍 Lưu vị trí giao dịch
-        <div style="font-size:11px;color:var(--text3);margin-top:2px">Khi bật, mỗi GD tạo MỚI sẽ ghi toạ độ + địa chỉ. Lưu local, không gửi server.</div>
-      </span>
-      <label class="qlt-switch">
-        <input type="checkbox" id="setGeoEnabled">
-        <span class="qlt-switch-slider"></span>
-      </label>
-    </div>
-    <div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:10px">
-      <button id="setGeoClear" class="btn btn-secondary btn-block">🗑️ Xoá toàn bộ vị trí đã lưu</button>
-    </div>
-
-    <div class="section">
-      <div class="sec-label">🏠 Hiển thị trên Trang chủ</div>
-    </div>
-    <div id="setHomeWidgets"></div>
-
-    <div class="section">
-      <div class="sec-label">📦 Dữ liệu</div>
-    </div>
-    <div id="setStorageInfo" style="padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border);font-size:12px;color:var(--text2);line-height:1.7"></div>
-    <div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:10px">
-      <button id="setExport" class="btn btn-secondary btn-block">Xuất ra file JSON</button>
-      <button id="setImport" class="btn btn-secondary btn-block">Nhập từ file JSON</button>
-    </div>
-
-    <div class="section">
-      <div class="sec-label">❓ Trợ giúp</div>
-    </div>
-    <div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:10px">
-      <button id="setShowOnboard" class="btn btn-secondary btn-block">📚 Xem lại hướng dẫn</button>
-      <button id="setShowFAQ" class="btn btn-secondary btn-block">💡 Câu hỏi thường gặp (FAQ)</button>
-      <button id="setShowPrivacy" class="btn btn-secondary btn-block">🔒 Chính sách bảo mật</button>
-    </div>
-
-    <div class="section">
-      <div class="sec-label">Về ứng dụng</div>
-    </div>
-    <div style="padding:20px 16px;background:var(--surface);border-bottom:1px solid var(--border);text-align:center">
-      <img src="icons/icon-192.png" alt="Quản Lý Tiền" style="width:72px;height:72px;border-radius:18px;box-shadow:0 4px 12px rgba(45,106,79,.25)">
-      <div style="font-size:18px;font-weight:700;margin-top:10px;color:var(--text)">Quản Lý Tiền</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px">Phiên bản <span id="appVersion">1.0.0</span></div>
-      <div style="font-size:13px;color:var(--text);margin-top:14px;line-height:1.6">
-        Phát triển bởi <strong>Nguyễn Thanh</strong>
+  <div class="scroll-body" style="padding-top:14px">
+    <!-- Tài khoản Google -->
+    <div class="settings-group">
+      <div class="settings-group-head">
+        <div class="settings-group-icon">☁️</div>
+        <div class="settings-group-title">Tài khoản &amp; đồng bộ</div>
       </div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px">© 2026 — Mọi quyền được bảo lưu</div>
+      <div class="settings-group-body">
+        <div class="setting-row">
+          <span class="setting-label">Email</span>
+          <span class="setting-value" id="setUser">-</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Đồng bộ gần nhất</span>
+          <span class="setting-value" id="setLastSync">-</span>
+        </div>
+      </div>
+      <div class="settings-group-actions">
+        <button id="setLogin" class="btn-google"><span data-icon="google"></span><span>Đăng nhập Google</span></button>
+        <button id="setSync" class="btn btn-primary btn-block">Đồng bộ với Google Drive</button>
+        <button id="setLogout" class="btn btn-secondary btn-block">Đăng xuất</button>
+      </div>
     </div>
-    <div class="setting-row">
-      <span class="setting-label">Liên hệ / Báo lỗi</span>
-      <a href="https://zalo.me/0909683666" target="_blank" rel="noopener" class="setting-value" style="color:var(--accent);text-decoration:none;font-weight:600">Zalo: 0909683666</a>
+
+    <!-- Bảo mật -->
+    <div class="settings-group">
+      <div class="settings-group-head">
+        <div class="settings-group-icon">🔒</div>
+        <div class="settings-group-title">Bảo mật — Khoá app</div>
+      </div>
+      <div class="settings-group-body">
+        <div class="setting-row">
+          <span class="setting-label">Trạng thái</span>
+          <span class="setting-value" id="setLockStatus">Chưa bật</span>
+        </div>
+        <div class="setting-row" id="setBioRow" style="display:none">
+          <span class="setting-label">Mở khoá bằng sinh trắc</span>
+          <label class="qlt-switch">
+            <input type="checkbox" id="setBiometricToggle">
+            <span class="qlt-switch-slider"></span>
+          </label>
+        </div>
+        <div class="setting-row" id="setTimeoutRow" style="display:none">
+          <span class="setting-label">Khoá lại sau</span>
+          <select id="setLockTimeout" class="setting-value" style="background:transparent;border:none;color:var(--accent);font-weight:600;text-align:right">
+            <option value="0">Ngay khi đóng</option>
+            <option value="60">1 phút</option>
+            <option value="300" selected>5 phút</option>
+            <option value="900">15 phút</option>
+            <option value="3600">1 giờ</option>
+          </select>
+        </div>
+      </div>
+      <div class="settings-group-actions">
+        <button id="setLockEnable" class="btn btn-primary btn-block">Bật khoá PIN</button>
+        <button id="setLockChangePin" class="btn btn-secondary btn-block" style="display:none">Đổi PIN</button>
+        <button id="setLockDisable" class="btn btn-secondary btn-block" style="display:none;color:var(--danger);border-color:var(--danger)">Tắt khoá PIN</button>
+      </div>
     </div>
-    <div class="setting-row">
-      <span class="setting-label">Giấy phép</span>
-      <span class="setting-value">All Rights Reserved</span>
+
+    <!-- Giao diện -->
+    <div class="settings-group">
+      <div class="settings-group-head">
+        <div class="settings-group-icon">🎨</div>
+        <div class="settings-group-title">Giao diện</div>
+      </div>
+      <div class="theme-picker" id="themePicker"></div>
+      <div class="settings-group-body">
+        <div class="setting-row">
+          <span class="setting-label">Chế độ tối (Dark mode)</span>
+          <label class="qlt-switch">
+            <input type="checkbox" id="setDarkMode">
+            <span class="qlt-switch-slider"></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Theo hệ thống (Auto)</span>
+          <label class="qlt-switch">
+            <input type="checkbox" id="setAutoTheme">
+            <span class="qlt-switch-slider"></span>
+          </label>
+        </div>
+      </div>
     </div>
-    <div style="padding:14px 16px;font-size:11px;color:var(--text3);line-height:1.6;text-align:center">
-      Phần mềm này là tài sản của Nguyễn Thanh. Cấm sao chép, chỉnh sửa, phân phối lại mã nguồn dưới mọi hình thức khi chưa có sự đồng ý bằng văn bản.
+
+    <!-- Thông báo & gợi ý -->
+    <div class="settings-group">
+      <div class="settings-group-head">
+        <div class="settings-group-icon">🔔</div>
+        <div class="settings-group-title">Thông báo &amp; gợi ý</div>
+      </div>
+      <div class="settings-group-body">
+        <div class="setting-row">
+          <span class="setting-label">Tổng kết hằng ngày (20h)</span>
+          <label class="qlt-switch">
+            <input type="checkbox" id="setDailyNotif">
+            <span class="qlt-switch-slider"></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label" style="line-height:1.5">Gợi ý thông minh tức thì
+            <div style="font-size:11px;color:var(--text3);margin-top:2px">Sau mỗi giao dịch, app phân tích &amp; cảnh báo (vượt budget, chi bất thường…)</div>
+          </span>
+          <label class="qlt-switch">
+            <input type="checkbox" id="setSmartInsights">
+            <span class="qlt-switch-slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quyền riêng tư -->
+    <div class="settings-group">
+      <div class="settings-group-head">
+        <div class="settings-group-icon">🛡️</div>
+        <div class="settings-group-title">Quyền riêng tư</div>
+      </div>
+      <div class="settings-group-body">
+        <div class="setting-row">
+          <span class="setting-label" style="line-height:1.5">Lưu vị trí giao dịch
+            <div style="font-size:11px;color:var(--text3);margin-top:2px">Khi bật, mỗi GD tạo MỚI sẽ ghi toạ độ + địa chỉ. Lưu local, không gửi server.</div>
+          </span>
+          <label class="qlt-switch">
+            <input type="checkbox" id="setGeoEnabled">
+            <span class="qlt-switch-slider"></span>
+          </label>
+        </div>
+      </div>
+      <div class="settings-group-actions">
+        <button id="setGeoClear" class="btn btn-secondary btn-block">🗑️ Xoá toàn bộ vị trí đã lưu</button>
+      </div>
+    </div>
+
+    <!-- Trang chủ widgets -->
+    <div class="settings-group">
+      <div class="settings-group-head">
+        <div class="settings-group-icon">🏠</div>
+        <div class="settings-group-title">Hiển thị trên Trang chủ</div>
+      </div>
+      <div class="settings-group-body" id="setHomeWidgets"></div>
+    </div>
+
+    <!-- Dữ liệu -->
+    <div class="settings-group">
+      <div class="settings-group-head">
+        <div class="settings-group-icon">📦</div>
+        <div class="settings-group-title">Dữ liệu &amp; sao lưu</div>
+      </div>
+      <div id="setStorageInfo" style="padding:14px 16px;font-size:12px;color:var(--text2);line-height:1.7;border-bottom:1px solid var(--border)"></div>
+      <div class="settings-group-actions">
+        <button id="setExport" class="btn btn-secondary btn-block">Xuất ra file JSON</button>
+        <button id="setImport" class="btn btn-secondary btn-block">Nhập từ file JSON</button>
+      </div>
+    </div>
+
+    <!-- Trợ giúp -->
+    <div class="settings-group">
+      <div class="settings-group-head">
+        <div class="settings-group-icon">❓</div>
+        <div class="settings-group-title">Trợ giúp</div>
+      </div>
+      <div class="settings-group-actions" style="border-top:none">
+        <button id="setShowOnboard" class="btn btn-secondary btn-block">📚 Xem lại hướng dẫn</button>
+        <button id="setShowFAQ" class="btn btn-secondary btn-block">💡 Câu hỏi thường gặp (FAQ)</button>
+        <button id="setShowPrivacy" class="btn btn-secondary btn-block">🔒 Chính sách bảo mật</button>
+      </div>
+    </div>
+
+    <!-- Về ứng dụng -->
+    <div class="settings-group">
+      <div style="padding:24px 16px 18px;text-align:center">
+        <img src="icons/icon-192.png" alt="Quản Lý Tiền" style="width:72px;height:72px;border-radius:18px;box-shadow:var(--sh3)">
+        <div style="font-size:18px;font-weight:700;margin-top:10px;color:var(--text);letter-spacing:-0.2px">Quản Lý Tiền</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px">Phiên bản <span id="appVersion">1.0.0</span></div>
+        <div style="font-size:13px;color:var(--text);margin-top:14px;line-height:1.6">
+          Phát triển bởi <strong>Nguyễn Thanh</strong>
+        </div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px">© 2026 — Mọi quyền được bảo lưu</div>
+      </div>
+      <div class="settings-group-body">
+        <div class="setting-row">
+          <span class="setting-label">Liên hệ / Báo lỗi</span>
+          <a href="https://zalo.me/0909683666" target="_blank" rel="noopener" class="setting-value" style="color:var(--accent);text-decoration:none;font-weight:600">Zalo: 0909683666</a>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Giấy phép</span>
+          <span class="setting-value">All Rights Reserved</span>
+        </div>
+      </div>
+      <div style="padding:14px 16px;font-size:11px;color:var(--text3);line-height:1.6;text-align:center">
+        Phần mềm này là tài sản của Nguyễn Thanh. Cấm sao chép, chỉnh sửa, phân phối lại mã nguồn dưới mọi hình thức khi chưa có sự đồng ý bằng văn bản.
+      </div>
     </div>
   </div>
 </div>
