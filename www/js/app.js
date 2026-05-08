@@ -1080,7 +1080,13 @@ const App = {
     if (localStorage.getItem('qlt_daily_notif_off') === '1') return;
     const LN = window.Capacitor.Plugins.LocalNotifications;
     try {
-      await LN.requestPermissions();
+      const perm = await LN.requestPermissions();
+      console.log('[DailyNotif] permission:', perm);
+      if (perm.display !== 'granted') {
+        // User chưa cấp quyền → toast cảnh báo (chỉ hiện khi user vừa toggle)
+        console.warn('[DailyNotif] Notification permission KHÔNG cấp:', perm.display);
+        return;
+      }
       const id = 99001;
       await LN.cancel({ notifications: [{ id }] });
 
@@ -4976,6 +4982,52 @@ const App = {
         }
       };
     }
+
+    // Test notification — fire ngay để verify permission + plugin hoạt động
+    const testNotif = $('#setTestNotif');
+    if (testNotif) {
+      testNotif.onclick = async () => {
+        const LN = window.Capacitor?.Plugins?.LocalNotifications;
+        if (!LN) {
+          QLT_UI.alert('Plugin LocalNotifications chưa cài. Cần build APK mới (PWA không hỗ trợ).', { title: 'Không khả dụng' });
+          return;
+        }
+        try {
+          const perm = await LN.requestPermissions();
+          if (perm.display !== 'granted') {
+            QLT_UI.alert('Chưa cấp quyền thông báo. Vào Cài đặt Android → Apps → Quản Lý Tiền → Permissions → Notifications → BẬT.', { title: 'Cần cấp quyền' });
+            return;
+          }
+          await LN.schedule({
+            notifications: [{
+              id: 99999,
+              title: '✅ Thông báo hoạt động',
+              body: 'App có thể gửi thông báo cho bạn. Tổng kết 20h sẽ tự đến mỗi tối.',
+              schedule: { at: new Date(Date.now() + 1500) },
+              sound: 'default'
+            }]
+          });
+          QLT_UI.toast('Đã gửi — đợi 1-2 giây sẽ thấy thông báo', { type: 'success', duration: 2500 });
+        } catch (e) {
+          QLT_UI.alert('Lỗi: ' + (e?.message || e), { title: 'Test thất bại' });
+        }
+      };
+    }
+
+    // Test insight — show 1 banner mẫu để verify hiển thị
+    const testInsight = $('#setTestInsight');
+    if (testInsight) {
+      testInsight.onclick = () => {
+        if (localStorage.getItem('qlt_smart_insights') === 'off') {
+          QLT_UI.toast('Bật toggle "Gợi ý thông minh" trước đã', { type: 'info' });
+          return;
+        }
+        QLT_UI.insight(
+          'Đây là <strong>banner gợi ý mẫu</strong>. Sau mỗi giao dịch, app sẽ hiện gợi ý thật ở đây nếu phát hiện điều bất thường (vượt budget, chi nhiều, lặp danh mục…)',
+          { emoji: '💡', variant: 'good', duration: 5000 }
+        );
+      };
+    }
     const showFaq = $('#setShowFAQ');
     if (showFaq) showFaq.onclick = () => $('#faqModal').classList.add('open');
     const showPriv = $('#setShowPrivacy');
@@ -5704,16 +5756,17 @@ const App = {
     }
 
     // 2) Khoản này lớn bất thường so với trung bình category 90 ngày
-    if (cat && tx.amount >= 100000) {
+    //    Ngưỡng giảm: 50k (thay 100k) + history 3 (thay 5) + 2× (thay 2.5×)
+    if (cat && tx.amount >= 50000) {
       const since = new Date(now); since.setDate(since.getDate() - 90);
       const sinceStr = since.toISOString().slice(0, 10);
       const past = txs.filter(t => t.type === 'expense'
           && t.categoryId === tx.categoryId
           && t.date >= sinceStr
           && t.id !== tx.id);
-      if (past.length >= 5) {
+      if (past.length >= 3) {
         const avg = past.reduce((s, t) => s + t.amount, 0) / past.length;
-        if (avg >= 20000 && tx.amount >= avg * 2.5) {
+        if (avg >= 10000 && tx.amount >= avg * 2) {
           const ratio = (tx.amount / avg).toFixed(1);
           insights.push({
             emoji: '💸',
@@ -5725,17 +5778,17 @@ const App = {
       }
     }
 
-    // 3) Tổng chi hôm nay vượt nhiều so với trung bình ngày 30 ngày qua
+    // 3) Tổng chi hôm nay vượt trung bình ngày — ngưỡng giảm: 100k (thay 200k) + 1.5× (thay 2×)
     const todayTotal = txs.filter(t => t.type === 'expense' && t.date === todayStr)
       .reduce((s, t) => s + t.amount, 0);
-    if (todayTotal >= 200000) {
+    if (todayTotal >= 100000) {
       const days30 = new Date(now); days30.setDate(days30.getDate() - 30);
       const days30Str = days30.toISOString().slice(0, 10);
       const past30 = txs.filter(t => t.type === 'expense' && t.date >= days30Str && t.date < todayStr);
       if (past30.length >= 3) {
         const distinctDays = new Set(past30.map(t => t.date));
         const avgDaily = past30.reduce((s, t) => s + t.amount, 0) / Math.max(1, distinctDays.size);
-        if (avgDaily >= 50000 && todayTotal >= avgDaily * 2) {
+        if (avgDaily >= 30000 && todayTotal >= avgDaily * 1.5) {
           const ratio = (todayTotal / avgDaily).toFixed(1);
           insights.push({
             emoji: '🔥',
@@ -5747,19 +5800,46 @@ const App = {
       }
     }
 
-    // 4) Cùng category xuất hiện ≥5 lần trong 7 ngày
+    // 4) Cùng category xuất hiện ≥3 lần trong 7 ngày (giảm từ 5)
     if (cat) {
       const week = new Date(now); week.setDate(week.getDate() - 6);
       const weekStr = week.toISOString().slice(0, 10);
       const sameCatWeek = txs.filter(t => t.type === 'expense'
           && t.categoryId === tx.categoryId
           && t.date >= weekStr).length;
-      if (sameCatWeek >= 5) {
+      if (sameCatWeek >= 3) {
         insights.push({
           emoji: '🔁',
           text: `Đã <strong>${sameCatWeek} lần</strong> chi cho ${catName} trong 7 ngày qua`,
           priority: 50
         });
+      }
+    }
+
+    // 5) Fallback: so với TB category — fire khi nothing else triggered (lower priority)
+    //    Đảm bảo user thấy gì đó có ý nghĩa sau mỗi giao dịch
+    if (cat && insights.length === 0) {
+      const past = txs.filter(t => t.type === 'expense'
+          && t.categoryId === tx.categoryId
+          && t.id !== tx.id);
+      if (past.length >= 3) {
+        const avg = past.reduce((s, t) => s + t.amount, 0) / past.length;
+        if (avg >= 10000) {
+          if (tx.amount >= avg * 1.3) {
+            insights.push({
+              emoji: '📈',
+              text: `Khoản này (${fmt(tx.amount)} đ) cao hơn trung bình ${catName} (${fmt(Math.round(avg))} đ)`,
+              priority: 25
+            });
+          } else if (tx.amount <= avg * 0.7 && tx.amount > 0) {
+            insights.push({
+              emoji: '👍',
+              text: `Tiết kiệm! Khoản này (${fmt(tx.amount)} đ) thấp hơn trung bình ${catName} (${fmt(Math.round(avg))} đ)`,
+              variant: 'good',
+              priority: 20
+            });
+          }
+        }
       }
     }
 
