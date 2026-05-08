@@ -953,6 +953,18 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
 .tx-cat-suggest-chip-emoji{font-size:14px;line-height:1}
 .tx-cat-suggest-chip-reason{font-size:10px;color:var(--text3);margin-left:2px}
 
+/* === Budget create modal (MoMo style) === */
+.budget-cat-row{display:flex;align-items:center;gap:14px;padding:14px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s ease}
+.budget-cat-row:active{background:var(--surface2)}
+.budget-cat-row:last-child{border-bottom:none}
+.budget-cat-row-icon{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.budget-cat-row-name{flex:1;font-size:14px;font-weight:600;color:var(--text);min-width:0}
+.budget-cat-row-suggest{font-size:11px;color:var(--text2);margin-top:2px}
+.budget-cat-row-suggest strong{color:var(--text)}
+.budget-cat-row-arrow{font-size:18px;color:var(--text3);flex-shrink:0}
+.budget-pick-card{display:flex;align-items:center;gap:14px;padding:14px;background:var(--surface);border:1px solid var(--border);border-radius:12px}
+.budget-pick-icon{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;background:var(--surface2)}
+
 /* === Fluctuation screen (Biến động thu chi) === */
 .fluc-period-row{display:flex;gap:6px;padding:14px 16px 8px;background:var(--bg)}
 .fluc-period-pill{flex:1;text-align:center;padding:10px 0;border-radius:10px;background:var(--surface);border:1.5px solid var(--border);font-size:13px;font-weight:600;color:var(--text2);cursor:pointer;transition:all .15s ease}
@@ -1878,12 +1890,12 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
   </div>
 </div>
 
-<!-- ========== BUDGETS (Ngân sách tháng) ========== -->
+<!-- ========== BUDGETS (Ngân sách chi tiêu) ========== -->
 <div id="screen-budgets" class="screen">
   <div class="topbar">
     <div class="tb-row">
       <div class="tb-back" data-icon="back" onclick="QLT_App.switchTab('home')"></div>
-      <div class="tb-title">Ngân sách tháng</div>
+      <div class="tb-title">Ngân sách chi tiêu</div>
     </div>
   </div>
   <div class="budget-summary">
@@ -1910,28 +1922,60 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
   <button id="budgetAddFab" class="ni-fab" style="position:fixed;bottom:80px;right:16px;width:56px;height:56px;z-index:90;box-shadow:0 6px 18px rgba(45,106,79,.4)" data-icon="add"></button>
 </div>
 
-<!-- Modal: tạo / sửa ngân sách -->
+<!-- Modal: tạo / sửa ngân sách — MoMo style 2 step (pick category + set amount with trend) -->
 <div id="budgetModal" class="modal">
   <div class="modal-card">
     <div class="modal-head">
       <button data-close data-icon="close"></button>
-      <h3 id="budgetModalTitle">Ngân sách</h3>
+      <h3 id="budgetModalTitle">Tạo ngân sách</h3>
       <button id="budgetDelete" data-icon="trash" style="display:none"></button>
     </div>
     <div class="modal-body">
-      <div class="fg">
-        <label class="fl">Danh mục chi <span style="color:var(--danger)">*</span></label>
-        <select id="budgetCategory" class="fi"></select>
+      <!-- STEP 1: Chọn danh mục -->
+      <div id="budgetStep1">
+        <div id="budgetSuggestSection" style="display:none;margin-bottom:16px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <span style="font-size:18px">✨</span>
+            <span style="font-size:14px;font-weight:700;color:var(--text);background:linear-gradient(90deg,#a855f7,#ec4899);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent">App đề xuất</span>
+          </div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Đề xuất dựa trên chi tiêu trung bình của bạn</div>
+          <div id="budgetSuggestList" style="border:1.5px solid;border-image:linear-gradient(135deg,#a855f7,#ec4899) 1;border-radius:12px;overflow:hidden"></div>
+        </div>
+        <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:10px">Chọn danh mục khác</div>
+        <div id="budgetCatList" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden"></div>
       </div>
-      <div class="fg">
-        <label class="fl">Hạn mức / tháng <span style="color:var(--danger)">*</span></label>
-        <input type="text" inputmode="none" readonly id="budgetAmount" class="fi qlt-amount" placeholder="0">
-        <div style="font-size:11px;color:var(--text3);margin-top:6px">App sẽ cảnh báo cam khi vượt 80%, đỏ khi vượt 100%.</div>
+
+      <!-- STEP 2: Nhập số tiền + trend chart -->
+      <div id="budgetStep2" style="display:none">
+        <div class="budget-pick-card">
+          <div id="budgetPickIcon" class="budget-pick-icon">📁</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;color:var(--text2)">Danh mục</div>
+            <div id="budgetPickName" style="font-size:16px;font-weight:700;color:var(--text)">—</div>
+          </div>
+        </div>
+        <div class="fg" style="margin-top:14px">
+          <label class="fl">Ngân sách chi tiêu trong tháng <span style="color:var(--danger)">*</span></label>
+          <input type="text" inputmode="none" readonly id="budgetAmount" class="fi qlt-amount" placeholder="0 đ">
+        </div>
+        <div style="margin-top:18px;padding:14px 12px;background:var(--surface);border:1px solid var(--border);border-radius:12px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <span style="font-size:16px">💡</span>
+            <span style="font-size:13px;font-weight:600;color:var(--text)">Tham khảo thống kê chi tiêu</span>
+          </div>
+          <canvas id="budgetTrendChart" style="width:100%;height:170px;display:block"></canvas>
+          <div style="font-size:11px;color:var(--accent2);margin-top:8px;display:flex;align-items:center;gap:6px">
+            <span style="display:inline-block;width:18px;height:0;border-top:2px dashed var(--accent2)"></span>
+            Trung bình 5 tháng gần nhất, chỉ tính tháng có chi
+          </div>
+          <div id="budgetTrendDesc" style="font-size:13px;color:var(--text);margin-top:10px;line-height:1.5"></div>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" data-close>Huỷ</button>
-      <button class="btn btn-primary" id="budgetSave">Lưu</button>
+      <button id="budgetBack" class="btn btn-secondary" style="display:none">← Quay lại</button>
+      <button class="btn btn-primary" id="budgetSave">Tạo ngân sách</button>
     </div>
   </div>
 </div>
@@ -2300,7 +2344,7 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
     <div class="dr-section-label">Tài chính</div>
     <div class="dr-item" data-action="accounts"><span class="dr-emoji">💼</span> Tài khoản</div>
     <div class="dr-item" data-action="savings"><span class="dr-emoji">💎</span> Sổ tiết kiệm</div>
-    <div class="dr-item" data-action="budgets"><span class="dr-emoji">🎯</span> Ngân sách tháng</div>
+    <div class="dr-item" data-action="budgets"><span class="dr-emoji">🎯</span> Ngân sách chi tiêu</div>
     <div class="dr-item" data-action="goals"><span class="dr-emoji">🏆</span> Mục tiêu tiết kiệm</div>
     <div class="dr-item" data-action="loans"><span class="dr-emoji">🤝</span> Cho vay / Nợ</div>
     <div class="dr-item" data-action="recurring"><span class="dr-emoji">🔄</span> Giao dịch định kỳ</div>

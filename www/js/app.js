@@ -1744,6 +1744,15 @@ const App = {
     $('#budgetAddFab').onclick = () => this.openBudgetModal(null);
     $('#budgetSave').onclick = () => this.saveBudget();
     $('#budgetDelete').onclick = () => this.deleteBudget();
+    const budgetBack = $('#budgetBack');
+    if (budgetBack) budgetBack.onclick = () => {
+      // Quay lại step 1
+      $('#budgetStep1').style.display = 'block';
+      $('#budgetStep2').style.display = 'none';
+      $('#budgetSave').style.display = 'none';
+      $('#budgetBack').style.display = 'none';
+      if (this.state.editingBudget) this.state.editingBudget.categoryId = '';
+    };
 
     // ----- Goals (Mục tiêu tiết kiệm) -----
     $('#goalAddFab').onclick = () => this.openGoalModal(null);
@@ -4213,7 +4222,7 @@ const App = {
     wrap.style.display = 'block';
     wrap.innerHTML = `
       <div class="section">
-        <div class="sec-label">Ngân sách tháng <span class="sec-action" onclick="QLT_App.switchTab('budgets')">Quản lý →</span></div>
+        <div class="sec-label">Ngân sách chi tiêu <span class="sec-action" onclick="QLT_App.switchTab('budgets')">Quản lý →</span></div>
       </div>
       <div class="home-budget-list">
         ${top.map(({ b, st }) => {
@@ -4237,6 +4246,49 @@ const App = {
     `;
   },
 
+  // Tính chi trung bình theo category 5 tháng gần nhất (chỉ tháng có chi)
+  _budgetAvgSpending(catId) {
+    const out = { months: [], avg: 0, currentMonth: 0 };
+    const now = new Date();
+    const txs = this.state.transactions || [];
+    let total = 0, count = 0;
+    // Duyệt 6 tháng (T-5 → tháng này) — current riêng
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const ym = d.toISOString().slice(0, 7);
+      const monthSpent = txs.filter(t => t.type === 'expense' && t.categoryId === catId && t.date.startsWith(ym))
+        .reduce((s, t) => s + t.amount, 0);
+      const label = i === 0 ? `${d.getMonth() + 1}` : (d.getMonth() === 0 ? `1/${d.getFullYear()}` : `${d.getMonth() + 1}`);
+      out.months.push({ label, ym, amount: monthSpent, isCurrent: i === 0 });
+      if (i === 0) {
+        out.currentMonth = monthSpent;
+      } else if (monthSpent > 0) {
+        // Chỉ tính tháng có chi (như MoMo)
+        total += monthSpent;
+        count++;
+      }
+    }
+    out.avg = count > 0 ? Math.round(total / count) : 0;
+    return out;
+  },
+
+  // Top 2-3 danh mục đề xuất budget — dựa trên TB chi 3 tháng gần nhất, chưa có budget
+  _budgetSuggested(excludeCatIds) {
+    const cats = this.state.categories.filter(c => c.type === 'expense'
+      && !excludeCatIds.includes(c.id)
+      && !this.state.categories.some(x => x.parentId === c.id)); // bỏ category cha có con
+    const scored = cats.map(c => {
+      const stats = this._budgetAvgSpending(c.id);
+      return { cat: c, suggested: stats.avg };
+    }).filter(x => x.suggested >= 50000); // Chỉ đề xuất nếu TB ≥ 50k
+    scored.sort((a, b) => b.suggested - a.suggested);
+    // Round to nice numbers (lên đến hàng trăm nghìn gần nhất)
+    return scored.slice(0, 3).map(x => ({
+      cat: x.cat,
+      suggested: Math.ceil(x.suggested / 100000) * 100000
+    }));
+  },
+
   openBudgetModal(budgetId) {
     const isNew = !budgetId;
     let budget;
@@ -4247,39 +4299,231 @@ const App = {
     }
     this.state.editingBudget = budget;
 
-    $('#budgetModalTitle').textContent = isNew ? 'Thêm ngân sách' : 'Sửa ngân sách';
     $('#budgetDelete').style.display = isNew ? 'none' : '';
 
     // Danh mục chi — loại trừ những danh mục đã có ngân sách (trừ khi đang sửa)
     const usedCatIds = this.state.budgets
       .filter(b => b.id !== budget.id)
       .map(b => b.categoryId);
-    const expenseCats = this.state.categories
-      .filter(c => c.type === 'expense' && !usedCatIds.includes(c.id));
+    const availableCats = this.state.categories
+      .filter(c => c.type === 'expense' && !usedCatIds.includes(c.id)
+        && !this.state.categories.some(x => x.parentId === c.id));
 
-    if (isNew && !expenseCats.length) {
+    if (isNew && !availableCats.length) {
       QLT_UI.alert('Tất cả danh mục chi đã có ngân sách. Hãy sửa khoản hiện có hoặc thêm danh mục mới.', { title: 'Hết danh mục' });
       return;
     }
 
-    $('#budgetCategory').innerHTML = expenseCats.map(c =>
-      `<option value="${c.id}" ${c.id === budget.categoryId ? 'selected' : ''}>${this.escapeHtml(c.name)}</option>`
-    ).join('');
-    $('#budgetCategory').disabled = !isNew;
-    $('#budgetAmount').value = fmt(budget.amount || 0);
+    if (isNew) {
+      // STEP 1: pick category
+      $('#budgetModalTitle').textContent = 'Tạo ngân sách';
+      $('#budgetStep1').style.display = 'block';
+      $('#budgetStep2').style.display = 'none';
+      $('#budgetSave').textContent = 'Tạo ngân sách';
+      $('#budgetSave').style.display = 'none'; // Ẩn save ở step 1, chỉ hiện ở step 2
+      $('#budgetBack').style.display = 'none';
+
+      // Render suggested
+      const suggested = this._budgetSuggested(usedCatIds);
+      const suggSection = $('#budgetSuggestSection');
+      if (suggested.length > 0) {
+        suggSection.style.display = 'block';
+        $('#budgetSuggestList').innerHTML = suggested.map(s => {
+          const emoji = (s.cat.icon || '').startsWith('emoji:') ? s.cat.icon.slice(6) : '📁';
+          return `
+            <div class="budget-cat-row" data-cat="${s.cat.id}" data-suggest="${s.suggested}" style="background:linear-gradient(135deg,rgba(168,85,247,0.04),rgba(236,72,153,0.04))">
+              <div class="budget-cat-row-icon" style="background:${s.cat.color || '#888'}1a">${emoji}</div>
+              <div style="flex:1;min-width:0">
+                <div class="budget-cat-row-name">${this.escapeHtml(s.cat.name)}</div>
+                <div class="budget-cat-row-suggest">Đề xuất <strong>${fmt(s.suggested)} đ</strong></div>
+              </div>
+              <div class="budget-cat-row-arrow">›</div>
+            </div>
+          `;
+        }).join('');
+      } else {
+        suggSection.style.display = 'none';
+      }
+
+      // Render all available categories
+      $('#budgetCatList').innerHTML = availableCats.map(c => {
+        const emoji = (c.icon || '').startsWith('emoji:') ? c.icon.slice(6) : '📁';
+        return `
+          <div class="budget-cat-row" data-cat="${c.id}">
+            <div class="budget-cat-row-icon" style="background:${c.color || '#888'}1a">${emoji}</div>
+            <div class="budget-cat-row-name">${this.escapeHtml(c.name)}</div>
+            <div class="budget-cat-row-arrow">›</div>
+          </div>
+        `;
+      }).join('');
+
+      // Bind clicks → step 2
+      $('#budgetModal').querySelectorAll('.budget-cat-row[data-cat]').forEach(el => {
+        el.onclick = () => {
+          const catId = el.dataset.cat;
+          const sugAmount = parseInt(el.dataset.suggest || '0', 10);
+          this._budgetGoStep2(catId, sugAmount);
+        };
+      });
+    } else {
+      // Edit mode: skip step 1, go straight to step 2
+      this._budgetGoStep2(budget.categoryId, budget.amount);
+      $('#budgetModalTitle').textContent = 'Sửa ngân sách';
+      $('#budgetSave').textContent = 'Lưu thay đổi';
+      $('#budgetBack').style.display = 'none';
+    }
 
     $('#budgetModal').classList.add('open');
+  },
+
+  _budgetGoStep2(catId, prefillAmount) {
+    const cat = this.state.categories.find(c => c.id === catId);
+    if (!cat) return;
+    const b = this.state.editingBudget;
+    if (!b) return;
+    b.categoryId = catId;
+    b.amount = prefillAmount || 0;
+
+    $('#budgetStep1').style.display = 'none';
+    $('#budgetStep2').style.display = 'block';
+    $('#budgetSave').style.display = '';
+    // Chỉ show back nếu đang TẠO MỚI (không phải sửa)
+    $('#budgetBack').style.display = b.id ? 'none' : '';
+
+    // Pick card
+    const emoji = (cat.icon || '').startsWith('emoji:') ? cat.icon.slice(6) : '📁';
+    $('#budgetPickIcon').textContent = emoji;
+    $('#budgetPickIcon').style.background = (cat.color || '#888') + '20';
+    $('#budgetPickName').textContent = cat.name;
+
+    // Amount field
+    $('#budgetAmount').value = prefillAmount > 0 ? fmt(prefillAmount) : '';
+
+    // Trend chart + average reference
+    const stats = this._budgetAvgSpending(catId);
+    this._drawBudgetTrendChart($('#budgetTrendChart'), stats);
+
+    // Description
+    const desc = stats.avg > 0
+      ? `Xu hướng chi <strong>${this.escapeHtml(cat.name)}</strong> 6 tháng gần đây`
+      : `Bạn chưa có giao dịch <strong>${this.escapeHtml(cat.name)}</strong> trong 6 tháng. Hãy đặt mức bạn muốn giữ.`;
+    $('#budgetTrendDesc').innerHTML = desc;
+  },
+
+  _drawBudgetTrendChart(canvas, stats) {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth;
+    const H = canvas.clientHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const cs = getComputedStyle(document.documentElement);
+    const text2Color = (cs.getPropertyValue('--text2') || '#666').trim();
+    const text3Color = (cs.getPropertyValue('--text3') || '#aaa').trim();
+    const accent2 = (cs.getPropertyValue('--accent2') || '#e76f51').trim();
+
+    const padTop = 28, padBottom = 28, padLeft = 8, padRight = 8;
+    const innerW = W - padLeft - padRight;
+    const innerH = H - padTop - padBottom;
+
+    const months = stats.months;
+    if (!months.length) return;
+    const maxVal = Math.max(stats.avg, ...months.map(m => m.amount), 1);
+    const barW = Math.min(34, innerW / months.length * 0.7);
+    const groupW = innerW / months.length;
+
+    // Vẽ từng cột
+    months.forEach((m, i) => {
+      const cx = padLeft + i * groupW + groupW / 2;
+      const x = cx - barW / 2;
+      const h = m.amount / maxVal * innerH;
+      const y = padTop + innerH - h;
+
+      // Bar — current = đậm, past = nhạt
+      ctx.fillStyle = m.isCurrent ? '#1976d2' : '#bcdaf2';
+      ctx.beginPath();
+      const r = 4;
+      if (h >= r * 2) {
+        ctx.moveTo(x, y + h);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.lineTo(x + barW - r, y);
+        ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
+        ctx.lineTo(x + barW, y + h);
+        ctx.closePath();
+        ctx.fill();
+      } else if (h > 0) {
+        ctx.fillRect(x, y, barW, h);
+      }
+
+      // Label dưới
+      ctx.fillStyle = m.isCurrent ? '#1976d2' : text3Color;
+      ctx.font = m.isCurrent ? '700 11px DM Sans, sans-serif' : '11px DM Sans, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(m.label, cx, padTop + innerH + 14);
+
+      // Tooltip cho cột current (số tiền)
+      if (m.isCurrent && m.amount > 0) {
+        const tipText = fmt(m.amount) + 'đ';
+        ctx.font = '700 11px DM Sans, sans-serif';
+        const tw = ctx.measureText(tipText).width + 14;
+        const tx = cx - tw / 2;
+        const ty = y - 24;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(tx, ty, tw, 18);
+        ctx.strokeStyle = '#1976d2';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(tx, ty, tw, 18);
+        ctx.fillStyle = '#1976d2';
+        ctx.fillText(tipText, cx, ty + 13);
+        // Dotted line từ tip xuống cột
+        ctx.strokeStyle = '#1976d2';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(cx, ty + 18);
+        ctx.lineTo(cx, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    });
+
+    // Đường trung bình (dashed pink)
+    if (stats.avg > 0) {
+      const avgY = padTop + innerH - (stats.avg / maxVal * innerH);
+      ctx.strokeStyle = accent2;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(padLeft, avgY);
+      ctx.lineTo(padLeft + innerW, avgY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Tag số TB
+      const avgText = fmt(stats.avg) + 'đ';
+      ctx.font = '700 10px DM Sans, sans-serif';
+      const tw2 = ctx.measureText(avgText).width + 10;
+      ctx.fillStyle = accent2;
+      ctx.fillRect(padLeft, avgY - 16, tw2, 14);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'left';
+      ctx.fillText(avgText, padLeft + 5, avgY - 6);
+    }
   },
 
   async saveBudget() {
     const b = this.state.editingBudget;
     if (!b) return;
-    b.categoryId = $('#budgetCategory').value;
+    // categoryId đã set ở step 2 (_budgetGoStep2). Chỉ đọc amount lại.
     b.amount = readAmount($('#budgetAmount'));
     b.bookId = b.bookId || this.state.currentBookId;
 
     if (!b.categoryId) { QLT_UI.toast('Vui lòng chọn danh mục', { type: 'error' }); return; }
-    if (b.amount <= 0) { QLT_UI.toast('Vui lòng nhập hạn mức', { type: 'error' }); return; }
+    if (b.amount <= 0) { QLT_UI.toast('Vui lòng nhập ngân sách', { type: 'error' }); return; }
 
     await window.QLT_Store.put('budgets', b);
     await this.reload();
