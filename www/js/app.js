@@ -3708,8 +3708,11 @@ const App = {
       }
     }
 
-    // Forecast chi = đã chi + (trung bình ngày × ngày còn lại) + recurring chi sắp fire
-    const forecast = Math.round(spent + avgPerDay * remainDays + recExp);
+    // Forecast chi = đã chi + (trung bình ngày × ngày còn lại)
+    // KHÔNG cộng recExp vì avgPerDay đã ngoại suy theo pattern hiện tại (bao gồm recurring đã fire).
+    // Cộng recExp nữa sẽ DOUBLE-COUNT các giao dịch định kỳ sẽ tiếp tục fire.
+    // Recurring info chỉ hiển thị riêng để user tham khảo, không nhập vào forecast.
+    const forecast = Math.round(spent + avgPerDay * remainDays);
 
     // Tháng trước (cùng cả tháng)
     const lastDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -3740,13 +3743,14 @@ const App = {
     const dayPct = Math.round(dayOfMonth / totalDays * 100);
     const spentPct = forecast > 0 ? Math.min(100, Math.round(spent / forecast * 100)) : 0;
 
-    // Recurring info line (chỉ hiện nếu có rule fire trong tháng)
+    // Recurring info line — CHỈ HIỂN THỊ tham khảo, không cộng vào forecast
+    // Vì forecast đã ngoại suy theo trung bình chi (đã bao gồm recurring đã fire trong tháng)
     let recHtml = '';
     if (recCount > 0) {
       const parts = [];
       if (recExp > 0) parts.push(`<strong style="color:#e76f51">−${fmt(recExp)} đ chi</strong>`);
       if (recInc > 0) parts.push(`<strong style="color:#52b788">+${fmt(recInc)} đ thu</strong>`);
-      recHtml = `<div class="forecast-detail" style="margin-top:4px">📌 Định kỳ sắp tới: ${parts.join(' · ')} <span style="color:var(--text3)">(${recCount} giao dịch)</span></div>`;
+      recHtml = `<div class="forecast-detail" style="margin-top:4px;font-size:11px;color:var(--text3)">📌 Định kỳ còn ${recCount} GD: ${parts.join(' · ')} <span style="opacity:.7">(không cộng vào dự báo — đã có trong trung bình)</span></div>`;
     }
 
     wrap.style.display = 'block';
