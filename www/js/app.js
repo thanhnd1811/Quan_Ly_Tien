@@ -3705,6 +3705,9 @@ const App = {
       ctx.fillText(d.label, groupCx, H - padBottom + 14);
     });
   },
+
+  groupByPeriod(period) {
+    const out = [];
     const now = new Date();
     if (period === 'day') {
       // 7 ngày gần nhất
