@@ -2127,6 +2127,7 @@ const App = {
     else if (name === 'savings') this.renderSavings();
     else if (name === 'recurring') this.renderRecurring();
     else if (name === 'photos') this.renderPhotoGallery();
+    else if (name === 'fluctuation') this.renderFluctuation();
   },
 
   // ============ HOME ============
@@ -3277,8 +3278,424 @@ const App = {
     $('#catTxModal').classList.add('open');
   },
 
-  groupByPeriod(period) {
+  // ============ BIẾN ĐỘNG THU CHI (MoMo-style) ============
+  // State trong this.state.fluc = { period: 'week|month|year', tab: 'income|expense|diff', cmp: bool }
+
+  // Trả về [start, end] cho period THIS và LAST (so với cùng kỳ).
+  // 'week'  → tuần này (T2 → CN tuần này) vs tuần trước (T2 → CN tuần trước)
+  // 'month' → tháng này (1→hôm nay) vs tháng trước (1→cùng ngày)
+  // 'year'  → năm này (1/1→hôm nay) vs năm trước (1/1→cùng ngày năm trước)
+  // Tất cả "previous" được CẮT ĐÚNG đến cùng số ngày đã trôi để so sánh CÔNG BẰNG.
+  _flucRanges(period, asOf) {
+    const now = asOf ? new Date(asOf + 'T00:00:00') : new Date(today() + 'T00:00:00');
+    const fmtDt = d => d.toISOString().slice(0, 10);
+    const cloneAdd = (d, days) => { const x = new Date(d); x.setDate(x.getDate() + days); return x; };
+
+    let curStart, curEnd, prevStart, prevEnd, label;
+    if (period === 'week') {
+      // Monday làm đầu tuần (theo VN)
+      const dow = (now.getDay() + 6) % 7; // T2=0, T3=1, ..., CN=6
+      curStart = cloneAdd(now, -dow);
+      curEnd = now;
+      // Tuần trước = curStart -7 → curEnd -7
+      prevStart = cloneAdd(curStart, -7);
+      prevEnd = cloneAdd(curEnd, -7);
+      label = 'tuần';
+    } else if (period === 'month') {
+      curStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      curEnd = now;
+      prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      // Cắt prevEnd đến cùng day-of-month, nhưng không vượt số ngày max của tháng trước
+      const maxPrevDay = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+      prevEnd = new Date(now.getFullYear(), now.getMonth() - 1, Math.min(now.getDate(), maxPrevDay));
+      label = 'tháng';
+    } else {
+      // year
+      curStart = new Date(now.getFullYear(), 0, 1);
+      curEnd = now;
+      prevStart = new Date(now.getFullYear() - 1, 0, 1);
+      // Edge case: 29/2 năm nhuận → 28/2 năm thường
+      let prevEndMonth = now.getMonth();
+      let prevEndDay = now.getDate();
+      if (prevEndMonth === 1 && prevEndDay === 29) {
+        const isLeapPrev = (() => {
+          const y = now.getFullYear() - 1;
+          return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+        })();
+        if (!isLeapPrev) prevEndDay = 28;
+      }
+      prevEnd = new Date(now.getFullYear() - 1, prevEndMonth, prevEndDay);
+      label = 'năm';
+    }
+    return {
+      curStart: fmtDt(curStart), curEnd: fmtDt(curEnd),
+      prevStart: fmtDt(prevStart), prevEnd: fmtDt(prevEnd),
+      label
+    };
+  },
+
+  // Tổng giao dịch loại 'income'/'expense' trong khoảng [from, to]
+  _flucSum(type, fromStr, toStr) {
+    return (this.state.transactions || [])
+      .filter(t => t.type === type && t.date >= fromStr && t.date <= toStr)
+      .reduce((s, t) => s + (t.amount || 0), 0);
+  },
+
+  // Sum theo category trong khoảng — trả về Map<catId, total>
+  _flucSumByCategory(type, fromStr, toStr) {
+    const m = new Map();
+    for (const t of (this.state.transactions || [])) {
+      if (t.type !== type || !t.categoryId) continue;
+      if (t.date < fromStr || t.date > toStr) continue;
+      m.set(t.categoryId, (m.get(t.categoryId) || 0) + (t.amount || 0));
+    }
+    return m;
+  },
+
+  // Build timeline: 6 kỳ gần nhất cho week/month, 4 năm cho year
+  // Trả về array { label, fromStr, toStr, isCurrent }
+  _flucTimeline(period) {
     const out = [];
+    const now = new Date(today() + 'T00:00:00');
+    if (period === 'week') {
+      // 6 tuần gần nhất: tuần này + 5 tuần trước
+      const dow = (now.getDay() + 6) % 7;
+      const thisMonStart = new Date(now); thisMonStart.setDate(now.getDate() - dow);
+      for (let i = 5; i >= 0; i--) {
+        const ws = new Date(thisMonStart); ws.setDate(thisMonStart.getDate() - i * 7);
+        const we = new Date(ws); we.setDate(ws.getDate() + 6);
+        const isCur = i === 0;
+        const startStr = ws.toISOString().slice(0, 10);
+        const endStr = (isCur ? now : we).toISOString().slice(0, 10);
+        const label = isCur ? 'Tuần này' : `${ws.getDate()}/${ws.getMonth() + 1}`;
+        out.push({ label, fromStr: startStr, toStr: endStr, isCurrent: isCur, anchor: ws });
+      }
+    } else if (period === 'month') {
+      // 6 tháng gần nhất
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const isCur = i === 0;
+        const fromStr = d.toISOString().slice(0, 10);
+        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+        const toStr = (isCur ? now : lastDay).toISOString().slice(0, 10);
+        const label = isCur ? 'Tháng này' : `T${d.getMonth() + 1}`;
+        out.push({ label, fromStr, toStr, isCurrent: isCur, anchor: d });
+      }
+    } else {
+      // 4 năm gần nhất
+      for (let i = 3; i >= 0; i--) {
+        const y = now.getFullYear() - i;
+        const isCur = i === 0;
+        const fromStr = `${y}-01-01`;
+        const toStr = (isCur ? now : new Date(y, 11, 31)).toISOString().slice(0, 10);
+        const label = isCur ? 'Năm nay' : `${y}`;
+        out.push({ label, fromStr, toStr, isCurrent: isCur, anchor: new Date(y, 0, 1) });
+      }
+    }
+    return out;
+  },
+
+  // Cùng kỳ của 1 timeline entry — vd cùng kỳ tháng này = same days của tháng trước
+  _flucSamePeriodOf(entry, period) {
+    const a = entry.anchor;
+    if (period === 'week') {
+      const ws = new Date(a); ws.setDate(a.getDate() - 7);
+      const we = new Date(ws); we.setDate(ws.getDate() + 6);
+      // Cắt theo số ngày đã trôi của entry
+      const elapsedDays = (new Date(entry.toStr) - new Date(entry.fromStr)) / 86400000;
+      const cutEnd = new Date(ws); cutEnd.setDate(ws.getDate() + Math.round(elapsedDays));
+      return { fromStr: ws.toISOString().slice(0, 10), toStr: cutEnd.toISOString().slice(0, 10) };
+    } else if (period === 'month') {
+      const prevMonth = new Date(a.getFullYear(), a.getMonth() - 1, 1);
+      const elapsedDays = (new Date(entry.toStr) - new Date(entry.fromStr)) / 86400000;
+      const maxDay = new Date(a.getFullYear(), a.getMonth(), 0).getDate();
+      const cutDay = Math.min(maxDay, Math.round(elapsedDays) + 1);
+      const cutEnd = new Date(prevMonth.getFullYear(), prevMonth.getMonth(), cutDay);
+      return { fromStr: prevMonth.toISOString().slice(0, 10), toStr: cutEnd.toISOString().slice(0, 10) };
+    } else {
+      // year
+      const prevY = a.getFullYear() - 1;
+      const fromD = new Date(prevY, 0, 1);
+      const elapsedMs = new Date(entry.toStr) - new Date(entry.fromStr);
+      const elapsedDays = elapsedMs / 86400000;
+      const cutEnd = new Date(prevY, 0, 1);
+      cutEnd.setDate(cutEnd.getDate() + Math.round(elapsedDays));
+      return { fromStr: fromD.toISOString().slice(0, 10), toStr: cutEnd.toISOString().slice(0, 10) };
+    }
+  },
+
+  renderFluctuation() {
+    if (!this.state.fluc) this.state.fluc = { period: 'month', tab: 'expense', cmp: true };
+    const f = this.state.fluc;
+
+    // Bind period pills
+    document.querySelectorAll('#flucPeriodRow .fluc-period-pill').forEach(el => {
+      el.classList.toggle('on', el.dataset.period === f.period);
+      el.onclick = () => { f.period = el.dataset.period; this.renderFluctuation(); };
+    });
+    // Bind sub-tabs
+    document.querySelectorAll('#flucTabRow .fluc-tab').forEach(el => {
+      el.classList.toggle('on', el.dataset.tab === f.tab);
+      el.onclick = () => { f.tab = el.dataset.tab; this.renderFluctuation(); };
+    });
+    // Bind cmp toggle
+    const cmpToggle = $('#flucCmpToggle');
+    cmpToggle.checked = !!f.cmp;
+    cmpToggle.onchange = () => { f.cmp = cmpToggle.checked; this.renderFluctuation(); };
+
+    // Compute current vs previous
+    const r = this._flucRanges(f.period);
+    const tabName = f.tab === 'income' ? 'Thu nhập' : (f.tab === 'expense' ? 'Chi tiêu' : 'Chênh lệch');
+    let curTotal, prevTotal;
+    if (f.tab === 'diff') {
+      curTotal = this._flucSum('income', r.curStart, r.curEnd) - this._flucSum('expense', r.curStart, r.curEnd);
+      prevTotal = this._flucSum('income', r.prevStart, r.prevEnd) - this._flucSum('expense', r.prevStart, r.prevEnd);
+    } else {
+      curTotal = this._flucSum(f.tab, r.curStart, r.curEnd);
+      prevTotal = this._flucSum(f.tab, r.prevStart, r.prevEnd);
+    }
+
+    // Header
+    const header = $('#flucHeader');
+    const periodLabel = f.period === 'week' ? 'tuần này' : (f.period === 'month' ? 'tháng này' : 'năm nay');
+    const cumPeriodLabel = f.period === 'week' ? 'tuần trước' : (f.period === 'month' ? 'tháng trước' : 'năm trước');
+    const totalCls = f.tab === 'diff' ? (curTotal >= 0 ? 'pos' : 'neg') : '';
+    const totalDisplay = f.tab === 'diff'
+      ? (curTotal >= 0 ? '+' : '') + fmt(curTotal) + ' đ'
+      : fmt(curTotal) + ' đ';
+    const delta = curTotal - prevTotal;
+    let deltaHtml;
+    if (Math.abs(delta) < 1) {
+      deltaHtml = `<div class="fluc-header-delta flat">≈ Bằng cùng kỳ ${cumPeriodLabel}</div>`;
+    } else {
+      const isUp = delta > 0;
+      // Cho 'expense': tăng = xấu (đỏ), giảm = tốt (xanh)
+      // Cho 'income' / 'diff': tăng = tốt (xanh), giảm = xấu (đỏ)
+      let cls;
+      if (f.tab === 'expense') cls = isUp ? 'up' : 'down';
+      else cls = isUp ? 'down' : 'up'; // up class = green (good for income/diff)
+      // Wait — let me redesign: class .up = đỏ (xấu cho chi), .down = xanh (tốt cho chi)
+      // Hmm conflict. Let me make it semantic:
+      // .up = visual "tăng" → cho expense = đỏ, cho income/diff = xanh
+      // Actually simpler: pick color based on whether this is "good news" or "bad news"
+      const isBad = f.tab === 'expense' ? isUp : !isUp;
+      cls = isBad ? 'down' : 'up';
+      const arrow = isUp ? '↑' : '↓';
+      const verb = isUp ? 'Tăng' : 'Giảm';
+      deltaHtml = `<div class="fluc-header-delta ${cls}">${arrow} ${verb} ${fmt(Math.abs(delta))} đ so với cùng kỳ ${cumPeriodLabel}</div>`;
+    }
+    header.innerHTML = `
+      <div class="fluc-header-label">Tổng ${tabName.toLowerCase()} ${periodLabel}</div>
+      <div class="fluc-header-amount ${totalCls}">${totalDisplay}</div>
+      ${deltaHtml}
+    `;
+
+    // Build timeline + render chart
+    const timeline = this._flucTimeline(f.period);
+    const tlData = timeline.map(e => {
+      const cur = f.tab === 'diff'
+        ? this._flucSum('income', e.fromStr, e.toStr) - this._flucSum('expense', e.fromStr, e.toStr)
+        : this._flucSum(f.tab, e.fromStr, e.toStr);
+      let prev = 0;
+      if (f.cmp) {
+        const sp = this._flucSamePeriodOf(e, f.period);
+        prev = f.tab === 'diff'
+          ? this._flucSum('income', sp.fromStr, sp.toStr) - this._flucSum('expense', sp.fromStr, sp.toStr)
+          : this._flucSum(f.tab, sp.fromStr, sp.toStr);
+      }
+      return { label: e.label, cur, prev, isCurrent: e.isCurrent };
+    });
+    this._drawFlucChart($('#flucChart'), tlData, f);
+
+    // Legend
+    const legend = $('#flucLegend');
+    if (f.cmp) {
+      legend.innerHTML = `
+        <span class="fluc-chart-legend-item"><span class="fluc-chart-legend-swatch" style="background:#a9c8e8"></span>Cùng kỳ</span>
+        <span class="fluc-chart-legend-item"><span class="fluc-chart-legend-swatch" style="background:#1976d2"></span>${tabName} kỳ này</span>
+      `;
+    } else {
+      legend.innerHTML = `<span class="fluc-chart-legend-item"><span class="fluc-chart-legend-swatch" style="background:#1976d2"></span>${tabName}</span>`;
+    }
+
+    // Categories breakdown — chỉ cho thu/chi, không cho diff
+    const catsWrap = $('#flucCatsWrap');
+    if (f.tab === 'diff') {
+      catsWrap.style.display = 'none';
+    } else {
+      catsWrap.style.display = 'block';
+      $('#flucCatsLabel').textContent = 'Theo danh mục';
+      const curMap = this._flucSumByCategory(f.tab, r.curStart, r.curEnd);
+      const prevMap = this._flucSumByCategory(f.tab, r.prevStart, r.prevEnd);
+      // Tổng hợp tất cả catId xuất hiện ở cur hoặc prev
+      const allIds = new Set([...curMap.keys(), ...prevMap.keys()]);
+      const rows = [];
+      for (const cid of allIds) {
+        const cat = this.state.categories.find(c => c.id === cid);
+        const cur = curMap.get(cid) || 0;
+        const prev = prevMap.get(cid) || 0;
+        rows.push({ cat, cur, prev, delta: cur - prev });
+      }
+      rows.sort((a, b) => b.cur - a.cur);
+      const list = $('#flucCatsList');
+      if (rows.length === 0) {
+        list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">Chưa có giao dịch nào</div>';
+      } else {
+        list.innerHTML = rows.slice(0, 15).map(row => {
+          const cat = row.cat || { name: '?', color: '#888', icon: 'emoji:📁' };
+          const emoji = (cat.icon || '').startsWith('emoji:') ? cat.icon.slice(6) : '📁';
+          let deltaCls = 'flat', deltaArrow = '', deltaText = 'Bằng cùng kỳ';
+          if (Math.abs(row.delta) >= 1) {
+            const isUp = row.delta > 0;
+            // For expense: up = bad (đỏ), down = good (xanh). For income: up = good, down = bad
+            const isBad = f.tab === 'expense' ? isUp : !isUp;
+            deltaCls = isBad ? 'up' : 'down';
+            deltaArrow = isUp ? '↑' : '↓';
+            deltaText = `${deltaArrow} ${fmt(Math.abs(row.delta))} đ`;
+          }
+          return `
+            <div class="fluc-cat-row" data-cat="${cat.id || ''}">
+              <div class="fluc-cat-icon" style="background:${cat.color || '#888'}1a">${emoji}</div>
+              <div class="fluc-cat-info">
+                <div class="fluc-cat-name">${this.escapeHtml(cat.name)}</div>
+              </div>
+              <div class="fluc-cat-amount-row">
+                <div class="fluc-cat-amount">${fmt(row.cur)} đ</div>
+                <div class="fluc-cat-delta ${deltaCls}">${deltaText}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    // Timeline list
+    $('#flucTimelineLabel').textContent = f.period === 'week' ? 'Các tuần gần đây' : (f.period === 'month' ? 'Các tháng gần đây' : 'Các năm gần đây');
+    const tlEl = $('#flucTimeline');
+    tlEl.innerHTML = timeline.slice().reverse().map(e => {
+      const inc = this._flucSum('income', e.fromStr, e.toStr);
+      const exp = this._flucSum('expense', e.fromStr, e.toStr);
+      const net = inc - exp;
+      const netCls = net >= 0 ? 'pos' : 'neg';
+      const netText = (net >= 0 ? '+' : '') + fmt(net) + ' đ';
+      return `
+        <div class="fluc-tl-row">
+          <div class="fluc-tl-label">${this.escapeHtml(e.label)}</div>
+          <div class="fluc-tl-info">
+            Thu: <strong>${fmt(inc)} đ</strong><br>
+            Chi: <strong>${fmt(exp)} đ</strong>
+          </div>
+          <div class="fluc-tl-net">
+            <div class="fluc-tl-net-label">Còn lại</div>
+            <div class="fluc-tl-net-amount ${netCls}">${netText}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  },
+
+  // Vẽ chart cho fluctuation: 2-series overlay (current full + comparison previous)
+  _drawFlucChart(canvas, data, f) {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth;
+    const H = canvas.clientHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const cs = getComputedStyle(document.documentElement);
+    const text2Color = (cs.getPropertyValue('--text2') || '#666').trim();
+    const text3Color = (cs.getPropertyValue('--text3') || '#aaa').trim();
+    const borderColor = (cs.getPropertyValue('--border') || '#e4ebe0').trim();
+
+    if (!data.length) return;
+
+    const padTop = 18, padBottom = 36, padLeft = 12, padRight = 12;
+    const innerW = W - padLeft - padRight;
+    const innerH = H - padTop - padBottom;
+
+    // Diff tab có thể có giá trị âm → tính min/max
+    const allVals = [];
+    for (const d of data) { allVals.push(d.cur, d.prev); }
+    const maxAbs = Math.max(1, ...allVals.map(v => Math.abs(v)));
+    const hasNeg = allVals.some(v => v < 0);
+    const baselineY = hasNeg ? padTop + innerH / 2 : padTop + innerH;
+    const halfH = hasNeg ? innerH / 2 : innerH;
+
+    // Trục đáy (hoặc trung tâm nếu có âm)
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padLeft, baselineY);
+    ctx.lineTo(padLeft + innerW, baselineY);
+    ctx.stroke();
+
+    const groupW = innerW / data.length;
+    const showCmp = !!f.cmp;
+    const barW = showCmp ? Math.min(20, groupW * 0.32) : Math.min(28, groupW * 0.55);
+    const gap = showCmp ? 3 : 0;
+
+    data.forEach((d, i) => {
+      const groupCx = padLeft + i * groupW + groupW / 2;
+
+      // Helper: vẽ 1 bar tại x với value
+      const drawBar = (x, val, color) => {
+        if (!val) return;
+        const h = Math.abs(val) / maxAbs * halfH;
+        const y = val >= 0 ? baselineY - h : baselineY;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        const r = 3;
+        // Rounded rect — chỉ bo top (hoặc bottom nếu âm)
+        if (val >= 0) {
+          ctx.moveTo(x, y + h);
+          ctx.lineTo(x, y + r);
+          ctx.quadraticCurveTo(x, y, x + r, y);
+          ctx.lineTo(x + barW - r, y);
+          ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
+          ctx.lineTo(x + barW, y + h);
+        } else {
+          ctx.moveTo(x, y);
+          ctx.lineTo(x, y + h - r);
+          ctx.quadraticCurveTo(x, y + h, x + r, y + h);
+          ctx.lineTo(x + barW - r, y + h);
+          ctx.quadraticCurveTo(x + barW, y + h, x + barW, y + h - r);
+          ctx.lineTo(x + barW, y);
+        }
+        ctx.closePath();
+        ctx.fill();
+      };
+
+      // Color
+      const COLOR_CUR = '#1976d2';
+      const COLOR_PREV = '#a9c8e8';
+
+      if (showCmp) {
+        // Cùng kỳ ở trái, kỳ này ở phải
+        const x1 = groupCx - barW - gap / 2;
+        const x2 = groupCx + gap / 2;
+        drawBar(x1, d.prev, COLOR_PREV);
+        drawBar(x2, d.cur, COLOR_CUR);
+      } else {
+        const x = groupCx - barW / 2;
+        drawBar(x, d.cur, COLOR_CUR);
+      }
+
+      // Highlight kỳ hiện tại
+      if (d.isCurrent) {
+        ctx.fillStyle = '#1976d2';
+        ctx.font = '700 11px DM Sans, sans-serif';
+      } else {
+        ctx.fillStyle = text2Color;
+        ctx.font = '11px DM Sans, sans-serif';
+      }
+      ctx.textAlign = 'center';
+      ctx.fillText(d.label, groupCx, H - padBottom + 14);
+    });
+  },
     const now = new Date();
     if (period === 'day') {
       // 7 ngày gần nhất

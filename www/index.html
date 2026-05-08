@@ -953,6 +953,63 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
 .tx-cat-suggest-chip-emoji{font-size:14px;line-height:1}
 .tx-cat-suggest-chip-reason{font-size:10px;color:var(--text3);margin-left:2px}
 
+/* === Fluctuation screen (Biến động thu chi) === */
+.fluc-period-row{display:flex;gap:6px;padding:14px 16px 8px;background:var(--bg)}
+.fluc-period-pill{flex:1;text-align:center;padding:10px 0;border-radius:10px;background:var(--surface);border:1.5px solid var(--border);font-size:13px;font-weight:600;color:var(--text2);cursor:pointer;transition:all .15s ease}
+.fluc-period-pill.on{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 2px 8px rgba(45,106,79,.25)}
+.fluc-period-pill:active{transform:scale(.97)}
+
+.fluc-tab-row{display:flex;gap:0;padding:0 16px 6px;background:var(--bg);border-bottom:1px solid var(--border)}
+.fluc-tab{flex:1;text-align:center;padding:12px 0;font-size:13.5px;font-weight:600;color:var(--text3);cursor:pointer;border-bottom:2.5px solid transparent;transition:all .15s ease}
+.fluc-tab.on{color:var(--accent);border-bottom-color:var(--accent)}
+.fluc-tab:active{background:var(--surface2)}
+
+.fluc-header{padding:24px 16px;text-align:center;background:var(--bg)}
+.fluc-header-label{font-size:13px;color:var(--text2);margin-bottom:6px}
+.fluc-header-amount{font-size:30px;font-weight:800;color:var(--text);letter-spacing:-0.6px;line-height:1.15}
+.fluc-header-amount.pos{color:#2d8659}
+.fluc-header-amount.neg{color:#d62828}
+.fluc-header-delta{display:inline-flex;align-items:center;gap:6px;margin-top:12px;padding:8px 14px;border-radius:18px;font-size:12.5px;font-weight:600}
+.fluc-header-delta.up{background:rgba(45,134,89,.10);color:#2d8659}
+.fluc-header-delta.down{background:rgba(214,40,40,.10);color:#d62828}
+.fluc-header-delta.flat{background:var(--surface2);color:var(--text2)}
+
+.fluc-chart-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px 12px;margin:0 16px 14px;box-shadow:var(--sh1)}
+.fluc-chart-head{display:flex;justify-content:space-between;align-items:center;padding:0 4px 10px}
+.fluc-cmp-toggle{display:flex;align-items:center;gap:8px;cursor:pointer}
+.fluc-cmp-toggle input{position:relative;width:36px;height:20px;appearance:none;-webkit-appearance:none;background:var(--border);border-radius:20px;transition:background .2s ease;outline:none}
+.fluc-cmp-toggle input:checked{background:var(--accent)}
+.fluc-cmp-toggle input::before{content:'';position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;top:2px;left:2px;transition:transform .25s cubic-bezier(.2,.8,.3,1.4);box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.fluc-cmp-toggle input:checked::before{transform:translateX(16px)}
+.fluc-cmp-toggle .qlt-switch-slider{display:none}
+.fluc-chart-legend{display:flex;gap:14px;justify-content:center;padding-top:6px;font-size:11.5px;color:var(--text2);flex-wrap:wrap}
+.fluc-chart-legend-item{display:inline-flex;align-items:center;gap:5px}
+.fluc-chart-legend-swatch{width:10px;height:10px;border-radius:2px}
+
+.fluc-cat-row{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border);cursor:pointer}
+.fluc-cat-row:active{background:var(--surface2)}
+.fluc-cat-row:last-child{border-bottom:none}
+.fluc-cat-icon{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px}
+.fluc-cat-info{flex:1;min-width:0}
+.fluc-cat-name{font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fluc-cat-amount-row{text-align:right;flex-shrink:0}
+.fluc-cat-amount{font-size:14px;font-weight:700;color:var(--text)}
+.fluc-cat-delta{font-size:11px;font-weight:600;margin-top:2px;display:inline-flex;align-items:center;gap:3px}
+.fluc-cat-delta.up{color:#d62828}
+.fluc-cat-delta.down{color:#2d8659}
+.fluc-cat-delta.flat{color:var(--text3)}
+
+.fluc-tl-row{display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border)}
+.fluc-tl-row:last-child{border-bottom:none}
+.fluc-tl-label{flex-shrink:0;width:64px;text-align:center;background:var(--surface2);border-radius:8px;padding:6px 4px;font-size:11px;font-weight:700;color:var(--text2);line-height:1.3}
+.fluc-tl-info{flex:1;min-width:0;font-size:12.5px;color:var(--text2);line-height:1.5}
+.fluc-tl-info strong{color:var(--text)}
+.fluc-tl-net{flex-shrink:0;text-align:right}
+.fluc-tl-net-label{font-size:11px;color:var(--text3)}
+.fluc-tl-net-amount{font-size:14px;font-weight:700;letter-spacing:-0.2px}
+.fluc-tl-net-amount.pos{color:#2d8659}
+.fluc-tl-net-amount.neg{color:#d62828}
+
 /* Eye button — ẩn/hiện số dư */
 .balance-eye{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.18);border:none;color:#fff;cursor:pointer;margin-left:8px;vertical-align:middle;font-size:13px;line-height:1;padding:0;transition:transform .15s ease;flex-shrink:0}
 .balance-eye:active{transform:scale(.88)}
@@ -1629,6 +1686,58 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
   </div>
 </div>
 
+<!-- ========== BIẾN ĐỘNG THU CHI ========== -->
+<div id="screen-fluctuation" class="screen">
+  <div class="topbar">
+    <div class="tb-row">
+      <div class="tb-back" data-icon="back" onclick="QLT_App.switchTab('home')"></div>
+      <div class="tb-title">Biến động thu chi</div>
+    </div>
+  </div>
+  <div class="scroll-body">
+    <!-- Period selector: Tuần / Tháng / Năm -->
+    <div class="fluc-period-row" id="flucPeriodRow">
+      <div class="fluc-period-pill on" data-period="week">Theo tuần</div>
+      <div class="fluc-period-pill" data-period="month">Theo tháng</div>
+      <div class="fluc-period-pill" data-period="year">Theo năm</div>
+    </div>
+
+    <!-- Sub tabs: Thu nhập / Chi tiêu / Chênh lệch -->
+    <div class="fluc-tab-row" id="flucTabRow">
+      <div class="fluc-tab" data-tab="income">Thu nhập</div>
+      <div class="fluc-tab on" data-tab="expense">Chi tiêu</div>
+      <div class="fluc-tab" data-tab="diff">Chênh lệch</div>
+    </div>
+
+    <!-- Header: total + delta vs cùng kỳ -->
+    <div class="fluc-header" id="flucHeader"></div>
+
+    <!-- Chart card -->
+    <div class="fluc-chart-card">
+      <div class="fluc-chart-head">
+        <div style="font-weight:600;color:var(--text)">Biến động</div>
+        <label class="fluc-cmp-toggle">
+          <span style="font-size:12px;color:var(--text2)">So với cùng kỳ</span>
+          <input type="checkbox" id="flucCmpToggle" checked>
+          <span class="qlt-switch-slider"></span>
+        </label>
+      </div>
+      <canvas id="flucChart" style="width:100%;height:230px;display:block"></canvas>
+      <div class="fluc-chart-legend" id="flucLegend"></div>
+    </div>
+
+    <!-- Categories breakdown (chỉ cho thu/chi) -->
+    <div id="flucCatsWrap" style="display:none">
+      <div class="section"><div class="sec-label" id="flucCatsLabel">Danh mục</div></div>
+      <div id="flucCatsList"></div>
+    </div>
+
+    <!-- Timeline list -->
+    <div class="section"><div class="sec-label" id="flucTimelineLabel">Lịch sử</div></div>
+    <div id="flucTimeline"></div>
+  </div>
+</div>
+
 <!-- ========== CHI PHÍ XE (Xăng + Bảo dưỡng) ========== -->
 <div id="screen-fuel" class="screen">
   <div class="topbar">
@@ -2197,6 +2306,7 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
     <div class="dr-item" data-action="recurring"><span class="dr-emoji">🔄</span> Giao dịch định kỳ</div>
 
     <div class="dr-section-label">Theo dõi</div>
+    <div class="dr-item" data-action="fluctuation"><span class="dr-emoji">📈</span> Biến động thu chi</div>
     <div class="dr-item" data-action="fuel"><span class="dr-emoji">🚗</span> Chi phí xe</div>
     <div class="dr-item" data-action="reminders"><span class="dr-emoji">🔔</span> Nhắc nhở</div>
     <div class="dr-item" data-action="photos"><span class="dr-emoji">📷</span> Ảnh minh chứng</div>
