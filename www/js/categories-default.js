@@ -20,15 +20,15 @@
     {
       slug: 'food', type: 'expense', name: 'Ăn uống', icon: 'food', color: '#f97316',
       parentSlug: null,
-      keywords: { brand: [], strong: ['an uong', 'tien an'], weak: ['an'] }
+      keywords: { brand: [], strong: ['an uong', 'tien an'], weak: [] }
     },
     {
       slug: 'food_dining', type: 'expense', name: 'Ăn ngoài / Nhà hàng', icon: 'rice', color: '#f97316',
       parentSlug: 'food',
       keywords: {
         brand: ['kfc', 'lotteria', 'jollibee', 'mcdonald', 'mcdonalds', 'burger king', 'pizza hut', 'domino', 'pho 24', 'pho hung', 'golden gate', 'kichi kichi', 'gogi house', 'sumo bbq', 'manwah', 'haidilao', 'crystal jade', 'al fresco', 'pizza 4ps', 'al-fresco', 'wrap roll', 'soya', 'mon hue', 'cong cafe restaurant'],
-        strong: ['an ngoai', 'an nha hang', 'di an', 'an trua', 'an toi', 'an sang', 'di nha hang', 'com trua', 'com toi', 'com phan', 'com tam', 'com ga', 'com suon', 'com binh dan', 'bun bo', 'bun cha', 'pho bo', 'pho ga', 'banh mi', 'mi quang', 'bun rieu', 'bun dau', 'lau', 'nuong', 'buffet', 'an buffet', 'banh xeo', 'che', 'mi cay', 'sushi', 'lau bo', 'lau ca', 'set lunch'],
-        weak: ['an', 'com', 'pho', 'bun', 'mi']
+        strong: ['an ngoai', 'an nha hang', 'di an', 'an trua', 'an toi', 'an sang', 'di nha hang', 'com trua', 'com toi', 'com phan', 'com tam', 'com ga', 'com suon', 'com binh dan', 'bun bo', 'bun cha', 'pho bo', 'pho ga', 'banh mi', 'mi quang', 'bun rieu', 'bun dau', 'an lau', 'lau thai', 'lau bo', 'lau ca', 'lau de', 'lau hai san', 'lau nam', 'lau ga', 'di nuong', 'buffet', 'an buffet', 'banh xeo', 'mi cay', 'sushi', 'set lunch', 'di an com', 'an com', 'thit nuong', 'bo nuong', 'ga nuong', 'di an pho', 'di an bun'],
+        weak: []
       },
       antiKeywords: {
         'mua nguyen lieu': 'food_grocery',
@@ -61,13 +61,12 @@
       parentSlug: 'food',
       keywords: {
         brand: ['bach hoa xanh', 'bhx', 'winmart', 'vinmart', 'lotte mart', 'big c', 'go!', 'go market', 'aeon', 'aeon mall', 'mega market', 'metro', 'co op mart', 'coopmart', 'co.opmart', 'satra', 'maxi mart', 'fivimart', 'tops market', 'kmart', 'circle k', 'family mart', 'gs25', 'ministop', '7-eleven', 'cheers'],
-        strong: ['di cho', 'cho', 'sieu thi', 'mua thuc pham', 'mua rau', 'mua thit', 'mua ca', 'mua trung', 'mua sua', 'mua gao', 'mua banh mi', 'mua trai cay', 'mua hoa qua', 'mua do an', 'mua nguyen lieu', 'mua mi tom', 'mua nuoc mam', 'tap hoa', 'cua hang tien loi'],
-        weak: ['cho', 'thit', 'rau', 'ca', 'gao']
+        strong: ['di cho', 'di sieu thi', 'sieu thi', 'mua thuc pham', 'mua rau', 'mua thit', 'mua trung', 'mua banh mi', 'mua trai cay', 'mua hoa qua', 'mua do an', 'mua nguyen lieu', 'mua mi tom', 'mua nuoc mam', 'tap hoa', 'cua hang tien loi', 'cho que', 'cho dem'],
+        weak: []
       },
       antiKeywords: {
         'di cho cau lac bo': 'entertainment',
-        'cho hoa': 'cer_gift',
-        'cho dem': 'food_dining'
+        'cho hoa': 'cer_gift'
       }
     },
     {
@@ -75,8 +74,8 @@
       parentSlug: 'food',
       keywords: {
         brand: [],
-        strong: ['an vat', 'banh trang', 'banh trang tron', 'banh trang nuong', 'che', 'kem', 'banh', 'snack', 'bim bim', 'keo', 'banh kem', 'banh ngot', 'banh bao', 'banh trung thu', 'xien que', 'oc', 'oc len', 'oc heo', 'tau hu', 'tau hu nuoc', 'banh trang me', 'mut', 'thach', 'pudding', 'cake pop'],
-        weak: ['banh', 'kem', 'che']
+        strong: ['an vat', 'banh trang', 'banh trang tron', 'banh trang nuong', 'an che', 'an kem', 'an banh', 'snack', 'bim bim', 'mua keo', 'banh kem', 'banh ngot', 'banh bao', 'banh trung thu', 'xien que', 'oc len', 'oc heo', 'tau hu', 'tau hu nuoc', 'banh trang me', 'pudding', 'cake pop'],
+        weak: []
       }
     },
     {
@@ -138,8 +137,8 @@
       parentSlug: 'transport',
       keywords: {
         brand: ['vietnam airlines', 'vietjet', 'vietjet air', 'bamboo airways', 'vietravel airlines', 'pacific airlines', 'phuong trang', 'futa', 'futa bus', 'hoang long', 'mai linh', 'mailinh', 'kumho', 'hoang long bus', 'thanh buoi', 'phuc xuyen'],
-        strong: ['ve may bay', 've mb', 've xe khach', 've tau', 've tau hoa', 've tau lua', 'datxe', 'dat ve', 've xe', 've xe lua', 've bay', 'mua ve', 've train', 'flight', 'cuoc bay', 'phi san bay', 've xe bus', 've xe buyt', 've xe khac', 've metro'],
-        weak: ['ve', 'flight']
+        strong: ['ve may bay', 've mb', 've xe khach', 've tau', 've tau hoa', 've tau lua', 'datxe', 'dat ve', 've xe', 've xe lua', 've bay', 'mua ve', 've train', 'cuoc bay', 'phi san bay', 've xe bus', 've xe buyt', 've xe khac', 've metro', 'flight'],
+        weak: []
       },
       antiKeywords: {
         've xem phim': 'ent_movies',
@@ -218,7 +217,7 @@
       keywords: {
         brand: ['evn', 'evn hcm', 'evn hanoi', 'pc tphcm', 'pc hanoi'],
         strong: ['tien dien', 'hoa don dien', 'tra tien dien', 'thanh toan dien', 'cuoc dien', 'evn dien'],
-        weak: ['dien']
+        weak: []
       },
       antiKeywords: {
         'dien thoai': 'bills_phone',
@@ -250,8 +249,8 @@
       parentSlug: 'bills',
       keywords: {
         brand: ['fpt telecom', 'fpt internet', 'viettel internet', 'viettel telecom', 'vnpt', 'vnpt internet', 'cmc', 'cmc telecom', 'scnet', 'sct', 'k+', 'k plus', 'fpt play', 'vtv cab', 'shctv', 'truyen hinh cap', 'truyen hinh fpt'],
-        strong: ['tien internet', 'tien mang', 'cuoc internet', 'cuoc mang', 'cuoc wifi', 'tien wifi', 'tien truyen hinh', 'tien tv', 'goi internet', 'goi truyen hinh', 'phi internet', 'phi mang', 'goi cap'],
-        weak: ['internet', 'wifi', 'mang']
+        strong: ['tien internet', 'tien mang', 'cuoc internet', 'cuoc mang', 'cuoc wifi', 'tien wifi', 'tien truyen hinh', 'tien tv', 'goi internet', 'goi truyen hinh', 'phi internet', 'phi mang', 'goi cap', 'mang internet', 'mang wifi'],
+        weak: ['internet', 'wifi']
       }
     },
     {
@@ -259,8 +258,8 @@
       parentSlug: 'bills',
       keywords: {
         brand: ['viettel', 'mobifone', 'vinaphone', 'vietnamobile', 'itelecom', 'reddi', 'wintel'],
-        strong: ['tien dien thoai', 'cuoc dien thoai', 'nap the', 'nap dien thoai', 'nap sim', 'mua the', 'the dien thoai', 'goi data', 'tien data', 'goi 4g', 'goi 5g', 'phi sim', 'phi dien thoai', 'tien sim', 'cuoc sim', 'cuoc 4g', 'cuoc 5g'],
-        weak: ['phone', 'sim', '4g', '5g', 'cuoc']
+        strong: ['tien dien thoai', 'cuoc dien thoai', 'nap the', 'nap dien thoai', 'nap sim', 'mua the dien thoai', 'the dien thoai', 'goi data', 'tien data', 'goi 4g', 'goi 5g', 'phi sim', 'phi dien thoai', 'tien sim', 'cuoc sim', 'cuoc 4g', 'cuoc 5g'],
+        weak: ['phone']
       },
       antiKeywords: {
         'mua dien thoai': 'shop_electronics',
@@ -298,18 +297,18 @@
       slug: 'shop_clothes', type: 'expense', name: 'Quần áo / Giày dép', icon: 'shirt', color: '#ec4899',
       parentSlug: 'shopping',
       keywords: {
-        brand: ['uniqlo', 'h&m', 'hm', 'zara', 'mango', 'gap', 'levi', 'levis', 'nike', 'adidas', 'puma', 'fila', 'converse', 'vans', 'reebok', 'new balance', 'vascara', 'juno', 'biti', 'biti hunter', 'canifa', 'ivy moda', 'elise', 'old navy', 'pull&bear', 'bershka', 'stradivarius', 'cotton on'],
-        strong: ['mua quan ao', 'mua ao', 'mua quan', 'mua giay', 'mua dep', 'mua tat', 'mua vo', 'mua giay dep', 'quan ao', 'giay dep', 'tu quan ao', 'mua jeans', 'mua so mi', 'mua ao thun', 'mua ao khoac', 'mua vay', 'mua dam', 'mua suit', 'mua ao len', 'mua ao polo'],
-        weak: ['ao', 'quan', 'giay']
+        brand: ['uniqlo', 'h&m', 'hm', 'zara', 'mango', 'levi', 'levis', 'nike', 'adidas', 'puma', 'fila', 'converse', 'vans', 'reebok', 'new balance', 'vascara', 'juno', 'biti', 'biti hunter', 'canifa', 'ivy moda', 'elise', 'old navy', 'pull&bear', 'bershka', 'stradivarius', 'cotton on'],
+        strong: ['mua quan ao', 'mua ao', 'mua ao moi', 'mua quan moi', 'mua giay', 'mua dep', 'mua tat', 'mua giay dep', 'quan ao', 'giay dep', 'tu quan ao', 'mua jeans', 'mua so mi', 'mua ao thun', 'mua ao khoac', 'mua vay', 'mua dam', 'mua suit', 'mua ao len', 'mua ao polo', 'mua ao dai'],
+        weak: []
       }
     },
     {
       slug: 'shop_cosmetics', type: 'expense', name: 'Mỹ phẩm', icon: 'sparkles', color: '#f472b6',
       parentSlug: 'shopping',
       keywords: {
-        brand: ['guardian', 'watsons', 'medicare', 'beautybox', 'sociolla', 'sephora', 'innisfree', 'the face shop', 'tony moly', 'maybelline', 'lancome', 'chanel', 'dior', 'mac', 'ysl', 'yves saint laurent', 'la mer', 'sk-ii', 'sk2', 'estee lauder', 'shiseido', 'kose', 'olay', 'nivea', 'dove', 'pantene', 'tresemme', 'l\'oreal', 'loreal', 'garnier', 'ohui', 'sulwhasoo', 'bbia', 'merzy', 'romand', 'rom&nd', 'cocoon', 'thefaceshop'],
-        strong: ['my pham', 'mua son', 'mua kem', 'kem chong nang', 'kem duong da', 'kem duong am', 'tay trang', 'sua rua mat', 'sua tam', 'dau goi', 'dau xa', 'dau goi dau', 'kem danh rang', 'son moi', 'phan nen', 'mascara', 'eyeliner', 'phan mat', 'che khuyet diem', 'kem nen', 'cushion', 'serum', 'toner', 'mat na', 'son tint', 'son lì', 'son duong', 'nuoc hoa', 'lan khu mui', 'kem chong nang', 'cham soc da', 'lan da', 'duong toc'],
-        weak: ['son', 'kem', 'serum']
+        brand: ['guardian', 'watsons', 'medicare', 'beautybox', 'sociolla', 'sephora', 'innisfree', 'the face shop', 'tony moly', 'maybelline', 'lancome', 'chanel', 'dior', 'mac', 'ysl', 'yves saint laurent', 'la mer', 'sk-ii', 'sk2', 'estee lauder', 'shiseido', 'kose', 'olay', 'nivea', 'dove', 'pantene', 'tresemme', 'l\'oreal', 'loreal', 'garnier', 'ohui', 'sulwhasoo', 'bbia', 'merzy', 'romand', 'rom&nd', 'cocoon', 'thefaceshop', '3ce', 'cle de peau', 'fenty beauty', 'mac cosmetics', 'anessa', 'biore', 'la roche posay', 'cerave', 'cetaphil', 'eucerin', 'simple', 'paula\'s choice', 'paulas choice', 'kiehl', 'kiehls', 'clinique', 'origins', 'aveeno', 'pond', 'oriflame'],
+        strong: ['my pham', 'mua son', 'mua kem duong', 'kem chong nang', 'kem duong da', 'kem duong am', 'tay trang', 'sua rua mat', 'sua tam', 'dau goi', 'dau xa', 'dau goi dau', 'kem danh rang', 'son moi', 'phan nen', 'mascara', 'eyeliner', 'phan mat', 'che khuyet diem', 'kem nen', 'cushion', 'serum', 'toner', 'mat na', 'son tint', 'son li', 'son duong', 'nuoc hoa', 'lan khu mui', 'cham soc da', 'lan da', 'duong toc'],
+        weak: ['serum', 'mascara']
       },
       antiKeywords: {
         'mua kem an': 'food_snack',
@@ -492,7 +491,7 @@
       parentSlug: 'family',
       keywords: {
         brand: [],
-        strong: ['hoc phi con', 'tien hoc con', 'tien truong con', 'truong cua con', 'dong hoc phi cho con', 'phi mam non', 'truong mam non', 'gui be o truong', 'tien an cho con', 'tien o truong', 'tien hoc them con', 'tien gia su con', 'sua bao tro hoc tap'],
+        strong: ['hoc phi con', 'tien hoc con', 'tien truong con', 'truong cua con', 'dong hoc phi cho con', 'hoc phi cho con', 'tien hoc cho con', 'hoc cho con', 'tien hoc cho be', 'phi mam non', 'truong mam non', 'gui be o truong', 'tien an cho con', 'tien o truong', 'tien hoc them con', 'tien gia su con', 'sua bao tro hoc tap'],
         weak: []
       }
     },

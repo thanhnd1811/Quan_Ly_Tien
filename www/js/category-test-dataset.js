@@ -148,6 +148,18 @@
     { input: 'luong thang nay 12tr', expectedSlug: 'inc_salary' },
     { input: 'thuong tet 15tr', expectedSlug: 'inc_bonus' },
 
+    // ─────────────────── REGRESSION CASES (real bugs từ user) ───────────────────
+    { input: 'đóng học phí cho tôm tháng 5', expectedSlug: 'edu_tuition', note: 'BẪY: "cho" preposition không match Đi chợ' },
+    { input: 'học phí cho con tháng 5', expectedSlug: 'fam_school' },
+    { input: 'tiền học cho con 2tr', expectedSlug: 'fam_school' },
+    { input: 'mua áo cho mẹ 500k', expectedSlug: 'shop_clothes', note: 'BẪY: "cho" không match Đi chợ' },
+    { input: 'đi mua quần áo', expectedSlug: 'shop_clothes' },
+    { input: 'gửi tiền cho ba 5tr', expectedSlug: 'fam_parents', note: 'BẪY: "cho" preposition' },
+    { input: 'cô lâu rồi không gặp', expectedSlug: '__abstain__', note: 'BẪY: "lâu" không phải lẩu' },
+    { input: 'sơn nhà 5tr', expectedSlug: 'housing_repair', note: 'BẪY: "sơn" không phải son môi' },
+    { input: 'anh sơn cho mượn 1tr', expectedSlug: '__abstain__', note: 'BẪY: tên người, không cat nào' },
+    { input: 'lẩu thái nhà hàng', expectedSlug: 'food_dining' },
+
     // ─────────────────── ABSTAIN (8) — câu quá mơ hồ, phải bỏ đoán ───────────────────
     { input: 'mua đồ 100k', expectedSlug: '__abstain__', note: 'quá mơ hồ' },
     { input: 'tiền nhỏ', expectedSlug: '__abstain__' },

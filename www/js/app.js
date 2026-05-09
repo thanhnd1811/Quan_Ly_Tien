@@ -7368,38 +7368,53 @@ const App = {
     const cat = this.state.categories.find(c => c.id === newCatId);
     if (!cat) return;
 
-    // Trích keyword candidate từ câu gốc
+    // Trích keyword candidate (đã được score + filter date/generic)
     const candidates = this._extractKeywordCandidates(ctx.originalText, cat);
-    if (!candidates.length) {
-      // Không có ứng viên rõ ràng → vẫn cho user nhập thủ công
-      // Ẩn banner cũ
-      const wrap = $('#txCatDetected');
-      if (wrap) wrap.style.display = 'none';
+    // Lọc bỏ "đã có" (chỉ hiện những cái mới — vì user đã có rồi không cần dạy lại)
+    const newCandidates = candidates.filter(c => !c.alreadyHas);
+
+    const wrap = $('#txCatDetected');
+    if (!wrap) return;
+
+    if (!newCandidates.length) {
+      // Không có ứng viên mới → cat đã có đủ keyword phổ thông
+      wrap.style.display = 'none';
       delete this.state._catDetectContext;
       return;
     }
 
-    // Hiện prompt học keyword
-    const wrap = $('#txCatDetected');
-    if (!wrap) return;
     const parent = cat.parentId ? this.state.categories.find(c => c.id === cat.parentId) : null;
     const fullName = parent ? `${parent.name} › ${cat.name}` : cat.name;
+    const catIconHtml = `<span style="color:${cat.color || ''};display:inline-flex;vertical-align:middle">${svgIcon(cat.icon)}</span>`;
 
     wrap.className = 'kw-learn-prompt';
     let html = `
-      <div class="kw-learn-head">🧠 Học keyword cho "<strong>${this.escapeHtml(fullName)}</strong>"?</div>
-      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">
-        Chọn từ khóa từ câu "<em>${this.escapeHtml(ctx.originalText)}</em>" để lần sau auto-match:
+      <div class="kw-learn-head">
+        🧠 DẠY APP NHỚ CHO LẦN SAU
+      </div>
+      <div style="font-size:12px;color:var(--text);background:rgba(255,255,255,.6);padding:8px 10px;border-radius:8px;margin-bottom:10px;line-height:1.5">
+        Bạn vừa chọn:
+        <div style="margin-top:4px;display:flex;align-items:center;gap:6px">
+          ${catIconHtml}
+          <strong style="color:var(--text)">${this.escapeHtml(fullName)}</strong>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:6px">
+        Chọn từ <strong>ĐẶC BIỆT</strong> trong câu "<em>${this.escapeHtml(ctx.originalText)}</em>" — lần sau gặp từ này, app tự chọn cat trên:
       </div>
       <div class="kw-learn-row">
     `;
-    for (const kw of candidates) {
-      html += `<span class="kw-learn-chip" data-kw="${this.escapeHtml(kw)}">${this.escapeHtml(kw)}</span>`;
+    for (const c of newCandidates) {
+      const tip = c.type === 'bigram' ? '✨' : '';
+      html += `<span class="kw-learn-chip" data-kw="${this.escapeHtml(c.phrase)}">${tip ? tip + ' ' : ''}${this.escapeHtml(c.phrase)}</span>`;
     }
     html += `
       </div>
+      <div id="kwLearnPreview" style="font-size:12px;color:var(--text2);background:rgba(255,255,255,.5);border-radius:6px;padding:7px 10px;margin-bottom:10px;min-height:36px;display:flex;align-items:center;line-height:1.4">
+        <span style="color:var(--text3)">↑ Tap từ phía trên để xem app sẽ học gì</span>
+      </div>
       <div class="kw-learn-actions">
-        <button type="button" class="kw-learn-btn save" data-act="save">💾 Lưu (đã chọn 0)</button>
+        <button type="button" class="kw-learn-btn save" data-act="save">💾 Lưu</button>
         <button type="button" class="kw-learn-btn skip" data-act="skip">Bỏ qua</button>
       </div>
     `;
@@ -7408,25 +7423,33 @@ const App = {
 
     const selected = new Set();
     const saveBtn = wrap.querySelector('[data-act="save"]');
-    const updateSaveBtn = () => {
-      saveBtn.textContent = `💾 Lưu (đã chọn ${selected.size})`;
+    const previewEl = wrap.querySelector('#kwLearnPreview');
+
+    const updateUI = () => {
+      saveBtn.textContent = selected.size ? `💾 Lưu ${selected.size} từ` : '💾 Lưu';
       saveBtn.disabled = selected.size === 0;
       saveBtn.style.opacity = selected.size === 0 ? '0.5' : '1';
+      // Live preview
+      if (selected.size === 0) {
+        previewEl.innerHTML = '<span style="color:var(--text3)">↑ Tap từ phía trên để xem app sẽ học gì</span>';
+      } else {
+        const list = [...selected].map(s => `<strong>"${this.escapeHtml(s)}"</strong>`).join(' hoặc ');
+        previewEl.innerHTML = `⚡ Lần sau gõ ${list} → tự chọn ${catIconHtml} <strong>${this.escapeHtml(cat.name)}</strong>`;
+      }
     };
-    updateSaveBtn();
+    updateUI();
 
     wrap.querySelectorAll('.kw-learn-chip').forEach(chip => {
       chip.onclick = () => {
         const kw = chip.dataset.kw;
         if (selected.has(kw)) { selected.delete(kw); chip.classList.remove('selected'); }
         else { selected.add(kw); chip.classList.add('selected'); }
-        updateSaveBtn();
+        updateUI();
       };
     });
 
     saveBtn.onclick = async () => {
       if (selected.size === 0) return;
-      // Push vào cat.keywords
       cat.keywords = Array.isArray(cat.keywords) ? cat.keywords : [];
       let added = 0;
       for (const kw of selected) {
@@ -7436,7 +7459,7 @@ const App = {
       if (added > 0) {
         await window.QLT_Store.put('categories', cat);
         await this.reload();
-        QLT_UI.toast(`✨ Đã lưu ${added} keyword cho "${cat.name}"`, { type: 'success', duration: 2500 });
+        QLT_UI.toast(`✨ Đã dạy app ${added} từ cho "${cat.name}"`, { type: 'success', duration: 2800 });
         this.autoSync();
       }
       wrap.style.display = 'none';
@@ -7448,16 +7471,47 @@ const App = {
     };
   },
 
-  // Trích keyword candidate từ text — bỏ stop words, số tiền, tên ví, tên cat hiện tại
+  // Trích keyword candidate từ text — lọc thông minh + xếp hạng theo mức "đặc biệt"
+  // Trả về: [{ phrase, score, alreadyHas }]
   _extractKeywordCandidates(text, cat) {
     if (!text) return [];
+    // Stop words: từ chung chung, KHÔNG nên dạy cho cat
     const stopWords = new Set([
+      // Preposition / liên từ
       'cho', 'cua', 'la', 'va', 'voi', 'tu', 've', 'den', 'sang', 'qua', 'toi',
-      'bang', 'het', 'ton', 'mat', 'mua', 'chi', 'thu', 'hom', 'nay', 'mai',
-      'vua', 'da', 'thi', 'ma', 'tai', 'do', 'thoi', 'cung', 'nhe', 'ah', 'oi',
-      'sang nay', 'trua nay', 'toi nay', 'chieu nay', 'dem nay',
-      'luu', 'save', 'xong', 'done', 'the', 'cai', 'mot', 'hai', 'ba', 'bon', 'nam'
+      'bang', 'tai', 'do', 'thi', 'ma', 'cung', 'nhe', 'ah', 'oi', 'a', 'o',
+      // Verb chung (đóng/trả/mua/chi/...)
+      'het', 'ton', 'mat', 'mua', 'chi', 'thu', 'tra', 'dong', 'gop', 'di', 'lam',
+      'nhan', 'cho', 'gui', 'lay', 'ban', 'ngoai', 'trong', 'ngay',
+      // Trigger word voice
+      'luu', 'luru', 'save', 'xong', 'done',
+      // Số đếm tiếng Việt
+      'mot', 'hai', 'ba', 'bon', 'nam', 'sau', 'bay', 'tam', 'chin', 'muoi',
+      'tram', 'nghin', 'trieu', 'ty',
+      // Pronoun
+      'toi', 'minh', 'em', 'anh', 'chi', 'co', 'chu', 'bac', 'ong', 'ba', 'me', 'cha', 'bo',
+      // Misc
+      'cai', 'the', 'da', 'vua', 'thoi'
     ]);
+    // Date/time words - không bao giờ dạy
+    const dateWords = new Set([
+      'hom', 'nay', 'mai', 'qua', 'tuan', 'thang', 'nam', 'ngay',
+      'sang nay', 'trua nay', 'toi nay', 'chieu nay', 'dem nay',
+      'hom nay', 'hom qua', 'hom kia', 'tuan nay', 'tuan truoc', 'thang nay',
+      'thang truoc', 'thang sau', 'nam nay', 'nam ngoai',
+      'januari', 'februari', 'march', 'april', 'may', 'june', 'july', 'august',
+      'thu hai', 'thu ba', 'thu tu', 'thu nam', 'thu sau', 'thu bay', 'chu nhat'
+    ]);
+    const isDate = (s) => {
+      const n = normalizeVi(s);
+      if (dateWords.has(n)) return true;
+      // "tháng 5", "ngày 12", "thứ 5"
+      if (/^(thang|ngay|thu|tuan)\s+\d+$/i.test(n)) return true;
+      // Số đơn lẻ
+      if (/^\d+$/.test(n)) return true;
+      return false;
+    };
+
     const amountRe = /\b\d[\d.,]*\s*(k|nghin|nghìn|ngan|ngàn|tr|trieu|triệu|ty|tỷ|đồng|dong|đ)?\b/gi;
     let cleaned = text.replace(amountRe, ' ');
     // Bỏ tên ví
@@ -7469,50 +7523,83 @@ const App = {
     }
     // Bỏ "thẻ X" tag
     cleaned = cleaned.replace(/\b(thẻ|the)\s+\S+(\s+\S+)?/gi, ' ');
-    // Bỏ trigger word ở cuối
     cleaned = cleaned.replace(/\b(luu|luru|save|xong|done)\s*[!.?]*\s*$/i, ' ');
 
-    // Tokenize
-    const norm = normalizeVi(cleaned).replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
-    const words = norm.split(/\s+/).filter(w => w.length >= 2 && !stopWords.has(w));
-
-    // Bỏ từ có trong tên cat đã chọn (đã tự match được)
-    const catNorm = normalizeVi(cat.name);
-    const catWords = new Set(catNorm.split(/[\s/]+/).filter(w => w));
-    const filtered = words.filter(w => !catWords.has(w));
-
-    // Tạo candidates: từng từ + cụm 2-3 từ liên tiếp (giữ tiếng Việt thật từ text gốc)
-    // Để giữ dấu, mình lấy từ text gốc theo position
-    // Đơn giản hóa: chỉ lấy unique words + bigram + trigram, ưu tiên cụm dài
-    const seen = new Set();
-    const out = [];
-
-    // Tách lại từ text gốc (giữ dấu)
+    // Tokenize giữ dấu để hiển thị đẹp
     const cleanedRaw = cleaned.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
     const rawWords = cleanedRaw.split(/\s+/).filter(w => w.length >= 2);
 
-    // Bigram
-    for (let i = 0; i < rawWords.length - 1; i++) {
-      const phrase = rawWords[i] + ' ' + rawWords[i + 1];
-      const np = normalizeVi(phrase);
-      if (!stopWords.has(np) && !seen.has(np) && np.length >= 5) {
-        seen.add(np);
-        out.push(phrase);
+    // Keywords đã có sẵn của cat — để mark "đã có"
+    const catKeywords = new Set();
+    if (cat.slug && window.QLT_CategoriesDefault) {
+      const def = window.QLT_CategoriesDefault.ALL.find(c => c.slug === cat.slug);
+      if (def && def.keywords) {
+        for (const kw of [...(def.keywords.brand || []), ...(def.keywords.strong || []), ...(def.keywords.weak || [])]) {
+          catKeywords.add(normalizeVi(kw));
+        }
       }
     }
+    if (Array.isArray(cat.keywords)) {
+      for (const kw of cat.keywords) catKeywords.add(normalizeVi(kw));
+    }
+    const catWords = new Set(normalizeVi(cat.name).split(/[\s/]+/).filter(w => w));
+
+    // Score 1 phrase
+    const scorePhrase = (rawPhrase, normPhrase) => {
+      let score = 0;
+      // Đã có trong keyword cat → mark
+      const alreadyHas = catKeywords.has(normPhrase);
+      if (alreadyHas) return { score: -100, alreadyHas: true };
+      // Stop word / date → loại
+      if (stopWords.has(normPhrase) || isDate(rawPhrase)) return { score: -100, alreadyHas: false };
+      // Trùng tên cat → loại
+      if (catWords.has(normPhrase)) return { score: -100, alreadyHas: false };
+      // Có chữ cái đầu HOA trong câu gốc → proper noun (brand/tên)
+      if (/^[A-ZĐÁÀẢÃẠÂẦẤẨẪẬĂẰẮẲẴẶÉÈẺẼẸÊỀẾỂỄỆÍÌỈĨỊÓÒỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÚÙỦŨỤƯỪỨỬỮỰÝỲỶỸỴ]/.test(rawPhrase)) score += 5;
+      // Cụm 2 từ → ưu tiên hơn unigram
+      if (/\s/.test(rawPhrase)) score += 2;
+      // Dài hơn → đặc biệt hơn
+      score += Math.min(3, normPhrase.length / 4);
+      // Nếu có chữ số (vd "3ce") → thường là brand
+      if (/\d/.test(rawPhrase)) score += 2;
+      return { score, alreadyHas: false };
+    };
+
+    const seen = new Set();
+    const out = [];
+
+    // Bigram (cụm 2 từ)
+    for (let i = 0; i < rawWords.length - 1; i++) {
+      const w1 = rawWords[i], w2 = rawWords[i + 1];
+      const phrase = w1 + ' ' + w2;
+      const norm = normalizeVi(phrase);
+      if (norm.length < 5 || seen.has(norm)) continue;
+      // Bigram chứa stop word hoặc 1 trong 2 từ là date → skip
+      const w1n = normalizeVi(w1), w2n = normalizeVi(w2);
+      if (stopWords.has(w1n) || stopWords.has(w2n) || isDate(w1) || isDate(w2)) continue;
+      const { score, alreadyHas } = scorePhrase(phrase, norm);
+      if (score > -100) {
+        seen.add(norm);
+        out.push({ phrase, score, alreadyHas, type: 'bigram' });
+      }
+    }
+
     // Unigram
     for (const w of rawWords) {
       const nw = normalizeVi(w);
-      if (stopWords.has(nw) || catWords.has(nw)) continue;
       if (seen.has(nw)) continue;
-      // Skip nếu là phần con của bigram đã có
-      const inBigram = out.some(o => normalizeVi(o).split(' ').includes(nw));
+      // Skip nếu nằm trong bigram đã thêm
+      const inBigram = out.some(o => normalizeVi(o.phrase).split(' ').includes(nw));
       if (inBigram) continue;
-      seen.add(nw);
-      out.push(w);
+      const { score, alreadyHas } = scorePhrase(w, nw);
+      if (score > -100) {
+        seen.add(nw);
+        out.push({ phrase: w, score, alreadyHas, type: 'unigram' });
+      }
     }
 
-    // Top 5 candidates ngắn gọn
+    // Sort: score cao trước, top 5
+    out.sort((a, b) => b.score - a.score);
     return out.slice(0, 5);
   },
 
