@@ -5898,7 +5898,7 @@ const App = {
   _renderAiChatMessages() {
     const messagesEl = $('#aiChatMessages');
     const history = this.state._aiChatHistory || [];
-    if (history.length === 0) return; // empty state đã handle ở openAiChatModal
+    if (history.length === 0) return;
 
     messagesEl.innerHTML = history.map((m, idx) => {
       if (m.role === 'user') {
@@ -5907,7 +5907,10 @@ const App = {
       if (m.role === 'tool') {
         return `<div class="ai-msg tool">🔍 ${this.escapeHtml(m.content)}</div>`;
       }
-      // assistant — convert markdown bold + linebreaks
+      if (m.role === 'tx-preview') {
+        return this._renderTxPreviewCard(m.pendingTxId, idx, m.savedTxId);
+      }
+      // assistant
       const html = this.escapeHtml(m.content)
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
         .replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -5916,7 +5919,6 @@ const App = {
       return `<div class="ai-msg assistant">${html}<div class="ai-msg-actions">${ttsBtn}</div></div>`;
     }).join('');
 
-    // Scroll to bottom
     const body = $('#aiChatBody');
     if (body) body.scrollTop = body.scrollHeight;
 
@@ -5925,11 +5927,163 @@ const App = {
       btn.onclick = () => {
         const idx = parseInt(btn.dataset.ttsIdx, 10);
         const msg = (this.state._aiChatHistory || [])[idx];
-        if (msg && window.QLT_AI?.speak) {
-          window.QLT_AI.speak(msg.content);
-        }
+        if (msg && window.QLT_AI?.speak) window.QLT_AI.speak(msg.content);
       };
     });
+
+    // Bind tx-preview action buttons
+    messagesEl.querySelectorAll('[data-prep-save]').forEach(btn => {
+      btn.onclick = () => this._aiChatSavePendingTx(btn.dataset.prepSave, parseInt(btn.dataset.idx, 10));
+    });
+    messagesEl.querySelectorAll('[data-prep-cancel]').forEach(btn => {
+      btn.onclick = () => this._aiChatCancelPendingTx(btn.dataset.prepCancel, parseInt(btn.dataset.idx, 10));
+    });
+    messagesEl.querySelectorAll('[data-prep-edit]').forEach(btn => {
+      btn.onclick = () => this._aiChatEditPendingTx(btn.dataset.prepEdit);
+    });
+  },
+
+  _renderTxPreviewCard(prepId, idx, savedTxId) {
+    const pending = (this.state._aiPendingTx || {})[prepId];
+    if (!pending) {
+      return `<div class="ai-tx-preview saved">✅ Đã xử lý</div>`;
+    }
+    if (savedTxId) {
+      return `
+        <div class="ai-tx-preview saved">
+          ✅ <strong>Đã lưu</strong> · ${pending.type === 'income' ? 'Thu' : (pending.type === 'expense' ? 'Chi' : 'Chuyển')} ${fmt(pending.amount)} đ
+          <span style="color:var(--text3);font-size:11px">· ${this.escapeHtml(pending.categoryName || pending.note || '')}</span>
+        </div>
+      `;
+    }
+    const typeLabel = pending.type === 'income' ? '🟢 Thu' : (pending.type === 'expense' ? '🔴 Chi' : '🔄 Chuyển');
+    const typeColor = pending.type === 'income' ? '#16a34a' : (pending.type === 'expense' ? '#dc2626' : '#3b82f6');
+    return `
+      <div class="ai-tx-preview pending">
+        <div class="ai-tx-preview-head">📝 Sẽ tạo giao dịch:</div>
+        <div class="ai-tx-preview-amount" style="color:${typeColor}">
+          ${typeLabel} <strong>${fmt(pending.amount)} đ</strong>
+        </div>
+        <div class="ai-tx-preview-row">
+          <span class="ai-tx-preview-icon">${pending.type === 'transfer' ? '🔄' : '🏷️'}</span>
+          <span>${this.escapeHtml(pending.type === 'transfer' ? `${pending.accountName || '?'} → ${pending.toAccountName || '?'}` : (pending.categoryName || '⚠️ Chưa có cat'))}</span>
+        </div>
+        ${pending.type !== 'transfer' ? `
+          <div class="ai-tx-preview-row">
+            <span class="ai-tx-preview-icon">💵</span>
+            <span>${this.escapeHtml(pending.accountName || '?')}</span>
+          </div>
+        ` : ''}
+        <div class="ai-tx-preview-row">
+          <span class="ai-tx-preview-icon">📅</span>
+          <span>${this.escapeHtml(pending.date)}</span>
+        </div>
+        ${pending.note ? `
+          <div class="ai-tx-preview-row">
+            <span class="ai-tx-preview-icon">📝</span>
+            <span>${this.escapeHtml(pending.note)}</span>
+          </div>
+        ` : ''}
+        <div class="ai-tx-preview-actions">
+          <button class="ai-tx-btn save" data-prep-save="${prepId}" data-idx="${idx}">💾 Lưu</button>
+          <button class="ai-tx-btn edit" data-prep-edit="${prepId}">✏️ Sửa</button>
+          <button class="ai-tx-btn cancel" data-prep-cancel="${prepId}" data-idx="${idx}">✕ Hủy</button>
+        </div>
+      </div>
+    `;
+  },
+
+  async _aiChatSavePendingTx(prepId, msgIdx) {
+    const pending = (this.state._aiPendingTx || {})[prepId];
+    if (!pending) {
+      QLT_UI.toast('Không tìm thấy giao dịch chuẩn bị', { type: 'error' });
+      return;
+    }
+    // Validate
+    if (!pending.amount || pending.amount <= 0) {
+      QLT_UI.toast('Số tiền không hợp lệ', { type: 'error' });
+      return;
+    }
+    if (!pending.accountId) {
+      QLT_UI.toast('Thiếu ví — bấm Sửa để chọn', { type: 'error' });
+      return;
+    }
+    if (pending.type !== 'transfer' && !pending.categoryId) {
+      QLT_UI.toast('Thiếu danh mục — bấm Sửa để chọn', { type: 'error' });
+      return;
+    }
+    if (pending.type === 'transfer' && !pending.toAccountId) {
+      QLT_UI.toast('Thiếu ví đích — bấm Sửa để chọn', { type: 'error' });
+      return;
+    }
+
+    // Build tx + save (dùng applyBalanceDelta như các flow khác)
+    const tx = {
+      type: pending.type,
+      amount: pending.amount,
+      date: pending.date,
+      accountId: pending.accountId,
+      toAccountId: pending.toAccountId || null,
+      categoryId: pending.categoryId || null,
+      note: pending.note || '',
+      bookId: pending.bookId
+    };
+    try {
+      await this.applyBalanceDelta(tx, +1);
+      const saved = await window.QLT_Store.put('transactions', tx);
+      await this.reload();
+      // Update history msg
+      const history = this.state._aiChatHistory || [];
+      if (history[msgIdx]) {
+        history[msgIdx].savedTxId = saved.id;
+      }
+      this._renderAiChatMessages();
+      QLT_UI.toast(`✅ Đã lưu: ${pending.type === 'income' ? 'Thu' : 'Chi'} ${fmt(pending.amount)} đ`, { type: 'success', duration: 2500 });
+      this.autoSync();
+    } catch (e) {
+      QLT_UI.toast('Lỗi lưu: ' + (e.message || e), { type: 'error' });
+    }
+  },
+
+  _aiChatCancelPendingTx(prepId, msgIdx) {
+    const history = this.state._aiChatHistory || [];
+    if (history[msgIdx]) {
+      history[msgIdx].cancelled = true;
+      history.splice(msgIdx, 1); // remove preview card từ chat
+    }
+    delete (this.state._aiPendingTx || {})[prepId];
+    this._renderAiChatMessages();
+    QLT_UI.toast('Đã hủy', { type: 'info' });
+  },
+
+  _aiChatEditPendingTx(prepId) {
+    const pending = (this.state._aiPendingTx || {})[prepId];
+    if (!pending) return;
+    // Đóng chat modal, mở form GD pre-fill từ pending
+    $('#aiChatModal').classList.remove('open');
+    // Stop TTS nếu đang đọc
+    if (window.QLT_AI?.stopSpeaking) window.QLT_AI.stopSpeaking();
+
+    // Open new tx form with pre-filled data
+    setTimeout(() => {
+      this.openTxModal(null, pending.type);
+      setTimeout(() => {
+        if (this.state.editingTx) {
+          this.state.editingTx.amount = pending.amount;
+          this.state.editingTx.accountId = pending.accountId;
+          this.state.editingTx.toAccountId = pending.toAccountId;
+          this.state.editingTx.categoryId = pending.categoryId;
+          this.state.editingTx.note = pending.note;
+          this.state.editingTx.date = pending.date;
+          $('#txAmount').value = fmtAmount(pending.amount);
+          $('#txDate').value = pending.date;
+          $('#txNote').value = pending.note || '';
+          this.renderTxAccountPicker();
+          this.renderTxCategoryPicker(pending.type);
+          if (pending.type === 'transfer') this.renderTxToAccountPicker();
+        }
+      }, 200);
+    }, 250);
   },
 
   async _sendAiChatMessage(text) {
@@ -5964,9 +6118,15 @@ const App = {
       }
 
       history.push({ role: 'assistant', content: r.reply });
+
+      // Nếu AI prepared 1 tx → render preview card sau message
+      if (r.pendingTxId) {
+        history.push({ role: 'tx-preview', pendingTxId: r.pendingTxId });
+      }
+
       this._renderAiChatMessages();
 
-      // TTS nếu user bật
+      // TTS nếu user bật (chỉ đọc reply, không đọc preview card)
       const tts = await window.QLT_AI.getPref('tts', true);
       if (tts) window.QLT_AI.speak(r.reply);
 

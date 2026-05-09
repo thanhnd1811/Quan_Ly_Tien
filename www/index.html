@@ -1008,6 +1008,20 @@ html[data-theme="dark"] .rec-type-pill.on{
 .ai-msg.assistant strong{color:var(--accent)}
 .ai-msg.assistant code{background:var(--bg2);padding:1px 5px;border-radius:3px;font-size:12px}
 
+/* AI tx preview card — khi AI prepare giao dịch */
+.ai-tx-preview{align-self:stretch;background:linear-gradient(135deg,#dbeafe,#bfdbfe);color:#1f2937;padding:14px;border-radius:12px;margin:4px 0;animation:msgIn .25s ease;border-left:3px solid #2563eb}
+.ai-tx-preview.saved{background:rgba(34,197,94,.1);color:#166534;border-left-color:#16a34a;padding:10px 14px;font-size:13px}
+.ai-tx-preview-head{font-size:12px;font-weight:700;color:#1e40af;margin-bottom:8px;letter-spacing:.3px;text-transform:uppercase}
+.ai-tx-preview-amount{font-size:18px;font-weight:700;margin-bottom:10px;color:#1f2937}
+.ai-tx-preview-row{display:flex;align-items:center;gap:8px;font-size:13px;color:#1f2937;padding:4px 0;line-height:1.4}
+.ai-tx-preview-icon{width:18px;text-align:center;flex-shrink:0}
+.ai-tx-preview-actions{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}
+.ai-tx-btn{flex:1;min-width:80px;padding:8px;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;transition:transform .12s ease}
+.ai-tx-btn:active{transform:scale(.95)}
+.ai-tx-btn.save{background:#16a34a;color:#fff}
+.ai-tx-btn.edit{background:#fff;color:#1e40af;border:1px solid #93c5fd}
+.ai-tx-btn.cancel{background:#fff;color:#6b7280;border:1px solid #d1d5db}
+
 /* Typing indicator */
 .ai-chat-typing{display:flex;gap:4px;padding:10px 14px;align-self:flex-start;background:var(--surface);border-radius:14px;border:1px solid var(--border);width:max-content;margin-top:4px}
 .ai-chat-typing .dot{width:6px;height:6px;border-radius:50%;background:var(--text3);animation:typing 1.4s infinite}
