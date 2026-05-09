@@ -8219,32 +8219,127 @@ const App = {
 
       const status = $('#txOcrStatus');
       status.style.display = 'block';
-      status.textContent = 'Đang nhận diện hoá đơn...';
 
-      const result = await window.QLT_Ocr.recognize(imageDataUrl, p => {
-        if (p.stage === 'recognizing') status.textContent = 'Đang đọc... ' + Math.round(p.progress * 100) + '%';
-      });
+      // Quyết định dùng AI hay OCR cũ
+      const aiAvailable = window.QLT_AI && await window.QLT_AI.hasApiKey();
 
-      status.textContent = 'Xong!';
-      setTimeout(() => { status.style.display = 'none'; }, 1500);
-
-      if (result.amount) {
-        $('#txAmount').value = Number(result.amount).toLocaleString('vi-VN');
-      }
-      if (result.date) $('#txDate').value = result.date;
-      if (result.merchant) $('#txNote').value = result.merchant;
-
-      // Tự THÊM ảnh vừa quét vào danh sách minh chứng (không ghi đè ảnh cũ)
+      // Tự THÊM ảnh vừa quét vào danh sách minh chứng (làm trước để giữ ảnh nếu OCR/AI fail)
       try {
         const compressed = await this.compressImage(imageDataUrl);
         const t = this.state.editingTx;
         t.photos = [...this.getTxPhotos(t), compressed];
         delete t.photo;
         this.renderTxPhoto();
-      } catch (_) { /* compress lỗi cũng không chặn flow OCR */ }
+      } catch (_) { /* compress lỗi không chặn flow */ }
+
+      let result = null;
+      let usedAI = false;
+
+      if (aiAvailable) {
+        // === AI Vision (Gemini) ===
+        usedAI = true;
+        status.textContent = '🤖 AI đang phân tích hoá đơn...';
+        const type = $('#txForm').dataset.type || 'expense';
+        // Build cat list cho AI suggest (chỉ leaf categories cùng type, không archive)
+        const catList = this.state.categories
+          .filter(c => c.type === type && c.parentId && !c.archived)
+          .map(c => {
+            const parent = this.state.categories.find(x => x.id === c.parentId);
+            return { slug: c.slug || c.id, name: c.name, parentName: parent?.name };
+          });
+        try {
+          const r = await window.QLT_AI.analyzeReceiptForTx({
+            imageBase64: imageDataUrl,
+            mimeType: imageDataUrl.match(/^data:([^;]+);/)?.[1] || 'image/jpeg',
+            categoriesList: catList
+          });
+          if (r.ok) {
+            result = {
+              amount: r.amount,
+              date: r.date,
+              merchant: r.merchant,
+              categorySlug: r.categorySlug,
+              note: r.note,
+              items: r.items
+            };
+          } else {
+            // AI fail → fallback OCR cũ
+            console.warn('[AI receipt] failed, fallback OCR:', r.error);
+            usedAI = false;
+            status.textContent = '⚠️ AI không đọc được — chuyển sang OCR thường...';
+          }
+        } catch (e) {
+          console.warn('[AI receipt] error, fallback OCR:', e);
+          usedAI = false;
+          status.textContent = '⚠️ AI lỗi — chuyển sang OCR thường... (' + (e.message || '').slice(0, 50) + ')';
+        }
+      }
+
+      if (!result) {
+        // === OCR truyền thống (Tesseract / ML Kit) ===
+        status.textContent = 'Đang đọc... (OCR thường)';
+        const ocrR = await window.QLT_Ocr.recognize(imageDataUrl, p => {
+          if (p.stage === 'recognizing') status.textContent = 'Đang đọc... ' + Math.round(p.progress * 100) + '%';
+        });
+        result = {
+          amount: ocrR.amount,
+          date: ocrR.date,
+          merchant: ocrR.merchant
+        };
+      }
+
+      // === Auto-fill form ===
+      if (result.amount) {
+        $('#txAmount').value = Number(result.amount).toLocaleString('vi-VN');
+      }
+      if (result.date) $('#txDate').value = result.date;
+      // Note: ưu tiên AI's `note` field, fallback merchant
+      const noteText = (result.note || result.merchant || '').trim();
+      if (noteText) $('#txNote').value = noteText;
+
+      // AI category suggestion → tìm cat tương ứng
+      if (usedAI && result.categorySlug) {
+        const cat = this.state.categories.find(c =>
+          (c.slug === result.categorySlug || c.id === result.categorySlug)
+          && c.type === ($('#txForm').dataset.type || 'expense')
+        );
+        if (cat && this.state.editingTx) {
+          this.state.editingTx.categoryId = cat.id;
+          delete this.state.editingTx._activeParent;
+          this.renderTxCategoryPicker(cat.type);
+        }
+      }
+
+      // Status thông báo cuối
+      if (usedAI && result.amount) {
+        const itemHint = result.items && result.items.length > 1
+          ? ` · ${result.items.length} món (xem tab Ghi chú để xem detail)`
+          : '';
+        status.style.color = '#16a34a';
+        status.textContent = `✨ AI nhận diện: ${fmt(result.amount)} đ${itemHint}`;
+        // Lưu items vào tx note nếu có
+        if (result.items && result.items.length > 1) {
+          const existing = $('#txNote').value || '';
+          const itemList = result.items.map(it => `· ${it.name}: ${fmt(it.amount)} đ`).join('\n');
+          $('#txNote').value = (existing + (existing ? '\n\n' : '') + itemList).slice(0, 500);
+        }
+      } else if (result.amount) {
+        status.textContent = `✓ OCR: ${fmt(result.amount)} đ`;
+      } else {
+        status.style.color = '#cc7a4f';
+        status.textContent = '⚠️ Không đọc được số tiền — vui lòng nhập tay';
+      }
+      setTimeout(() => { status.style.display = 'none'; status.style.color = ''; }, 3500);
+
     } catch (e) {
       console.error(e);
-      QLT_UI.alert('Không nhận diện được: ' + e.message, { title: 'Lỗi OCR' });
+      const status = $('#txOcrStatus');
+      if (status) {
+        status.style.color = '#e63946';
+        status.textContent = '❌ Lỗi: ' + (e.message || e);
+        setTimeout(() => { status.style.display = 'none'; status.style.color = ''; }, 4000);
+      }
+      QLT_UI.alert('Không nhận diện được: ' + e.message, { title: 'Lỗi quét hoá đơn' });
     }
   },
 

@@ -132,19 +132,16 @@
     },
 
     // --- Test connection: gọi 1 ping ngắn để verify key valid ---
+    // Nếu API call không throw → connection OK (key valid + model accessible).
+    // Không dùng response text để đánh giá (Gemini có thể response empty với prompt ngắn).
     async testConnection(apiKey) {
       const key = apiKey || await this.getApiKey();
       if (!key) throw new Error('Chưa có API key');
-      const json = await geminiCall(key, MODELS.chat, {
-        contents: [{ role: 'user', parts: [{ text: 'OK' }] }],
-        generationConfig: { maxOutputTokens: 10, temperature: 0 }
+      await geminiCall(key, MODELS.chat, {
+        contents: [{ role: 'user', parts: [{ text: 'Trả lời "OK" nếu bạn nhận được tin nhắn này.' }] }],
+        generationConfig: { maxOutputTokens: 30, temperature: 0 }
       });
-      const parsed = parseGeminiResponse(json);
-      return {
-        ok: !!parsed.text || parsed.finishReason === 'stop' || parsed.finishReason === 'STOP',
-        model: MODELS.chat,
-        usage: parsed.usage
-      };
+      return { ok: true, model: MODELS.chat };
     },
 
     // --- Chat (text + optional tools) ---
@@ -199,6 +196,86 @@
 
       const json = await geminiCall(key, MODELS.vision, body);
       return parseGeminiResponse(json);
+    },
+
+    // --- Phân tích hoá đơn → trả về structured data tự fill vào tx ---
+    // categoriesList: [{ slug, name, parentName }] — danh sách cat để AI suggest
+    // Returns: { merchant, date, amount, categorySlug, items?, confidence, raw }
+    async analyzeReceiptForTx({ imageBase64, mimeType = 'image/jpeg', categoriesList = [] } = {}) {
+      const catText = categoriesList.length
+        ? categoriesList.map(c => `  - ${c.slug}: ${c.parentName ? c.parentName + ' > ' : ''}${c.name}`).join('\n')
+        : '  (không có)';
+
+      const prompt = `Bạn là trợ lý nhập giao dịch tài chính cho user Việt Nam. Phân tích ảnh hoá đơn / biên lai này và trả về CHỈ JSON (không markdown, không giải thích):
+
+{
+  "merchant": "tên cửa hàng/quán ngắn gọn (không kèm địa chỉ, không kèm tên chi nhánh dài)",
+  "date": "YYYY-MM-DD (vd 2026-05-03)",
+  "amount": <số nguyên VND user thực TRẢ cuối cùng — sau khi áp dụng tất cả giảm giá/voucher/chiết khấu>,
+  "categorySlug": "<slug từ danh sách dưới, hoặc 'other' nếu không match>",
+  "note": "ghi chú ngắn gọn về giao dịch (vd: '6 món quần áo nữ')",
+  "items": [{"name": "tên món", "amount": <số nguyên>}]
+}
+
+QUY TẮC TÍNH AMOUNT:
+- Nếu hoá đơn có "Thanh toán" / "Tiền khách trả" / "Cash paid" → DÙNG SỐ ĐÓ
+- Nếu chỉ có "Tổng cộng" và "Chiết khấu" → trừ ra (Tổng - chiết khấu - voucher)
+- Nếu nhiều dòng số lẫn nhau → chọn số tiền THỰC TRẢ cuối cùng (thường là lớn nhất hoặc dòng có chữ "thanh toán")
+- KHÔNG nhầm số bill / số order / số điện thoại với amount
+- amount LUÔN là số nguyên VND (không có dấu chấm phẩy thập phân)
+
+CATEGORY SLUG có thể chọn:
+${catText}
+
+Items:
+- Chỉ trả về items[] nếu hoá đơn có >1 món rõ ràng và user có thể muốn tách thành nhiều giao dịch
+- Mỗi item: name = tên món gọn (max 30 ký tự), amount = số tiền sau giảm
+- Nếu chỉ 1 món hoặc không phân định được → BỎ TRỐNG items (không trả field này)
+
+Date:
+- Lấy ngày trên hoá đơn (không phải ngày in)
+- Nếu không có → dùng "${(new Date()).toISOString().slice(0,10)}"`;
+
+      const r = await this.analyzeImage({
+        imageBase64,
+        mimeType,
+        prompt,
+        temperature: 0.1,
+        maxOutputTokens: 1024
+      });
+
+      // Parse JSON từ response
+      let json = null;
+      const text = r.text || '';
+      try {
+        // Strip markdown code fences nếu có
+        const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+        json = JSON.parse(cleaned);
+      } catch (e) {
+        // Try to extract JSON từ giữa text
+        const m = text.match(/\{[\s\S]*\}/);
+        if (m) {
+          try { json = JSON.parse(m[0]); } catch (_) {}
+        }
+      }
+      if (!json) {
+        return { ok: false, error: 'AI trả về format không phải JSON', raw: text };
+      }
+
+      // Validate + sanitize
+      return {
+        ok: true,
+        merchant: typeof json.merchant === 'string' ? json.merchant.trim().slice(0, 60) : '',
+        date: typeof json.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(json.date) ? json.date : null,
+        amount: Number.isFinite(+json.amount) && +json.amount > 0 ? Math.round(+json.amount) : 0,
+        categorySlug: typeof json.categorySlug === 'string' ? json.categorySlug.trim() : null,
+        note: typeof json.note === 'string' ? json.note.trim().slice(0, 100) : '',
+        items: Array.isArray(json.items) ? json.items.filter(it => it && it.name && Number.isFinite(+it.amount)).map(it => ({
+          name: String(it.name).trim().slice(0, 50),
+          amount: Math.round(+it.amount)
+        })) : [],
+        raw: text
+      };
     },
 
     // --- Text-to-Speech (Web Speech Synthesis API — free, native) ---
