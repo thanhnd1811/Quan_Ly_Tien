@@ -1130,7 +1130,20 @@ const App = {
     } else if (action === 'home') {
       this.switchTab('home');
     } else if (action === 'ai-chat' || action === 'ai' || action === 'chat') {
-      // Mở Trợ lý AI từ home screen widget
+      // Mở Trợ lý AI từ home screen widget hoặc Quick Settings tile.
+      // Tile gửi qltien://ai-chat?voice=1 → tự bật mic luôn (skip tap mic).
+      // Widget gửi qltien://ai-chat (không voice) → mở chat bình thường.
+      const autoVoice = params.get('voice') === '1';
+      const openChat = () => {
+        this.openAiChatModal();
+        if (autoVoice) {
+          // Đợi modal render xong + DOM mic button sẵn sàng → trigger mic
+          setTimeout(() => {
+            const micBtn = document.getElementById('aiChatMic');
+            if (micBtn) micBtn.click();
+          }, 500);
+        }
+      };
       // Chờ DOM + lock screen check → mở chat overlay
       setTimeout(() => {
         const lock = document.getElementById('lockScreen');
@@ -1139,12 +1152,12 @@ const App = {
           const interval = setInterval(() => {
             if (!lock.classList.contains('open')) {
               clearInterval(interval);
-              this.openAiChatModal();
+              openChat();
             }
           }, 500);
           setTimeout(() => clearInterval(interval), 30000); // timeout 30s
         } else {
-          this.openAiChatModal();
+          openChat();
         }
       }, 350);
     }

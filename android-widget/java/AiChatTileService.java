@@ -47,8 +47,10 @@ public class AiChatTileService extends TileService {
     public void onClick() {
         super.onClick();
 
+        // Tile dùng ?voice=1 để app tự bật mic ngay (không cần tap mic riêng).
+        // Widget home screen vẫn dùng qltien://ai-chat (không voice) — mở chat bình thường.
         Intent intent = new Intent(Intent.ACTION_VIEW);
-        intent.setData(Uri.parse("qltien://ai-chat"));
+        intent.setData(Uri.parse("qltien://ai-chat?voice=1"));
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
         // Android 14+ (API 34): startActivityAndCollapse(Intent) bị deprecate,
