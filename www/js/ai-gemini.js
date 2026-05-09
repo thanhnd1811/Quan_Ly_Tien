@@ -46,18 +46,22 @@
   // ============================================================
   // GEMINI ADAPTER
   // ============================================================
-  // Models — dùng explicit model với QUOTA FREE TIER CAO NHẤT (5/2026):
-  // - gemini-2.5-flash-lite: 1000+ RPD free (tốt nhất cho chat)
-  // - gemini-2.5-flash: 250-500 RPD free (tốt hơn cho OCR vision)
+  // Models — dùng explicit model với QUOTA FREE TIER CAO (5/2026):
+  // - gemini-2.5-flash: 250 RPD free, ĐỦ cho 30+ Q&A/ngày, multi-turn tool use OK
+  // - gemini-2.5-flash-lite: 1000 RPD free nhưng nhỏ → đôi khi (không có response)
+  //   khi multi-turn tool use với system prompt dài
   //
-  // KHÔNG dùng 'gemini-flash-latest' alias vì nó auto-rotate sang
-  // gemini-3-flash chỉ có 20 RPD (Google cố tình hạn quota 3.x).
+  // → Chọn flash (250 RPD) thay vì lite (1000 RPD) vì đảm bảo có response.
+  //   250 RPD = đủ 30 câu/ngày trong 30 ngày → quá đủ cho user thường.
   //
-  // Cả 2 sẽ deprecate 17/6/2026 (40 ngày) — sẽ update model sau.
+  // KHÔNG dùng 'gemini-flash-latest' alias (auto-rotate sang gemini-3-flash
+  // chỉ 20 RPD).
+  //
+  // Cả 2 sẽ deprecate 17/6/2026 (40 ngày) — sẽ update sau.
   const MODELS = {
-    chat: 'gemini-2.5-flash-lite',  // 1000 RPD free, fast cho Q&A ngắn
-    vision: 'gemini-2.5-flash',     // 250 RPD free, accurate hơn cho OCR
-    fallback: 'gemini-2.5-flash-lite'
+    chat: 'gemini-2.5-flash',        // 250 RPD, multi-turn tool use OK, có response
+    vision: 'gemini-2.5-flash',      // 250 RPD, accurate cho OCR
+    fallback: 'gemini-2.5-flash-lite' // dùng nếu hit quota flash
   };
 
   const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta';

@@ -6330,8 +6330,9 @@ const App = {
         statusEl.innerHTML = `
           ✅ <strong>Đã kết nối Gemini</strong>
           <div style="font-size:11px;color:var(--text2);margin-top:4px;line-height:1.5">
-            Chat: <code>${window.QLT_AI.MODELS.chat}</code> (~1000 req/ngày free)<br>
-            OCR: <code>${window.QLT_AI.MODELS.vision}</code> (~250 req/ngày free)
+            Chat: <code>${window.QLT_AI.MODELS.chat}</code><br>
+            OCR: <code>${window.QLT_AI.MODELS.vision}</code><br>
+            Free: ~250 req/ngày · Reset 7h sáng VN
           </div>
         `;
         statusEl.style.background = 'rgba(34,197,94,.08)';

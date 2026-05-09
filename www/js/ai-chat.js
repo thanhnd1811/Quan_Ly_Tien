@@ -522,8 +522,9 @@ VÍ DỤ TRẢ LỜI:
 
       // Loop để handle multi-step tool calls
       let finalReply = '';
+      let lastFinishReason = '';
       const toolsUsed = [];
-      let pendingTxId = null;  // id của prepared tx (nếu có)
+      let pendingTxId = null;
       const MAX_STEPS = 5;
 
       for (let step = 0; step < MAX_STEPS; step++) {
@@ -532,8 +533,9 @@ VÍ DỤ TRẢ LỜI:
           tools,
           systemInstruction,
           temperature: 0.7,
-          maxOutputTokens: 1024
+          maxOutputTokens: 2048
         });
+        lastFinishReason = r.finishReason || '';
 
         // Nếu có tool calls → execute + add to history
         if (r.toolCalls && r.toolCalls.length > 0) {
@@ -584,11 +586,23 @@ VÍ DỤ TRẢ LỜI:
           continue;
         }
 
-        finalReply = r.text || '(không có response)';
+        finalReply = r.text || '';
         break;
       }
 
-      if (!finalReply) finalReply = '⚠️ AI không thể trả lời sau nhiều bước. Thử hỏi khác?';
+      // Nếu vẫn không có reply (text empty từ model) → giải thích lý do
+      if (!finalReply || !finalReply.trim()) {
+        if (lastFinishReason === 'MAX_TOKENS') {
+          finalReply = '⚠️ Câu trả lời quá dài bị cắt — thử hỏi gọn hơn (vd "tháng này chi gì nhiều nhất top 3").';
+        } else if (lastFinishReason === 'SAFETY' || lastFinishReason === 'RECITATION') {
+          finalReply = '⚠️ AI từ chối trả lời câu này vì chính sách bảo mật. Thử hỏi cách khác.';
+        } else if (lastFinishReason === 'STOP') {
+          // STOP với text rỗng = model không generate ra gì
+          finalReply = '⚠️ AI không sinh được response (' + lastFinishReason + '). Thử hỏi lại bằng câu khác hoặc hỏi đơn giản hơn.';
+        } else {
+          finalReply = '⚠️ AI không thể trả lời (' + (lastFinishReason || 'unknown') + ') sau ' + MAX_STEPS + ' bước. Thử hỏi câu khác hoặc bấm "Kiểm tra cập nhật" trong Settings.';
+        }
+      }
 
       return {
         reply: finalReply,
