@@ -68,8 +68,16 @@
       },
       {
         name: 'get_account_balances',
-        description: 'Lấy số dư hiện tại của các ví. Dùng khi user hỏi "tôi còn bao nhiêu tiền", "ví tiền mặt còn bao nhiêu".',
-        parameters: { type: 'object', properties: {} }
+        description: 'Lấy số dư hiện tại của các ví. Dùng khi user hỏi "tôi còn bao nhiêu tiền", "số dư các ví", hoặc hỏi cụ thể "ví Vietcombank còn bao nhiêu" (truyền accountKeyword để filter).',
+        parameters: {
+          type: 'object',
+          properties: {
+            accountKeyword: {
+              type: 'string',
+              description: 'Optional. Tên ví hoặc keyword để filter. VD "vcb", "vietcombank", "tiền mặt", "mb". Bỏ trống để lấy tất cả ví.'
+            }
+          }
+        }
       },
       {
         name: 'get_monthly_trend',
@@ -250,15 +258,42 @@
       return { month: ym, count: list.length, budgets: list };
     },
 
-    async get_account_balances() {
-      const accs = (this._state().accounts || []).filter(a => (a.accountType || 'payment') === 'payment');
+    async get_account_balances({ accountKeyword } = {}) {
+      let accs = (this._state().accounts || []).filter(a => (a.accountType || 'payment') === 'payment');
+
+      // Filter theo keyword nếu user hỏi cụ thể 1 ví
+      if (accountKeyword && accountKeyword.trim()) {
+        const M = window.QLT_CategoryMatcher;
+        const norm = M ? M.normalize(accountKeyword) : accountKeyword.toLowerCase();
+        const filtered = accs.filter(a => {
+          const an = M ? M.normalize(a.name) : a.name.toLowerCase();
+          return an.includes(norm) || norm.includes(an);
+        });
+        // Nếu không match → return all + warning
+        if (filtered.length === 0) {
+          const list = accs.map(a => ({ name: a.name, balance: a.balance || 0 }));
+          return {
+            warning: `Không tìm thấy ví match "${accountKeyword}". Đây là tất cả ví:`,
+            count: list.length,
+            totalBalance: list.reduce((s, a) => s + a.balance, 0),
+            accounts: list
+          };
+        }
+        accs = filtered;
+      }
+
       const list = accs.map(a => ({
         name: a.name,
         balance: a.balance || 0,
         currency: a.currency || 'VND'
       }));
       const total = list.reduce((s, a) => s + a.balance, 0);
-      return { count: list.length, totalBalance: total, accounts: list };
+      return {
+        count: list.length,
+        totalBalance: total,
+        accounts: list,
+        ...(accountKeyword ? { filter: accountKeyword } : {})
+      };
     },
 
     _findAccountByKeyword(keyword) {
@@ -454,6 +489,14 @@ VÍ DỤ TRẢ LỜI:
 [LOẠI A] User: "Tháng này tôi chi cà phê bao nhiêu?"
 → Gọi get_category_total(categoryKeyword="cà phê", fromDate="${ym}-01", toDate="${today}")
 → "Tháng này bạn đã chi 1.250.000 đ cho cà phê (15 lần). Cao nhất ngày 5/5: 65k tại Highlands."
+
+[LOẠI A] User: "Số dư ví Vietcombank?" / "ví VCB còn bao nhiêu?"
+→ Gọi get_account_balances(accountKeyword="vietcombank")
+→ "Ví Vietcombank còn 20.863.826 đ."
+
+[LOẠI A] User: "Tổng tôi còn bao nhiêu?" / "Số dư các ví?"
+→ Gọi get_account_balances() (KHÔNG truyền accountKeyword)
+→ "Tổng 30.552.174 đ — Tiền mặt 7tr · VCB 20.86tr · MB 2.69tr."
 
 [LOẠI B] User: "Làm sao tạo sổ mới?"
 → "Tap menu **☰** góc trên trái → list sổ hiện ra → tap **'Tạo sổ mới'** → đặt tên + chọn icon → Lưu."
