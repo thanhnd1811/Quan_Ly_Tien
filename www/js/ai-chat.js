@@ -47,18 +47,54 @@
       },
       {
         name: 'find_transactions',
-        description: 'Tìm danh sách giao dịch theo filter. Dùng khi user hỏi "cho tôi xem các giao dịch gần đây", "tôi đã mua gì hôm thứ 7".',
+        description: 'Tìm danh sách giao dịch theo filter. Dùng khi user hỏi "hôm nay tôi mua gì", "VCB tháng này chi gì", "các GD > 1tr tháng này".',
         parameters: {
           type: 'object',
           properties: {
-            fromDate: { type: 'string', description: 'YYYY-MM-DD' },
+            fromDate: { type: 'string', description: 'YYYY-MM-DD. Hôm nay = ' + (new Date()).toISOString().slice(0,10) },
             toDate: { type: 'string', description: 'YYYY-MM-DD' },
-            categoryKeyword: { type: 'string', description: 'Optional — lọc theo cat' },
+            categoryKeyword: { type: 'string', description: 'Optional — lọc theo cat (vd "cà phê", "xăng")' },
+            accountKeyword: { type: 'string', description: 'Optional — lọc theo ví (vd "vcb", "tiền mặt", "mb")' },
             type: { type: 'string', description: 'Optional: "expense" | "income" | "transfer"' },
             minAmount: { type: 'number', description: 'Optional — chỉ lấy tx >= số này' },
-            limit: { type: 'integer', description: 'Số tx tối đa trả về (default 20)' }
+            limit: { type: 'integer', description: 'Số tx tối đa trả về (default 20, max 50)' }
           },
           required: ['fromDate', 'toDate']
+        }
+      },
+      {
+        name: 'get_loans',
+        description: 'Lấy danh sách khoản CHO VAY (mình cho ai vay) hoặc đang VAY (mình nợ ai). Dùng khi user hỏi "tôi đang nợ ai", "ai nợ tôi", "tổng cho vay".',
+        parameters: {
+          type: 'object',
+          properties: {
+            type: { type: 'string', description: 'Optional: "lend" (cho vay) | "borrow" (mình vay) | "all" default' }
+          }
+        }
+      },
+      {
+        name: 'get_savings_goals',
+        description: 'Lấy danh sách mục tiêu tiết kiệm + tiến độ. Dùng khi user hỏi "mục tiêu tiết kiệm thế nào", "còn bao xa đạt 100tr".',
+        parameters: { type: 'object', properties: {} }
+      },
+      {
+        name: 'get_savings_accounts',
+        description: 'Lấy danh sách sổ tiết kiệm (savings accounts) + gốc + lãi tích lũy + ngày đáo hạn. Dùng khi user hỏi "sổ TK đáo hạn khi nào", "tổng tiết kiệm", "lãi bao nhiêu".',
+        parameters: { type: 'object', properties: {} }
+      },
+      {
+        name: 'get_recurring_rules',
+        description: 'Lấy danh sách giao dịch định kỳ (recurring rules) đang active. Dùng khi user hỏi "lương về ngày mấy", "rule định kỳ nào", "tháng này còn gì chưa fire".',
+        parameters: { type: 'object', properties: {} }
+      },
+      {
+        name: 'get_vehicle_stats',
+        description: 'Lấy chi phí xe + thống kê tiêu thụ. Dùng khi user hỏi "tháng này đổ xăng bao nhiêu", "bao giờ thay nhớt", "tiêu thụ xe", "chi phí Honda Wave".',
+        parameters: {
+          type: 'object',
+          properties: {
+            vehicleKeyword: { type: 'string', description: 'Optional — tên xe (vd "honda", "wave", "wave alpha"). Bỏ trống = tất cả xe.' }
+          }
         }
       },
       {
@@ -208,7 +244,7 @@
       };
     },
 
-    async find_transactions({ fromDate, toDate, categoryKeyword, type, minAmount, limit = 20 }) {
+    async find_transactions({ fromDate, toDate, categoryKeyword, accountKeyword, type, minAmount, limit = 20 }) {
       let txs = (this._state().transactions || []).filter(t =>
         t.date >= fromDate && t.date <= toDate
       );
@@ -218,20 +254,229 @@
         const cat = this._findCatByKeyword(categoryKeyword);
         if (cat) txs = txs.filter(t => t.categoryId === cat.id);
       }
+      if (accountKeyword) {
+        const acc = this._findAccountByKeyword(accountKeyword);
+        if (acc) txs = txs.filter(t => t.accountId === acc.id || t.toAccountId === acc.id);
+      }
       // Sort by date desc
       txs.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      const total = txs.reduce((s, t) => s + t.amount, 0);
       txs = txs.slice(0, Math.min(limit || 20, 50));
       const cats = this._state().categories || [];
+      const accs = this._state().accounts || [];
       return {
         count: txs.length,
+        totalAmount: total,
+        fromDate, toDate,
         transactions: txs.map(t => ({
           date: t.date,
           type: t.type,
           amount: t.amount,
           category: cats.find(c => c.id === t.categoryId)?.name || '',
+          account: accs.find(a => a.id === t.accountId)?.name || '',
           note: t.note || ''
         }))
       };
+    },
+
+    async get_loans({ type } = {}) {
+      const loans = this._state().loans || [];
+      let filtered = loans;
+      if (type === 'lend' || type === 'borrow') {
+        filtered = loans.filter(l => l.type === type);
+      }
+      const list = filtered.map(l => {
+        const principal = l.amount || 0;
+        const paid = (l.payments || []).reduce((s, p) => s + (p.amount || 0), 0);
+        const remaining = principal - paid;
+        return {
+          partner: l.partnerName || '?',
+          type: l.type === 'lend' ? 'cho vay' : 'mình vay',
+          principal,
+          paid,
+          remaining,
+          status: remaining <= 0 ? 'đã trả xong' : 'đang còn',
+          startDate: l.startDate,
+          dueDate: l.dueDate,
+          note: l.note
+        };
+      });
+      const totalLend = list.filter(l => l.type === 'cho vay' && l.remaining > 0).reduce((s, l) => s + l.remaining, 0);
+      const totalBorrow = list.filter(l => l.type === 'mình vay' && l.remaining > 0).reduce((s, l) => s + l.remaining, 0);
+      return {
+        count: list.length,
+        totalLending: totalLend,
+        totalBorrowing: totalBorrow,
+        loans: list
+      };
+    },
+
+    async get_savings_goals() {
+      const goals = this._state().goals || [];
+      const list = goals.map(g => {
+        const target = g.targetAmount || 0;
+        const current = g.currentAmount || 0;
+        const remaining = target - current;
+        const percent = target > 0 ? Math.round(current / target * 100) : 0;
+        return {
+          name: g.name || '?',
+          target,
+          current,
+          remaining,
+          percent,
+          deadline: g.deadline,
+          status: percent >= 100 ? 'đã đạt' : (percent >= 80 ? 'sắp đạt' : 'đang tiết kiệm')
+        };
+      });
+      return { count: list.length, goals: list };
+    },
+
+    async get_savings_accounts() {
+      const accs = (this._state().accounts || []).filter(a => a.accountType === 'savings');
+      const today = new Date();
+      const list = accs.map(a => {
+        const principal = a.balance || 0;
+        const rate = a.interestRate || 0;
+        const term = a.termMonths || 0;
+        const startDate = a.startDate ? new Date(a.startDate) : null;
+        const maturityDate = a.maturityDate ? new Date(a.maturityDate) : null;
+
+        // Lãi tích lũy đến hôm nay (linear)
+        let accruedInterest = 0;
+        if (startDate && rate > 0) {
+          const daysElapsed = Math.max(0, Math.floor((today - startDate) / (1000 * 60 * 60 * 24)));
+          accruedInterest = Math.round(principal * (rate / 100) * (daysElapsed / 365));
+        }
+
+        // Số ngày còn đến đáo hạn
+        const daysUntilMaturity = maturityDate
+          ? Math.ceil((maturityDate - today) / (1000 * 60 * 60 * 24))
+          : null;
+
+        const expectedFullInterest = rate > 0 && term > 0
+          ? Math.round(principal * (rate / 100) * (term / 12))
+          : 0;
+
+        return {
+          name: a.name,
+          principal,
+          interestRate: rate,
+          termMonths: term,
+          startDate: a.startDate,
+          maturityDate: a.maturityDate,
+          accruedInterest,
+          expectedFullInterest,
+          daysUntilMaturity,
+          status: a.savingsClosed ? 'đã đóng' : 'đang chạy'
+        };
+      });
+      const totalPrincipal = list.filter(l => l.status === 'đang chạy').reduce((s, l) => s + l.principal, 0);
+      const totalAccrued = list.filter(l => l.status === 'đang chạy').reduce((s, l) => s + l.accruedInterest, 0);
+      return {
+        count: list.length,
+        totalPrincipal,
+        totalAccruedInterest: totalAccrued,
+        accounts: list
+      };
+    },
+
+    async get_recurring_rules() {
+      const rules = (this._state().recurringRules || []).filter(r => r.active);
+      const cats = this._state().categories || [];
+      const accs = this._state().accounts || [];
+      const list = rules.map(r => ({
+        name: r.name,
+        type: r.type,
+        amount: r.amount,
+        frequency: r.frequency,
+        dayOfMonth: r.dayOfMonth,
+        dayOfWeek: r.dayOfWeek,
+        startDate: r.startDate,
+        endDate: r.endDate,
+        category: cats.find(c => c.id === r.categoryId)?.name || '',
+        account: accs.find(a => a.id === r.accountId)?.name || '',
+        lastRunDate: r.lastRunDate
+      }));
+      return { count: list.length, rules: list };
+    },
+
+    async get_vehicle_stats({ vehicleKeyword } = {}) {
+      const fuelLogs = this._state().fuelLogs || [];
+      const maintLogs = this._state().maintenanceLogs || [];
+
+      // Group by vehicle
+      const vehicleMap = new Map();
+      const addLog = (log, kind) => {
+        const name = (log.vehicleName || '').trim();
+        if (!name) return;
+        if (!vehicleMap.has(name)) {
+          vehicleMap.set(name, { name, type: log.vehicleType || 'motorbike', fuel: [], maint: [] });
+        }
+        vehicleMap.get(name)[kind].push(log);
+      };
+      fuelLogs.forEach(l => addLog(l, 'fuel'));
+      maintLogs.forEach(l => addLog(l, 'maint'));
+
+      let vehicles = [...vehicleMap.values()];
+      if (vehicleKeyword) {
+        const M = window.QLT_CategoryMatcher;
+        const norm = M ? M.normalize(vehicleKeyword) : vehicleKeyword.toLowerCase();
+        vehicles = vehicles.filter(v => {
+          const vn = M ? M.normalize(v.name) : v.name.toLowerCase();
+          return vn.includes(norm) || norm.includes(vn);
+        });
+      }
+
+      const ym = new Date().toISOString().slice(0, 7);
+      const stats = vehicles.map(v => {
+        // Tháng này
+        const monthFuel = v.fuel.filter(f => (f.date || '').startsWith(ym)).reduce((s, f) => s + (f.amount || 0), 0);
+        const monthMaint = v.maint.filter(m => (m.date || '').startsWith(ym)).reduce((s, m) => s + (m.amount || 0), 0);
+
+        // Tổng cộng
+        const totalFuel = v.fuel.reduce((s, f) => s + (f.amount || 0), 0);
+        const totalMaint = v.maint.reduce((s, m) => s + (m.amount || 0), 0);
+
+        // Mức tiêu thụ (cần ≥ 2 fuel logs có odometer + liters)
+        const fuelAsc = [...v.fuel].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+        const consumptions = [];
+        let totalDistance = 0;
+        for (let i = 1; i < fuelAsc.length; i++) {
+          const dKm = (fuelAsc[i].odometer || 0) - (fuelAsc[i - 1].odometer || 0);
+          const liters = fuelAsc[i].liters || 0;
+          if (dKm > 0 && liters > 0) {
+            consumptions.push(liters / dKm * 100);
+            totalDistance += dKm;
+          }
+        }
+        const avgConsumption = consumptions.length
+          ? +(consumptions.reduce((s, x) => s + x, 0) / consumptions.length).toFixed(1)
+          : null;
+        const maxOdo = Math.max(0, ...v.fuel.map(f => f.odometer || 0), ...v.maint.map(m => m.odometer || 0));
+
+        // Lần thay nhớt cuối + cảnh báo
+        const oilLogs = v.maint.filter(m => m.kind === 'oil' && m.odometer).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        const lastOil = oilLogs[0] || null;
+        const oilThreshold = v.type === 'car' ? 5000 : 1500;
+        const kmSinceLastOil = lastOil && maxOdo ? maxOdo - lastOil.odometer : null;
+        const oilAlert = kmSinceLastOil && kmSinceLastOil >= oilThreshold;
+
+        return {
+          name: v.name,
+          type: v.type,
+          monthSpend: monthFuel + monthMaint,
+          totalSpend: totalFuel + totalMaint,
+          fuelCount: v.fuel.length,
+          maintCount: v.maint.length,
+          currentOdometer: maxOdo,
+          avgFuelConsumption: avgConsumption ? `${avgConsumption} L/100km` : null,
+          lastOilChangeDate: lastOil?.date || null,
+          kmSinceLastOilChange: kmSinceLastOil,
+          oilChangeNeeded: oilAlert
+        };
+      });
+
+      return { count: stats.length, vehicles: stats };
     },
 
     async get_budget_status() {
@@ -416,8 +661,12 @@
   // SYSTEM PROMPT
   // ============================================================
   function buildSystemPrompt(userContext) {
-    const today = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
     const ym = today.slice(0, 7);
+    const yesterday = (() => { const d = new Date(now); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); })();
+    const lastMonth = (() => { const d = new Date(now); d.setMonth(d.getMonth()-1); return d.toISOString().slice(0,7); })();
+    const sixMonthsAgo = (() => { const d = new Date(now); d.setMonth(d.getMonth()-6); return d.toISOString().slice(0,10); })();
     const appKnowledge = window.QLT_AppKnowledge || '';
     return `Bạn là TRỢ LÝ AI của app "Quản Lý Tiền" — chuyên hỗ trợ người dùng Việt Nam quản lý chi tiêu cá nhân.
 
@@ -434,9 +683,29 @@ PHẠM VI HỖ TRỢ — 3 LOẠI CÂU HỎI
 
 ### LOẠI A — HỎI VỀ DATA TÀI CHÍNH (GỌI TOOL)
 User hỏi về số liệu của họ → GỌI tool phù hợp → tổng hợp.
-Tools: get_month_summary, get_category_total, find_transactions,
-       get_budget_status, get_account_balances, get_monthly_trend.
-VD: "Tháng này chi cà phê bao nhiêu?", "Còn budget?", "Số dư các ví?".
+
+13 tools available — chọn đúng tool theo câu hỏi:
+- get_month_summary(month=YYYY-MM) — Tổng quan tháng + top 5 cat
+- get_category_total(categoryKeyword, fromDate, toDate) — Tổng 1 cat
+- find_transactions(fromDate, toDate, categoryKeyword?, accountKeyword?, type?, minAmount?) — Tìm GD
+- get_budget_status() — Status các budget
+- get_account_balances(accountKeyword?) — Số dư ví (filter nếu hỏi cụ thể)
+- get_monthly_trend(months=N) — Trend N tháng
+- get_loans(type?) — Cho vay/nợ ('lend'|'borrow'|all)
+- get_savings_goals() — Mục tiêu tiết kiệm
+- get_savings_accounts() — Sổ tiết kiệm + lãi
+- get_recurring_rules() — Định kỳ (lương, tiền nhà...)
+- get_vehicle_stats(vehicleKeyword?) — Chi phí xe + tiêu thụ
+- prepare_transaction(...) — TẠO GD (LOẠI C)
+
+DATE PARSING (chuyển ngôn ngữ thành YYYY-MM-DD):
+- "hôm nay" = ${today}
+- "hôm qua" = ${yesterday}
+- "tuần này" = Thứ 2 tuần này → ${today}
+- "tháng này" = ${ym}-01 → ${today}
+- "tháng trước" = ${lastMonth} (full month)
+- "năm nay" = ${now.getFullYear()}-01-01 → ${today}
+- "6 tháng qua" = ${sixMonthsAgo} → ${today}
 
 ### LOẠI B — HỎI VỀ CÁCH DÙNG APP / TÍNH NĂNG (TRẢ LỜI TỪ KIẾN THỨC)
 Trả lời dựa trên KIẾN THỨC ĐẦY ĐỦ VỀ APP bên dưới.
@@ -484,19 +753,54 @@ KIẾN THỨC ĐẦY ĐỦ VỀ APP (dùng để trả lời LOẠI B):
 ${appKnowledge}
 ==========================================================
 
-VÍ DỤ TRẢ LỜI:
+VÍ DỤ TRẢ LỜI (theo nhóm câu hỏi):
 
-[LOẠI A] User: "Tháng này tôi chi cà phê bao nhiêu?"
-→ Gọi get_category_total(categoryKeyword="cà phê", fromDate="${ym}-01", toDate="${today}")
-→ "Tháng này bạn đã chi 1.250.000 đ cho cà phê (15 lần). Cao nhất ngày 5/5: 65k tại Highlands."
+═══ THU/CHI TỔNG QUAN ═══
+"Tháng này chi gì nhiều nhất?" → get_month_summary(month="${ym}")
+"Hôm nay tôi mua gì?" → find_transactions(fromDate="${today}", toDate="${today}")
+"Tuần này chi bao nhiêu?" → find_transactions(fromDate=monday_this_week, toDate="${today}")
+"Năm nay tổng chi?" → get_monthly_trend(months=12) → cộng lại
+"Cuối tuần qua chi gì?" → find_transactions(fromDate=last_saturday, toDate=last_sunday)
 
-[LOẠI A] User: "Số dư ví Vietcombank?" / "ví VCB còn bao nhiêu?"
-→ Gọi get_account_balances(accountKeyword="vietcombank")
-→ "Ví Vietcombank còn 20.863.826 đ."
+═══ THEO DANH MỤC ═══
+"Tôi chi cà phê bao nhiêu?" → get_category_total(categoryKeyword="cà phê", ...)
+"6 tháng chi xăng tổng?" → get_category_total(categoryKeyword="xăng", fromDate=6_months_ago, toDate="${today}")
+"Cat nào tôi chi nhiều nhất tháng?" → get_month_summary
 
-[LOẠI A] User: "Tổng tôi còn bao nhiêu?" / "Số dư các ví?"
-→ Gọi get_account_balances() (KHÔNG truyền accountKeyword)
-→ "Tổng 30.552.174 đ — Tiền mặt 7tr · VCB 20.86tr · MB 2.69tr."
+═══ THEO VÍ ═══
+"Số dư VCB?" → get_account_balances(accountKeyword="vietcombank")
+"VCB tháng này chi gì?" → find_transactions(accountKeyword="vcb", fromDate="${ym}-01", toDate="${today}", type="expense")
+"Ví nào nhiều tiền nhất?" → get_account_balances() → so sánh
+
+═══ CHO VAY / NỢ ═══
+"Tôi đang nợ ai?" → get_loans(type="borrow")
+"Ai nợ tôi?" → get_loans(type="lend")
+"Tổng cho vay chưa thu?" → get_loans(type="lend") → totalLending
+
+═══ SỔ TIẾT KIỆM ═══
+"Sổ TK đáo hạn khi nào?" → get_savings_accounts() → daysUntilMaturity
+"Tổng tiết kiệm + lãi?" → get_savings_accounts() → totalPrincipal + totalAccruedInterest
+"Lãi tích lũy?" → get_savings_accounts() → totalAccruedInterest
+
+═══ MỤC TIÊU TIẾT KIỆM ═══
+"Mục tiêu thế nào?" → get_savings_goals() → list + percent
+"Có khả thi đạt 100tr cuối năm?" → get_savings_goals() + tính rate cần/tháng
+
+═══ CHI PHÍ XE ═══
+"Tháng này đổ xăng bao nhiêu?" → get_vehicle_stats() → monthSpend
+"Bao giờ thay nhớt?" → get_vehicle_stats() → oilChangeNeeded + kmSinceLastOilChange
+"Tiêu thụ Honda Wave?" → get_vehicle_stats(vehicleKeyword="wave") → avgFuelConsumption
+
+═══ ĐỊNH KỲ ═══
+"Lương về ngày mấy?" → get_recurring_rules() → tìm cat Lương → dayOfMonth
+"Có rule định kỳ nào?" → get_recurring_rules() → list
+
+═══ BUDGET ═══
+"Còn budget không?" → get_budget_status()
+"Tôi vượt budget chưa?" → get_budget_status() → check status='over'
+
+═══ TẠO GD ═══
+"ăn sáng 50k" → prepare_transaction(type="expense", amount=50000, categoryKeyword="ăn sáng", note="ăn sáng")
 
 [LOẠI B] User: "Làm sao tạo sổ mới?"
 → "Tap menu **☰** góc trên trái → list sổ hiện ra → tap **'Tạo sổ mới'** → đặt tên + chọn icon → Lưu."
