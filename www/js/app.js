@@ -6143,6 +6143,10 @@ const App = {
     // Ẩn suggest banner mỗi khi mở modal mới
     const sg = $('#txCatSuggest');
     if (sg) { sg.style.display = 'none'; sg.innerHTML = ''; }
+    // Ẩn banner nhận diện cat + clear context
+    const cd = $('#txCatDetected');
+    if (cd) { cd.style.display = 'none'; cd.innerHTML = ''; }
+    delete this.state._catDetectContext;
     const isNew = !id;
     let tx;
     if (isNew) {
@@ -6618,6 +6622,7 @@ const App = {
           // Cha không có con → coi như leaf, chọn luôn
           this.state.editingTx.categoryId = pid;
           delete this.state.editingTx._activeParent;
+          this._maybeOfferKeywordLearning(pid);
         } else {
           // Set active parent → sub area swap
           this.state.editingTx._activeParent = pid;
@@ -6630,30 +6635,36 @@ const App = {
     // Sub tile: chọn con
     $$('#txCategoryList .cat-sub-tile').forEach(el => {
       el.onclick = () => {
-        this.state.editingTx.categoryId = el.dataset.cat;
+        const cid = el.dataset.cat;
+        this.state.editingTx.categoryId = cid;
         delete this.state.editingTx._activeParent;
         this.renderTxCategoryPicker(type);
         this.renderTxBudgetHint();
+        this._maybeOfferKeywordLearning(cid);
       };
     });
 
     // Pick parent (nút "Chọn cả nhóm")
     $$('#txCategoryList [data-pick-parent]').forEach(el => {
       el.onclick = () => {
-        this.state.editingTx.categoryId = el.dataset.pickParent;
+        const cid = el.dataset.pickParent;
+        this.state.editingTx.categoryId = cid;
         delete this.state.editingTx._activeParent;
         this.renderTxCategoryPicker(type);
         this.renderTxBudgetHint();
+        this._maybeOfferKeywordLearning(cid);
       };
     });
 
     // Recent + Orphan tile: chọn trực tiếp
     $$('#txCategoryList .cat-recent-tile, #txCategoryList .cat-orphan-tile').forEach(el => {
       el.onclick = () => {
-        this.state.editingTx.categoryId = el.dataset.cat;
+        const cid = el.dataset.cat;
+        this.state.editingTx.categoryId = cid;
         delete this.state.editingTx._activeParent;
         this.renderTxCategoryPicker(type);
         this.renderTxBudgetHint();
+        this._maybeOfferKeywordLearning(cid);
       };
     });
 
@@ -7207,6 +7218,232 @@ const App = {
     if (autoSave) setTimeout(() => this.saveTx(), 250);
   },
 
+  // ============================================================
+  // BANNER NHẬN DIỆN DANH MỤC — feedback loop cho voice/note
+  // ============================================================
+  _showCatDetectedBanner(catId, confidence, originalText, type) {
+    const wrap = $('#txCatDetected');
+    if (!wrap) return;
+    const cat = this.state.categories.find(c => c.id === catId);
+    if (!cat) { wrap.style.display = 'none'; return; }
+
+    // Xác định cha của cat (nếu là sub) để hiện rõ context
+    const parent = cat.parentId ? this.state.categories.find(c => c.id === cat.parentId) : null;
+    const fullName = parent ? `${parent.name} › ${cat.name}` : cat.name;
+
+    const isAuto = confidence >= 0.85;
+    const cls = isAuto ? 'auto' : 'suggest';
+    const headIcon = isAuto ? '⚡' : '💡';
+    const headText = isAuto ? 'ĐÃ NHẬN DIỆN' : 'GỢI Ý DANH MỤC';
+    const confLabel = `${Math.round(confidence * 100)}%`;
+
+    wrap.className = 'tx-cat-detected ' + cls;
+    wrap.innerHTML = `
+      <div class="tx-cat-detected-head">${headIcon} ${headText}</div>
+      <div class="tx-cat-detected-cat">
+        <span class="tx-cat-detected-icon" style="color:${cat.color || ''}">${svgIcon(cat.icon)}</span>
+        <span class="tx-cat-detected-name">${this.escapeHtml(fullName)}</span>
+        <span class="tx-cat-detected-conf">${confLabel}</span>
+      </div>
+      <div class="tx-cat-detected-actions">
+        <button type="button" class="tx-cat-detected-btn yes" data-act="yes">✅ Đúng</button>
+        <button type="button" class="tx-cat-detected-btn no" data-act="no">✏️ Sửa</button>
+      </div>
+    `;
+    wrap.style.display = 'block';
+
+    // Lưu context để nếu user bấm "Sửa" + chọn cat khác, mình biết câu gốc nào để học
+    this.state._catDetectContext = {
+      originalText: originalText || '',
+      autoDetectedCatId: catId,
+      type
+    };
+
+    wrap.querySelector('[data-act="yes"]').onclick = () => {
+      wrap.style.display = 'none';
+      // Giữ context để post-save vẫn có thể learn (nếu cần)
+    };
+    wrap.querySelector('[data-act="no"]').onclick = () => {
+      // User reject → clear cat + scroll picker
+      this.state.editingTx.categoryId = null;
+      delete this.state.editingTx._activeParent;
+      this.renderTxCategoryPicker(type);
+      // Update banner thành prompt
+      wrap.className = 'tx-cat-detected suggest';
+      wrap.innerHTML = `
+        <div class="tx-cat-detected-head">✏️ CHỌN DANH MỤC ĐÚNG</div>
+        <div style="font-size:12px;color:var(--text2);line-height:1.5">
+          Chọn nhóm/danh mục đúng bên dưới — app sẽ <strong>học keyword mới</strong> từ câu của bạn để lần sau bắt chuẩn hơn.
+        </div>
+      `;
+      // Đánh dấu context = đang chờ user pick để học
+      this.state._catDetectContext.rejectedAt = Date.now();
+      // Scroll picker vào view
+      setTimeout(() => {
+        const sec = $('#txCategorySection');
+        if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    };
+  },
+
+  // Gọi khi user pick cat thủ công trong picker (sau khi rejected detection)
+  _maybeOfferKeywordLearning(newCatId) {
+    const ctx = this.state._catDetectContext;
+    if (!ctx || !ctx.rejectedAt) return; // Chỉ trigger khi user đã bấm "Sửa"
+    if (newCatId === ctx.autoDetectedCatId) return; // Cùng cat → không học
+    if (!ctx.originalText || ctx.originalText.length < 3) return;
+
+    const cat = this.state.categories.find(c => c.id === newCatId);
+    if (!cat) return;
+
+    // Trích keyword candidate từ câu gốc
+    const candidates = this._extractKeywordCandidates(ctx.originalText, cat);
+    if (!candidates.length) {
+      // Không có ứng viên rõ ràng → vẫn cho user nhập thủ công
+      // Ẩn banner cũ
+      const wrap = $('#txCatDetected');
+      if (wrap) wrap.style.display = 'none';
+      delete this.state._catDetectContext;
+      return;
+    }
+
+    // Hiện prompt học keyword
+    const wrap = $('#txCatDetected');
+    if (!wrap) return;
+    const parent = cat.parentId ? this.state.categories.find(c => c.id === cat.parentId) : null;
+    const fullName = parent ? `${parent.name} › ${cat.name}` : cat.name;
+
+    wrap.className = 'kw-learn-prompt';
+    let html = `
+      <div class="kw-learn-head">🧠 Học keyword cho "<strong>${this.escapeHtml(fullName)}</strong>"?</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">
+        Chọn từ khóa từ câu "<em>${this.escapeHtml(ctx.originalText)}</em>" để lần sau auto-match:
+      </div>
+      <div class="kw-learn-row">
+    `;
+    for (const kw of candidates) {
+      html += `<span class="kw-learn-chip" data-kw="${this.escapeHtml(kw)}">${this.escapeHtml(kw)}</span>`;
+    }
+    html += `
+      </div>
+      <div class="kw-learn-actions">
+        <button type="button" class="kw-learn-btn save" data-act="save">💾 Lưu (đã chọn 0)</button>
+        <button type="button" class="kw-learn-btn skip" data-act="skip">Bỏ qua</button>
+      </div>
+    `;
+    wrap.innerHTML = html;
+    wrap.style.display = 'block';
+
+    const selected = new Set();
+    const saveBtn = wrap.querySelector('[data-act="save"]');
+    const updateSaveBtn = () => {
+      saveBtn.textContent = `💾 Lưu (đã chọn ${selected.size})`;
+      saveBtn.disabled = selected.size === 0;
+      saveBtn.style.opacity = selected.size === 0 ? '0.5' : '1';
+    };
+    updateSaveBtn();
+
+    wrap.querySelectorAll('.kw-learn-chip').forEach(chip => {
+      chip.onclick = () => {
+        const kw = chip.dataset.kw;
+        if (selected.has(kw)) { selected.delete(kw); chip.classList.remove('selected'); }
+        else { selected.add(kw); chip.classList.add('selected'); }
+        updateSaveBtn();
+      };
+    });
+
+    saveBtn.onclick = async () => {
+      if (selected.size === 0) return;
+      // Push vào cat.keywords
+      cat.keywords = Array.isArray(cat.keywords) ? cat.keywords : [];
+      let added = 0;
+      for (const kw of selected) {
+        const existing = cat.keywords.some(k => normalizeVi(k) === normalizeVi(kw));
+        if (!existing) { cat.keywords.push(kw); added++; }
+      }
+      if (added > 0) {
+        await window.QLT_Store.put('categories', cat);
+        await this.reload();
+        QLT_UI.toast(`✨ Đã lưu ${added} keyword cho "${cat.name}"`, { type: 'success', duration: 2500 });
+        this.autoSync();
+      }
+      wrap.style.display = 'none';
+      delete this.state._catDetectContext;
+    };
+    wrap.querySelector('[data-act="skip"]').onclick = () => {
+      wrap.style.display = 'none';
+      delete this.state._catDetectContext;
+    };
+  },
+
+  // Trích keyword candidate từ text — bỏ stop words, số tiền, tên ví, tên cat hiện tại
+  _extractKeywordCandidates(text, cat) {
+    if (!text) return [];
+    const stopWords = new Set([
+      'cho', 'cua', 'la', 'va', 'voi', 'tu', 've', 'den', 'sang', 'qua', 'toi',
+      'bang', 'het', 'ton', 'mat', 'mua', 'chi', 'thu', 'hom', 'nay', 'mai',
+      'vua', 'da', 'thi', 'ma', 'tai', 'do', 'thoi', 'cung', 'nhe', 'ah', 'oi',
+      'sang nay', 'trua nay', 'toi nay', 'chieu nay', 'dem nay',
+      'luu', 'save', 'xong', 'done', 'the', 'cai', 'mot', 'hai', 'ba', 'bon', 'nam'
+    ]);
+    const amountRe = /\b\d[\d.,]*\s*(k|nghin|nghìn|ngan|ngàn|tr|trieu|triệu|ty|tỷ|đồng|dong|đ)?\b/gi;
+    let cleaned = text.replace(amountRe, ' ');
+    // Bỏ tên ví
+    for (const a of (this.state.accounts || [])) {
+      if (a.name) {
+        const re = new RegExp('\\b' + a.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
+        cleaned = cleaned.replace(re, ' ');
+      }
+    }
+    // Bỏ "thẻ X" tag
+    cleaned = cleaned.replace(/\b(thẻ|the)\s+\S+(\s+\S+)?/gi, ' ');
+    // Bỏ trigger word ở cuối
+    cleaned = cleaned.replace(/\b(luu|luru|save|xong|done)\s*[!.?]*\s*$/i, ' ');
+
+    // Tokenize
+    const norm = normalizeVi(cleaned).replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const words = norm.split(/\s+/).filter(w => w.length >= 2 && !stopWords.has(w));
+
+    // Bỏ từ có trong tên cat đã chọn (đã tự match được)
+    const catNorm = normalizeVi(cat.name);
+    const catWords = new Set(catNorm.split(/[\s/]+/).filter(w => w));
+    const filtered = words.filter(w => !catWords.has(w));
+
+    // Tạo candidates: từng từ + cụm 2-3 từ liên tiếp (giữ tiếng Việt thật từ text gốc)
+    // Để giữ dấu, mình lấy từ text gốc theo position
+    // Đơn giản hóa: chỉ lấy unique words + bigram + trigram, ưu tiên cụm dài
+    const seen = new Set();
+    const out = [];
+
+    // Tách lại từ text gốc (giữ dấu)
+    const cleanedRaw = cleaned.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+    const rawWords = cleanedRaw.split(/\s+/).filter(w => w.length >= 2);
+
+    // Bigram
+    for (let i = 0; i < rawWords.length - 1; i++) {
+      const phrase = rawWords[i] + ' ' + rawWords[i + 1];
+      const np = normalizeVi(phrase);
+      if (!stopWords.has(np) && !seen.has(np) && np.length >= 5) {
+        seen.add(np);
+        out.push(phrase);
+      }
+    }
+    // Unigram
+    for (const w of rawWords) {
+      const nw = normalizeVi(w);
+      if (stopWords.has(nw) || catWords.has(nw)) continue;
+      if (seen.has(nw)) continue;
+      // Skip nếu là phần con của bigram đã có
+      const inBigram = out.some(o => normalizeVi(o).split(' ').includes(nw));
+      if (inBigram) continue;
+      seen.add(nw);
+      out.push(w);
+    }
+
+    // Top 5 candidates ngắn gọn
+    return out.slice(0, 5);
+  },
+
   async _createCategoryFromNote(noteName, type, autoSave) {
     if (!this.state.editingTx) return;
     // Tránh tạo trùng: nếu đã có category cùng type + cùng tên (case-insensitive) → chọn thay vì tạo
@@ -7424,6 +7661,8 @@ const App = {
           // Ẩn banner gợi ý nếu trước đó có hiện
           const sg = $('#txCatSuggest');
           if (sg) sg.style.display = 'none';
+          // Hiện banner "Đã nhận diện" để user xác nhận
+          this._showCatDetectedBanner(parsed.categoryId, parsed.categoryConfidence || 0.85, text, parsed.type || 'expense');
         } else if (parsed.type !== 'transfer') {
           // Không match → hiện banner Smart Suggestions + Tạo từ note
           // Note đã được điền vào txNote ở trên, lấy từ editingTx
