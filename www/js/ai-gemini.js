@@ -382,12 +382,58 @@ QUY TẮC TÍNH AMOUNT (rất quan trọng):
     },
 
     // --- Text-to-Speech (Web Speech Synthesis API — free, native) ---
-    speak(text, opts = {}) {
+    // Trên Android một số device có voice tiếng Việt; nếu không có sẽ
+    // dùng default voice (đọc với accent nước ngoài).
+
+    // Đợi voices load (browser load async)
+    async _waitVoices() {
+      const synth = window.speechSynthesis;
+      if (!synth) return [];
+      let voices = synth.getVoices();
+      if (voices.length > 0) return voices;
+      return new Promise(resolve => {
+        const handler = () => {
+          synth.removeEventListener('voiceschanged', handler);
+          resolve(synth.getVoices());
+        };
+        synth.addEventListener('voiceschanged', handler);
+        // Timeout 1s nếu event không fire
+        setTimeout(() => {
+          synth.removeEventListener('voiceschanged', handler);
+          resolve(synth.getVoices());
+        }, 1000);
+      });
+    },
+
+    // Trả về { ok, voice, fallback?, reason? } — không speak
+    async checkTTS() {
       if (!('speechSynthesis' in window)) {
-        console.warn('TTS not supported');
-        return;
+        return { ok: false, reason: 'no-api' };
       }
-      // Stop any ongoing speech
+      const voices = await this._waitVoices();
+      if (voices.length === 0) {
+        return { ok: false, reason: 'no-voices' };
+      }
+      const viVoice = voices.find(v => v.lang === 'vi-VN' || v.lang.startsWith('vi'));
+      if (viVoice) {
+        return { ok: true, voice: viVoice.name, lang: viVoice.lang };
+      }
+      // Có TTS nhưng không có voice Việt — vẫn dùng được nhưng accent nước ngoài
+      const en = voices.find(v => v.lang.startsWith('en'));
+      return {
+        ok: true,
+        fallback: true,
+        voice: (en || voices[0]).name,
+        lang: (en || voices[0]).lang,
+        reason: 'no-vi-voice'
+      };
+    },
+
+    async speak(text, opts = {}) {
+      if (!('speechSynthesis' in window)) {
+        console.warn('[TTS] not supported');
+        return null;
+      }
       window.speechSynthesis.cancel();
 
       const utt = new SpeechSynthesisUtterance(text);
@@ -396,10 +442,19 @@ QUY TẮC TÍNH AMOUNT (rất quan trọng):
       utt.pitch = opts.pitch || 1.0;
       utt.volume = opts.volume || 1.0;
 
-      // Tìm voice tiếng Việt nếu có
-      const voices = window.speechSynthesis.getVoices();
+      const voices = await this._waitVoices();
       const viVoice = voices.find(v => v.lang === 'vi-VN' || v.lang.startsWith('vi'));
-      if (viVoice) utt.voice = viVoice;
+      if (viVoice) {
+        utt.voice = viVoice;
+        console.log('[TTS] using voice:', viVoice.name, viVoice.lang);
+      } else {
+        console.warn('[TTS] no Vietnamese voice — fallback default');
+      }
+
+      // Callbacks
+      if (opts.onStart) utt.onstart = opts.onStart;
+      if (opts.onEnd) utt.onend = opts.onEnd;
+      if (opts.onError) utt.onerror = opts.onError;
 
       window.speechSynthesis.speak(utt);
       return utt;

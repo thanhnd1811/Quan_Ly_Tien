@@ -5915,19 +5915,44 @@ const App = {
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
         .replace(/`([^`]+)`/g, '<code>$1</code>')
         .replace(/\n/g, '<br>');
-      const ttsBtn = `<button class="ai-msg-action" data-tts-idx="${idx}" title="Đọc to">🔊</button>`;
-      return `<div class="ai-msg assistant">${html}<div class="ai-msg-actions">${ttsBtn}</div></div>`;
+      const speakingBadge = m.speaking
+        ? `<span class="ai-msg-speaking" title="AI đang đọc — tap để dừng" data-stop-tts="1">🔊 đang đọc...</span>`
+        : '';
+      const ttsBtn = m.speaking
+        ? `<button class="ai-msg-action" data-stop-tts="1" title="Dừng đọc">⏹ Dừng</button>`
+        : `<button class="ai-msg-action" data-tts-idx="${idx}" title="Đọc to">🔊 Đọc</button>`;
+      return `<div class="ai-msg assistant ${m.speaking ? 'speaking' : ''}">${html}${speakingBadge}<div class="ai-msg-actions">${ttsBtn}</div></div>`;
     }).join('');
 
     const body = $('#aiChatBody');
     if (body) body.scrollTop = body.scrollHeight;
 
-    // Bind TTS buttons
+    // Bind TTS buttons (đọc lại 1 message)
     messagesEl.querySelectorAll('[data-tts-idx]').forEach(btn => {
-      btn.onclick = () => {
+      btn.onclick = async () => {
         const idx = parseInt(btn.dataset.ttsIdx, 10);
         const msg = (this.state._aiChatHistory || [])[idx];
-        if (msg && window.QLT_AI?.speak) window.QLT_AI.speak(msg.content);
+        if (msg && window.QLT_AI?.speak) {
+          // Stop current TTS first
+          if (window.QLT_AI.isSpeaking()) window.QLT_AI.stopSpeaking();
+          // Clear all speaking flags
+          (this.state._aiChatHistory || []).forEach(m => { if (m.speaking) m.speaking = false; });
+          msg.speaking = true;
+          this._renderAiChatMessages();
+          await window.QLT_AI.speak(msg.content, {
+            onEnd: () => { msg.speaking = false; this._renderAiChatMessages(); },
+            onError: () => { msg.speaking = false; this._renderAiChatMessages(); }
+          });
+        }
+      };
+    });
+
+    // Stop TTS button — tap chữ "đang đọc" hoặc nút Dừng
+    messagesEl.querySelectorAll('[data-stop-tts]').forEach(btn => {
+      btn.onclick = () => {
+        if (window.QLT_AI?.stopSpeaking) window.QLT_AI.stopSpeaking();
+        (this.state._aiChatHistory || []).forEach(m => { if (m.speaking) m.speaking = false; });
+        this._renderAiChatMessages();
       };
     });
 
@@ -6117,7 +6142,8 @@ const App = {
         });
       }
 
-      history.push({ role: 'assistant', content: r.reply });
+      const replyMsg = { role: 'assistant', content: r.reply };
+      history.push(replyMsg);
 
       // Nếu AI prepared 1 tx → render preview card sau message
       if (r.pendingTxId) {
@@ -6126,9 +6152,23 @@ const App = {
 
       this._renderAiChatMessages();
 
-      // TTS nếu user bật (chỉ đọc reply, không đọc preview card)
+      // TTS nếu user bật — show indicator trong message
       const tts = await window.QLT_AI.getPref('tts', true);
-      if (tts) window.QLT_AI.speak(r.reply);
+      if (tts && window.QLT_AI.speak) {
+        const msgIdx = history.length - (r.pendingTxId ? 2 : 1);
+        replyMsg.speaking = true;
+        this._renderAiChatMessages();
+        await window.QLT_AI.speak(r.reply, {
+          onEnd: () => {
+            replyMsg.speaking = false;
+            this._renderAiChatMessages();
+          },
+          onError: () => {
+            replyMsg.speaking = false;
+            this._renderAiChatMessages();
+          }
+        });
+      }
 
     } catch (e) {
       if (typing) typing.style.display = 'none';
@@ -6334,10 +6374,53 @@ const App = {
       };
     }
 
-    // TTS toggle
+    // TTS toggle + status + test
     if (ttsToggle) {
       ttsToggle.checked = await window.QLT_AI.getPref('tts', true);
       ttsToggle.onchange = (e) => window.QLT_AI.setPref('tts', e.target.checked);
+    }
+    // TTS status: hiện voice info + cảnh báo nếu fallback
+    const ttsStatus = $('#setAITTSStatus');
+    if (ttsStatus) {
+      const check = await window.QLT_AI.checkTTS();
+      if (!check.ok) {
+        if (check.reason === 'no-api') {
+          ttsStatus.innerHTML = '⚠️ Thiết bị không hỗ trợ TTS — toggle này sẽ không hoạt động.';
+          ttsStatus.style.color = '#dc2626';
+        } else {
+          ttsStatus.innerHTML = '⚠️ Chưa load được voice — thử mở lại app';
+          ttsStatus.style.color = '#f59e0b';
+        }
+      } else if (check.fallback) {
+        ttsStatus.innerHTML = `⚠️ Thiết bị KHÔNG có voice tiếng Việt — sẽ đọc với accent <strong>${check.lang}</strong>. Cài thêm voice Việt trong Settings → System → Languages → Text-to-speech.`;
+        ttsStatus.style.color = '#f59e0b';
+      } else {
+        ttsStatus.innerHTML = `✅ Voice: <strong>${this.escapeHtml(check.voice)}</strong> · ${check.lang}`;
+        ttsStatus.style.color = 'var(--text3)';
+      }
+    }
+    // Test button
+    const ttsTest = $('#setAITTSTest');
+    if (ttsTest && !ttsTest._bound) {
+      ttsTest._bound = true;
+      ttsTest.onclick = async () => {
+        const original = ttsTest.textContent;
+        ttsTest.disabled = true;
+        ttsTest.textContent = '🔊 Đang đọc...';
+        try {
+          await window.QLT_AI.speak(
+            'Xin chào, tôi là trợ lý của ứng dụng Quản Lý Tiền. Bạn có thể hỏi tôi mọi thứ về tài chính của bạn.',
+            {
+              onEnd: () => { ttsTest.disabled = false; ttsTest.textContent = original; },
+              onError: () => { ttsTest.disabled = false; ttsTest.textContent = original; }
+            }
+          );
+        } catch (e) {
+          ttsTest.disabled = false;
+          ttsTest.textContent = original;
+          QLT_UI.toast('Lỗi TTS: ' + (e.message || ''), { type: 'error' });
+        }
+      };
     }
 
     // Raw mode toggle
