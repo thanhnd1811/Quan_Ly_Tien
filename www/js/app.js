@@ -1448,6 +1448,14 @@ const App = {
     }
     this.renderAuthUI();
     if (this.state.currentTab) this.switchTab(this.state.currentTab);
+
+    // AI FAB: render 1 lần ở app-level, hiện trên TẤT CẢ tab
+    this.renderAiChatFab();
+
+    // Setup notification listeners 1 lần
+    this.setupAiNotifListeners();
+    // Schedule persistent notif nếu user đã bật + có API key
+    setTimeout(() => this.scheduleAiPersistentNotif(), 2000);
   },
 
   // Toggle ẩn/hiện số dư (giống banking app — eye icon)
@@ -5807,6 +5815,7 @@ const App = {
   // ============================================================
   // AI CHAT — modal hỏi đáp + voice + TTS
   // ============================================================
+  // FAB hiện ở APP-LEVEL — không gắn với tab Home, hiện mọi nơi khi đã setup API key
   async renderAiChatFab() {
     const fab = $('#homeAiChatFab');
     if (!fab) return;
@@ -5816,6 +5825,86 @@ const App = {
       fab._bound = true;
       fab.onclick = () => this.openAiChatModal();
     }
+  },
+
+  // Persistent notification — hiện trên thanh thông báo (cả lock screen)
+  // User tap notification từ lock screen → unlock → mở chat AI
+  async scheduleAiPersistentNotif() {
+    if (!window.Capacitor?.Plugins?.LocalNotifications) return;
+    const LN = window.Capacitor.Plugins.LocalNotifications;
+    const NOTIF_ID = 99002;
+
+    // Check user setting + API key
+    const hasKey = window.QLT_AI && await window.QLT_AI.hasApiKey();
+    const enabled = await window.QLT_AI?.getPref?.('persistentNotif', false);
+    if (!hasKey || !enabled) {
+      // Cancel notif nếu user đã tắt
+      try { await LN.cancel({ notifications: [{ id: NOTIF_ID }] }); } catch (_) {}
+      return;
+    }
+
+    try {
+      const perm = await LN.requestPermissions();
+      if (perm.display !== 'granted') {
+        console.warn('[AI Persistent] notification permission denied');
+        return;
+      }
+
+      // Register action type (1 lần) — nút "Hỏi AI" trên notification
+      try {
+        await LN.registerActionTypes({
+          types: [{
+            id: 'AI_QUICK',
+            actions: [
+              { id: 'open_chat', title: '🎙️ Hỏi AI' }
+            ]
+          }]
+        });
+      } catch (e) { console.warn('[AI Persistent] register actions:', e); }
+
+      // Schedule ngay (1s sau)
+      await LN.cancel({ notifications: [{ id: NOTIF_ID }] }).catch(() => {});
+      await LN.schedule({
+        notifications: [{
+          id: NOTIF_ID,
+          title: '✨ Trợ lý AI · Quản Lý Tiền',
+          body: 'Tap để hỏi AI về tài chính · Có thể nói qua mic',
+          ongoing: true,        // persistent — user không swipe dismiss được
+          autoCancel: false,    // không auto-remove sau tap
+          actionTypeId: 'AI_QUICK',
+          schedule: { at: new Date(Date.now() + 800) },
+          sound: null,          // silent — không kêu mỗi lần
+          smallIcon: 'ic_stat_icon_config_sample'
+        }]
+      });
+      console.log('[AI Persistent] scheduled');
+    } catch (e) {
+      console.warn('[AI Persistent] error:', e);
+    }
+  },
+
+  // Setup listener cho notification tap / action button
+  // Chỉ register 1 lần khi app init
+  setupAiNotifListeners() {
+    if (!window.Capacitor?.Plugins?.LocalNotifications) return;
+    if (this._aiNotifListenerBound) return;
+    this._aiNotifListenerBound = true;
+    const LN = window.Capacitor.Plugins.LocalNotifications;
+
+    // Tap action button "🎙️ Hỏi AI" trên notification
+    LN.addListener('localNotificationActionPerformed', (event) => {
+      const notifId = event.notification?.id;
+      const actionId = event.actionId;
+      // Persistent AI notif id = 99002
+      if (notifId === 99002 || actionId === 'open_chat') {
+        // Mở chat modal
+        setTimeout(() => this.openAiChatModal(), 300);
+      }
+      // Default tap (no action) — actionId === 'tap' cũng mở chat
+      if (actionId === 'tap' && notifId === 99002) {
+        setTimeout(() => this.openAiChatModal(), 300);
+      }
+    });
   },
 
   openAiChatModal() {
@@ -6463,6 +6552,25 @@ const App = {
       rawToggle.onchange = (e) => window.QLT_AI.setPref('rawMode', e.target.checked);
     }
 
+    // Persistent notification toggle
+    const persistToggle = $('#setAIPersistentNotif');
+    if (persistToggle) {
+      persistToggle.checked = await window.QLT_AI.getPref('persistentNotif', false);
+      persistToggle.onchange = async (e) => {
+        await window.QLT_AI.setPref('persistentNotif', e.target.checked);
+        if (e.target.checked) {
+          await this.scheduleAiPersistentNotif();
+          QLT_UI.toast('✅ Đã bật — kéo notification panel để thấy AI', { type: 'success', duration: 3000 });
+        } else {
+          // Cancel notif
+          try {
+            await window.Capacitor?.Plugins?.LocalNotifications?.cancel({ notifications: [{ id: 99002 }] });
+          } catch (_) {}
+          QLT_UI.toast('Đã tắt notification thường trú', { type: 'info' });
+        }
+      };
+    }
+
     // Test connection
     const testBtn = $('#setAITest');
     if (testBtn) {
@@ -6511,6 +6619,7 @@ const App = {
         await window.QLT_AI.setApiKey(k);
         QLT_UI.toast('✨ Đã lưu API key — AI đã bật', { type: 'success' });
         await this.renderAISettings(); // re-render
+        await this.renderAiChatFab(); // hiện FAB ngay
       };
     }
 
@@ -6525,6 +6634,7 @@ const App = {
         await window.QLT_AI.removeApiKey();
         QLT_UI.toast('Đã xoá API key', { type: 'info' });
         await this.renderAISettings();
+        await this.renderAiChatFab(); // ẩn FAB ngay
       };
     }
   },

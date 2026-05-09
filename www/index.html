@@ -981,14 +981,15 @@ html[data-theme="dark"] .rec-type-pill.on{
 .settings-group-actions{padding:12px 16px 14px;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--border)}
 .settings-group-actions:first-child{border-top:none}
 
-/* AI Chat — Floating button (no background, just sparkles icon)
-   Position: cách edge phải 14px + cách FAB chính (+ button) ~80px để không che nhau */
+/* AI Chat — Floating button APP-LEVEL: hiện trên TẤT CẢ tab
+   - Position: bottom-right, cách navbar (~70px) + edge (14px)
+   - z-index: 998 — trên content, dưới drawer/modal
+   - Không bị nav bottom che (đã tính 96px from bottom) */
 .ai-chat-fab{position:fixed;right:14px;bottom:96px;width:48px;height:48px;background:transparent;border:none;cursor:pointer;padding:4px;z-index:998;transition:transform .18s ease;-webkit-tap-highlight-color:transparent}
-.ai-chat-fab svg{width:100%;height:100%;display:block;filter:drop-shadow(0 2px 6px rgba(99,102,241,.4)) drop-shadow(0 1px 2px rgba(168,85,247,.3))}
+.ai-chat-fab svg{width:100%;height:100%;display:block;filter:drop-shadow(0 2px 6px rgba(99,102,241,.4)) drop-shadow(0 1px 2px rgba(168,85,247,.3));animation:aiSparkleFloat 3s ease-in-out infinite}
 .ai-chat-fab:active{transform:scale(.88) rotate(-8deg)}
 .ai-chat-fab:hover svg{filter:drop-shadow(0 3px 10px rgba(99,102,241,.6)) drop-shadow(0 1px 3px rgba(236,72,153,.4))}
 @keyframes aiSparkleFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
-.ai-chat-fab svg{animation:aiSparkleFloat 3s ease-in-out infinite}
 .ai-chat-fab.hidden{display:none}
 
 /* AI Chat modal — full height */
@@ -1289,25 +1290,6 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
         </div>
       </div>
     </div>
-    <!-- Floating AI Chat button — sparkles icon, không có nền (Gemini/Copilot style) -->
-    <button id="homeAiChatFab" type="button" class="ai-chat-fab" style="display:none" title="Hỏi AI" aria-label="Trợ lý AI">
-      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="aiSparkleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#6366f1"/>
-            <stop offset="50%" stop-color="#a855f7"/>
-            <stop offset="100%" stop-color="#ec4899"/>
-          </linearGradient>
-        </defs>
-        <!-- Sparkle lớn ở giữa -->
-        <path d="M12 2.5L13.8 8.4L19.5 10.5L13.8 12.6L12 18.5L10.2 12.6L4.5 10.5L10.2 8.4L12 2.5Z" fill="url(#aiSparkleGrad)"/>
-        <!-- Sparkle nhỏ góc trên phải -->
-        <path d="M19.5 14.5L20.3 16.7L22.5 17.5L20.3 18.3L19.5 20.5L18.7 18.3L16.5 17.5L18.7 16.7L19.5 14.5Z" fill="url(#aiSparkleGrad)" opacity="0.85"/>
-        <!-- Sparkle nhỏ góc dưới trái -->
-        <path d="M5 17.5L5.6 19.1L7 19.5L5.6 19.9L5 21.5L4.4 19.9L3 19.5L4.4 19.1L5 17.5Z" fill="url(#aiSparkleGrad)" opacity="0.65"/>
-      </svg>
-    </button>
-
     <!-- Update banner — chỉ hiện khi có version mới trên GitHub Releases -->
     <div id="homeUpdateBanner" style="display:none"></div>
 
@@ -2414,6 +2396,15 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
               <span class="qlt-switch-slider"></span>
             </label>
           </div>
+          <div class="setting-row">
+            <span class="setting-label" style="line-height:1.5">Notification thường trú
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">Hiện AI ở thanh thông báo (cả khi tắt màn / khoá máy). Tap notif → mở chat ngay.</div>
+            </span>
+            <label class="qlt-switch">
+              <input type="checkbox" id="setAIPersistentNotif">
+              <span class="qlt-switch-slider"></span>
+            </label>
+          </div>
         </div>
         <div class="settings-group-actions">
           <button id="setAITest" class="btn btn-secondary btn-block">🔌 Test kết nối</button>
@@ -2668,6 +2659,22 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
   </div>
 </div>
 <div id="drawerOverlay" class="drawer-overlay"></div>
+
+<!-- Floating AI Chat button — APP-LEVEL: hiện trên TẤT CẢ tab (Home/Charts/Categories/Settings) -->
+<button id="homeAiChatFab" type="button" class="ai-chat-fab" style="display:none" title="Hỏi AI" aria-label="Trợ lý AI">
+  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="aiSparkleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#6366f1"/>
+        <stop offset="50%" stop-color="#a855f7"/>
+        <stop offset="100%" stop-color="#ec4899"/>
+      </linearGradient>
+    </defs>
+    <path d="M12 2.5L13.8 8.4L19.5 10.5L13.8 12.6L12 18.5L10.2 12.6L4.5 10.5L10.2 8.4L12 2.5Z" fill="url(#aiSparkleGrad)"/>
+    <path d="M19.5 14.5L20.3 16.7L22.5 17.5L20.3 18.3L19.5 20.5L18.7 18.3L16.5 17.5L18.7 16.7L19.5 14.5Z" fill="url(#aiSparkleGrad)" opacity="0.85"/>
+    <path d="M5 17.5L5.6 19.1L7 19.5L5.6 19.9L5 21.5L4.4 19.9L3 19.5L4.4 19.1L5 17.5Z" fill="url(#aiSparkleGrad)" opacity="0.65"/>
+  </svg>
+</button>
 
 <!-- Modal: Test matcher (paste câu → xem cat match) -->
 <!-- ========== TTS GUIDE MODAL ========== -->
