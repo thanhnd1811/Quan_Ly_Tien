@@ -5829,57 +5829,96 @@ const App = {
 
   // Persistent notification — hiện trên thanh thông báo (cả lock screen)
   // User tap notification từ lock screen → unlock → mở chat AI
+  // Returns: { ok, error?, reason? } để UI hiển thị trạng thái
   async scheduleAiPersistentNotif() {
-    if (!window.Capacitor?.Plugins?.LocalNotifications) return;
+    if (!window.Capacitor?.Plugins?.LocalNotifications) {
+      return { ok: false, reason: 'no-plugin', error: 'Plugin LocalNotifications chưa cài (cần build APK)' };
+    }
     const LN = window.Capacitor.Plugins.LocalNotifications;
     const NOTIF_ID = 99002;
+    const CHANNEL_ID = 'ai_persistent';
 
-    // Check user setting + API key
     const hasKey = window.QLT_AI && await window.QLT_AI.hasApiKey();
     const enabled = await window.QLT_AI?.getPref?.('persistentNotif', false);
-    if (!hasKey || !enabled) {
-      // Cancel notif nếu user đã tắt
+    if (!hasKey) {
       try { await LN.cancel({ notifications: [{ id: NOTIF_ID }] }); } catch (_) {}
-      return;
+      return { ok: false, reason: 'no-key', error: 'Chưa có API key' };
+    }
+    if (!enabled) {
+      try { await LN.cancel({ notifications: [{ id: NOTIF_ID }] }); } catch (_) {}
+      return { ok: false, reason: 'disabled', error: 'Toggle chưa bật' };
     }
 
+    // Check + request permission
+    let perm;
     try {
-      const perm = await LN.requestPermissions();
+      perm = await LN.checkPermissions();
+      console.log('[AI Persistent] check perm:', perm);
       if (perm.display !== 'granted') {
-        console.warn('[AI Persistent] notification permission denied');
-        return;
+        perm = await LN.requestPermissions();
+        console.log('[AI Persistent] request perm result:', perm);
       }
+    } catch (e) {
+      return { ok: false, reason: 'perm-check-failed', error: 'Không check được permission: ' + e.message };
+    }
+    if (perm.display !== 'granted') {
+      return { ok: false, reason: 'no-permission', error: 'Permission notification CHƯA CẤP. Vào Cài đặt Android → Apps → Quản Lý Tiền → Notifications → BẬT.' };
+    }
 
-      // Register action type (1 lần) — nút "Hỏi AI" trên notification
-      try {
-        await LN.registerActionTypes({
-          types: [{
-            id: 'AI_QUICK',
-            actions: [
-              { id: 'open_chat', title: '🎙️ Hỏi AI' }
-            ]
-          }]
+    // Create notification channel (Android 8+) — visibility PUBLIC để hiện trên lock screen
+    try {
+      if (LN.createChannel) {
+        await LN.createChannel({
+          id: CHANNEL_ID,
+          name: 'Trợ lý AI',
+          description: 'Notification truy cập nhanh AI từ lock screen',
+          importance: 2,    // LOW — không kêu khi xuất hiện
+          visibility: 1,    // PUBLIC — hiện full content trên lock screen
+          sound: null,
+          vibration: false
         });
-      } catch (e) { console.warn('[AI Persistent] register actions:', e); }
+      }
+    } catch (e) {
+      console.warn('[AI Persistent] createChannel failed:', e);
+    }
 
-      // Schedule ngay (1s sau)
-      await LN.cancel({ notifications: [{ id: NOTIF_ID }] }).catch(() => {});
+    // Register action type
+    try {
+      await LN.registerActionTypes({
+        types: [{
+          id: 'AI_QUICK',
+          actions: [
+            { id: 'open_chat', title: '🎙️ Hỏi AI' }
+          ]
+        }]
+      });
+    } catch (e) { console.warn('[AI Persistent] register actions:', e); }
+
+    // Cancel old + schedule new
+    try {
+      await LN.cancel({ notifications: [{ id: NOTIF_ID }] });
+    } catch (_) {}
+
+    try {
       await LN.schedule({
         notifications: [{
           id: NOTIF_ID,
           title: '✨ Trợ lý AI · Quản Lý Tiền',
-          body: 'Tap để hỏi AI về tài chính · Có thể nói qua mic',
-          ongoing: true,        // persistent — user không swipe dismiss được
-          autoCancel: false,    // không auto-remove sau tap
+          body: 'Tap để hỏi AI · Hoạt động cả khi khoá máy',
+          ongoing: true,
+          autoCancel: false,
           actionTypeId: 'AI_QUICK',
-          schedule: { at: new Date(Date.now() + 800) },
-          sound: null,          // silent — không kêu mỗi lần
-          smallIcon: 'ic_stat_icon_config_sample'
+          channelId: CHANNEL_ID,    // dùng channel có visibility public
+          schedule: { at: new Date(Date.now() + 500) },
+          sound: null
+          // KHÔNG set smallIcon — Capacitor dùng app icon mặc định
         }]
       });
-      console.log('[AI Persistent] scheduled');
+      console.log('[AI Persistent] scheduled successfully');
+      return { ok: true };
     } catch (e) {
-      console.warn('[AI Persistent] error:', e);
+      console.warn('[AI Persistent] schedule error:', e);
+      return { ok: false, reason: 'schedule-failed', error: 'Lỗi schedule: ' + e.message };
     }
   },
 
@@ -6590,17 +6629,39 @@ const App = {
       rawToggle.onchange = (e) => window.QLT_AI.setPref('rawMode', e.target.checked);
     }
 
-    // Persistent notification toggle
+    // Persistent notification toggle — diagnostic rõ ràng
     const persistToggle = $('#setAIPersistentNotif');
     if (persistToggle) {
       persistToggle.checked = await window.QLT_AI.getPref('persistentNotif', false);
       persistToggle.onchange = async (e) => {
         await window.QLT_AI.setPref('persistentNotif', e.target.checked);
         if (e.target.checked) {
-          await this.scheduleAiPersistentNotif();
-          QLT_UI.toast('✅ Đã bật — kéo notification panel để thấy AI', { type: 'success', duration: 3000 });
+          const r = await this.scheduleAiPersistentNotif();
+          if (r.ok) {
+            QLT_UI.alert(
+              '✅ Đã bật notification thường trú.\n\n' +
+              '📱 Cách dùng:\n' +
+              '1. Bật màn hình (kể cả khi đang khoá)\n' +
+              '2. Kéo notification panel xuống từ trên đỉnh\n' +
+              '3. Thấy "✨ Trợ lý AI · Quản Lý Tiền"\n' +
+              '4. Tap notification HOẶC nút "🎙️ Hỏi AI"\n' +
+              '5. Android sẽ yêu cầu unlock (PIN/vân tay)\n' +
+              '6. Sau unlock → app mở + chat tự active\n\n' +
+              '⚠️ Lưu ý: TẮT MÀN HÌNH HOÀN TOÀN (đen) thì không thấy gì — phải BẬT MÀN trước.',
+              { title: '✅ Đã bật' }
+            );
+          } else {
+            // Revert toggle nếu fail
+            await window.QLT_AI.setPref('persistentNotif', false);
+            persistToggle.checked = false;
+            QLT_UI.alert(
+              '❌ Không bật được notification.\n\nLỗi: ' + r.error +
+              (r.reason === 'no-permission' ?
+                '\n\n📱 Cách cấp permission:\nCài đặt Android → Apps → Quản Lý Tiền → Notifications → BẬT' : ''),
+              { title: 'Lỗi' }
+            );
+          }
         } else {
-          // Cancel notif
           try {
             await window.Capacitor?.Plugins?.LocalNotifications?.cancel({ notifications: [{ id: 99002 }] });
           } catch (_) {}
