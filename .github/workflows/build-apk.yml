@@ -87,7 +87,30 @@ jobs:
             convert "$SRC" -resize ${size}x${size} "$DIR/ic_launcher_foreground.png"
           done
 
-      - name: Inject deeplink intent-filter qltien:// + Location permissions
+      - name: Inject AI Chat home screen widget vào Android project
+        run: |
+          set -e
+          # Copy widget assets vào đúng vị trí trong Android project
+          mkdir -p android/app/src/main/res/xml
+          mkdir -p android/app/src/main/res/layout
+          mkdir -p android/app/src/main/res/drawable
+          mkdir -p android/app/src/main/res/values
+          mkdir -p android/app/src/main/java/com/thanh/quanlytien
+
+          cp android-widget/res/xml/ai_chat_widget_info.xml android/app/src/main/res/xml/
+          cp android-widget/res/layout/ai_chat_widget.xml android/app/src/main/res/layout/
+          cp android-widget/res/drawable/ai_widget_bg.xml android/app/src/main/res/drawable/
+          cp android-widget/res/values/strings_widget.xml android/app/src/main/res/values/
+          cp android-widget/java/AiChatWidgetProvider.java android/app/src/main/java/com/thanh/quanlytien/
+
+          echo "--- Widget files đã được copy:"
+          ls -la android/app/src/main/res/xml/ai_chat_widget_info.xml
+          ls -la android/app/src/main/res/layout/ai_chat_widget.xml
+          ls -la android/app/src/main/res/drawable/ai_widget_bg.xml
+          ls -la android/app/src/main/res/values/strings_widget.xml
+          ls -la android/app/src/main/java/com/thanh/quanlytien/AiChatWidgetProvider.java
+
+      - name: Inject deeplink intent-filter qltien:// + Location permissions + Widget receiver
         run: |
           python3 - <<'PY'
           import re, sys
@@ -110,6 +133,28 @@ jobs:
                   print('OK: intent-filter qltien://')
               else:
                   print('::warning::missed qltien intent-filter')
+
+          # 1b) AppWidget <receiver> cho AI Chat home screen widget
+          if 'AiChatWidgetProvider' not in m:
+              receiver_tag = (
+                  '        <receiver android:name=".AiChatWidgetProvider"\n'
+                  '            android:exported="true"\n'
+                  '            android:label="@string/ai_widget_label">\n'
+                  '            <intent-filter>\n'
+                  '                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />\n'
+                  '            </intent-filter>\n'
+                  '            <meta-data\n'
+                  '                android:name="android.appwidget.provider"\n'
+                  '                android:resource="@xml/ai_chat_widget_info" />\n'
+                  '        </receiver>\n'
+              )
+              new_m, n = re.subn(r'(\s*</application>)', '\n' + receiver_tag + r'\1', m, count=1)
+              if n > 0:
+                  m = new_m
+                  print('OK: AiChatWidgetProvider receiver registered')
+              else:
+                  print('::error::FAILED to register AiChatWidgetProvider receiver — không tìm thấy </application>')
+                  sys.exit(1)
 
           # FIX QUAN TRỌNG: regex dùng \b (word boundary) chứ KHÔNG phải literal space
           # Capacitor sinh manifest <application\n    android:...> — sau <application là \n
