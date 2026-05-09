@@ -6196,10 +6196,39 @@ const App = {
       note: pending.note || '',
       bookId: pending.bookId
     };
+
+    // GPS location — giống flow tx form thường (nếu user đã bật geo)
+    // Chỉ attach cho expense/income (không cho transfer)
+    if (window.QLT_Geo && QLT_Geo.isEnabled() && pending.type !== 'transfer') {
+      try {
+        const pos = await QLT_Geo.getCurrentPosition();
+        tx.location = { lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy };
+      } catch (e) {
+        console.warn('[AI tx] location fetch failed:', e?.message);
+        // Vẫn lưu tx, chỉ thiếu location
+      }
+    }
+
     try {
       await this.applyBalanceDelta(tx, +1);
       const saved = await window.QLT_Store.put('transactions', tx);
       await this.reload();
+
+      // Reverse geocode async sau save — không block UX
+      if (tx.location?.lat) {
+        QLT_Geo.reverseGeocode(tx.location.lat, tx.location.lng).then(async (geo) => {
+          if (geo && saved?.id) {
+            const fresh = await window.QLT_Store.get('transactions', saved.id);
+            if (fresh) {
+              fresh.location = fresh.location || tx.location;
+              fresh.location.address = geo.address;
+              fresh.location.fullAddress = geo.full;
+              await window.QLT_Store.put('transactions', fresh);
+              await this.reload();
+            }
+          }
+        }).catch(() => {});
+      }
       // Update history msg
       const history = this.state._aiChatHistory || [];
       if (history[msgIdx]) {
