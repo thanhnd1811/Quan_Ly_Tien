@@ -231,7 +231,7 @@
       const cats = this._state().categories || [];
       const txs = this._state().transactions || [];
       const ym = new Date().toISOString().slice(0, 7);
-      return budgets.map(b => {
+      const list = budgets.map(b => {
         const cat = cats.find(c => c.id === b.categoryId);
         const spent = txs.filter(t =>
           this._isReal(t) && t.type === 'expense' &&
@@ -247,15 +247,18 @@
           status: spent > b.amount ? 'over' : (spent > b.amount * 0.8 ? 'warning' : 'ok')
         };
       });
+      return { month: ym, count: list.length, budgets: list };
     },
 
     async get_account_balances() {
       const accs = (this._state().accounts || []).filter(a => (a.accountType || 'payment') === 'payment');
-      return accs.map(a => ({
+      const list = accs.map(a => ({
         name: a.name,
         balance: a.balance || 0,
         currency: a.currency || 'VND'
       }));
+      const total = list.reduce((s, a) => s + a.balance, 0);
+      return { count: list.length, totalBalance: total, accounts: list };
     },
 
     _findAccountByKeyword(keyword) {
@@ -503,15 +506,28 @@ VÍ DỤ:
           }
           // Push lại RAW parts từ model response — KHÔNG rebuild lại,
           // để giữ nguyên `thoughtSignature` mà Gemini 2.5/3 yêu cầu.
+          // Push lại RAW parts từ model response — KHÔNG rebuild lại,
+          // để giữ nguyên `thoughtSignature` mà Gemini 2.5/3 yêu cầu.
           messages.push({
             role: 'model',
             parts: r.rawParts || r.toolCalls.map(c => ({ functionCall: { name: c.name, args: c.args || {} } }))
           });
+          // Gemini API yêu cầu functionResponse.response là OBJECT (không phải array/null/string).
+          // Wrap nếu tool trả về array hoặc primitive để tránh lỗi
+          // 'Proto field is not repeating, cannot start list'.
           messages.push({
             role: 'user',
-            parts: toolResults.map(r => ({
-              functionResponse: { name: r.name, response: r.response }
-            }))
+            parts: toolResults.map(tr => {
+              let payload = tr.response;
+              if (payload === null || payload === undefined) {
+                payload = { result: null };
+              } else if (Array.isArray(payload)) {
+                payload = { items: payload };
+              } else if (typeof payload !== 'object') {
+                payload = { result: payload };
+              }
+              return { functionResponse: { name: tr.name, response: payload } };
+            })
           });
           continue;
         }
