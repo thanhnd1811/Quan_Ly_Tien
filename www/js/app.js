@@ -6371,11 +6371,30 @@ const App = {
       history.push(replyMsg);
 
       // Nếu AI prepared 1 tx → render preview card sau message
+      let previewMsgIdx = -1;
       if (r.pendingTxId) {
         history.push({ role: 'tx-preview', pendingTxId: r.pendingTxId });
+        previewMsgIdx = history.length - 1;
       }
 
       this._renderAiChatMessages();
+
+      // ===== AUTO-SAVE khi user nói "lưu" / "xong" / "ok" cuối câu =====
+      // Áp dụng cho voice flow (từ Quick Settings tile + STT thường).
+      // Logic: nếu user input kết thúc bằng keyword save → bypass preview,
+      // lưu luôn + toast confirm. User vẫn thấy card "✅ Đã lưu" sau lưu.
+      // Safety: vẫn validate đầy đủ trong _aiChatSavePendingTx (nếu thiếu
+      // ví/danh mục → toast lỗi, không lưu lung tung).
+      if (r.pendingTxId && previewMsgIdx >= 0) {
+        const SAVE_KEYWORDS = /\b(lưu|luu|xong|ok|oke|okay|tạo luôn|tao luon|tạo ngay|tao ngay|save|chốt|chot)\s*[.!?]?\s*$/i;
+        const userText = String(text || '').trim();
+        if (SAVE_KEYWORDS.test(userText)) {
+          // Auto save sau 200ms (cho phép DOM render xong + user thấy preview card thoáng qua)
+          setTimeout(() => {
+            this._aiChatSavePendingTx(r.pendingTxId, previewMsgIdx);
+          }, 200);
+        }
+      }
 
       // TTS nếu user bật — show indicator trong message
       const tts = await window.QLT_AI.getPref('tts', true);

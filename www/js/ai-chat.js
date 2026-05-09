@@ -811,6 +811,11 @@ VÍ DỤ TRẢ LỜI (theo nhóm câu hỏi):
 [LOẠI C] User: "Ăn sáng 50k"
 → Gọi prepare_transaction → "Tôi đã chuẩn bị, bấm 'Lưu' để xác nhận nhé."
 
+[LOẠI C - AUTO-SAVE] User: "Ăn sáng 50k lưu" / "...xong" / "...ok" / "...chốt"
+   (user kết thúc câu bằng từ khoá save → app sẽ tự lưu sau khi prepare)
+→ Gọi prepare_transaction → "✅ Đã lưu giao dịch chi 50.000đ ăn sáng."
+   (KHÔNG nói 'bấm Lưu' vì app tự lưu rồi — chỉ confirm ngắn gọn)
+
 [TỪ CHỐI] User: "Xoá GD ăn sáng vừa nãy đi"
 → "Mình chỉ tạo được GD, không xoá thay được. Bạn vào Trang chủ → tap vào GD đó → trong form GD có nút **🗑️ Xoá** đỏ ở dưới → confirm là xong."
 
