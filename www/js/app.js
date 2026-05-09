@@ -1112,6 +1112,7 @@ const App = {
   },
 
   // Xử lý deeplink từ App shortcuts (qltien://add?type=expense)
+  // Cũng nhận từ home screen widget: qltien://ai-chat
   _handleDeeplink(url) {
     if (!url) return;
     const m = String(url).match(/^qltien:\/\/([^?]+)(?:\?(.*))?/i);
@@ -1128,6 +1129,24 @@ const App = {
       this.switchTab('charts');
     } else if (action === 'home') {
       this.switchTab('home');
+    } else if (action === 'ai-chat' || action === 'ai' || action === 'chat') {
+      // Mở Trợ lý AI từ home screen widget
+      // Chờ DOM + lock screen check → mở chat overlay
+      setTimeout(() => {
+        const lock = document.getElementById('lockScreen');
+        if (lock?.classList.contains('open')) {
+          // Đang khoá → đợi unlock rồi mở
+          const interval = setInterval(() => {
+            if (!lock.classList.contains('open')) {
+              clearInterval(interval);
+              this.openAiChatModal();
+            }
+          }, 500);
+          setTimeout(() => clearInterval(interval), 30000); // timeout 30s
+        } else {
+          this.openAiChatModal();
+        }
+      }, 350);
     }
   },
 
