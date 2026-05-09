@@ -46,15 +46,18 @@
   // ============================================================
   // GEMINI ADAPTER
   // ============================================================
-  // Models — dùng ALIAS 'gemini-flash-latest' để Google auto-rotate
-  // (không cần mình code lại khi model deprecate). Cập nhật 5/2026:
-  // - gemini-2.5-flash sẽ deprecate 17/6/2026 — KHÔNG hard-code
-  // - gemini-flash-latest = auto-point tới Flash mới nhất stable
+  // Models — dùng explicit model với QUOTA FREE TIER CAO NHẤT (5/2026):
+  // - gemini-2.5-flash-lite: 1000+ RPD free (tốt nhất cho chat)
+  // - gemini-2.5-flash: 250-500 RPD free (tốt hơn cho OCR vision)
+  //
+  // KHÔNG dùng 'gemini-flash-latest' alias vì nó auto-rotate sang
+  // gemini-3-flash chỉ có 20 RPD (Google cố tình hạn quota 3.x).
+  //
+  // Cả 2 sẽ deprecate 17/6/2026 (40 ngày) — sẽ update model sau.
   const MODELS = {
-    chat: 'gemini-flash-latest',
-    vision: 'gemini-flash-latest',
-    // Fallback explicit nếu alias fail (rare)
-    fallback: 'gemini-2.5-flash'
+    chat: 'gemini-2.5-flash-lite',  // 1000 RPD free, fast cho Q&A ngắn
+    vision: 'gemini-2.5-flash',     // 250 RPD free, accurate hơn cho OCR
+    fallback: 'gemini-2.5-flash-lite'
   };
 
   const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta';

@@ -6327,7 +6327,13 @@ const App = {
     const hasKey = await window.QLT_AI.hasApiKey();
     if (statusEl) {
       if (hasKey) {
-        statusEl.innerHTML = `✅ <strong>Đã kết nối</strong> — model <code>${window.QLT_AI.MODELS.chat}</code> · AI đã sẵn sàng`;
+        statusEl.innerHTML = `
+          ✅ <strong>Đã kết nối Gemini</strong>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px;line-height:1.5">
+            Chat: <code>${window.QLT_AI.MODELS.chat}</code> (~1000 req/ngày free)<br>
+            OCR: <code>${window.QLT_AI.MODELS.vision}</code> (~250 req/ngày free)
+          </div>
+        `;
         statusEl.style.background = 'rgba(34,197,94,.08)';
         statusEl.style.color = 'var(--text)';
       } else {
