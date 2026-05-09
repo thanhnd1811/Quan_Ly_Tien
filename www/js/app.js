@@ -6340,12 +6340,18 @@ const App = {
     if (typing) typing.style.display = 'flex';
 
     try {
-      // Convert app history → API history format
+      // Convert app history → API history format.
+      // Gemini API CHỈ chấp nhận role 'user' hoặc 'model'. UI-only roles
+      // (tool, tx-preview, system note...) phải skip — nếu lọt qua sẽ bị reject:
+      // "Role 'tx-preview' is not supported. Please use a valid role: MODEL, USER."
       const apiHistory = [];
       for (const m of history.slice(0, -1)) { // exclude last user msg (will be added by ask())
-        if (m.role === 'tool') continue; // skip tool indicator messages
+        // Whitelist: chỉ user + assistant mới được gửi cho Gemini
+        if (m.role !== 'user' && m.role !== 'assistant') continue;
+        // Phải có content text (skip msg rỗng)
+        if (!m.content) continue;
         apiHistory.push({
-          role: m.role === 'assistant' ? 'model' : m.role,
+          role: m.role === 'assistant' ? 'model' : 'user',
           text: m.content
         });
       }
