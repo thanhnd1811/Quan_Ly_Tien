@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Home screen widget -->
     <string name="ai_widget_desc">Trợ lý AI Quản Lý Tiền — tap để mở chat ngay</string>
     <string name="ai_widget_label">✨ Trợ lý AI · Quản Lý Tiền</string>
+
+    <!-- Quick Settings tile (vuốt xuống từ status bar, kể cả khi lock) -->
+    <string name="ai_tile_label">Trợ lý AI</string>
+    <string name="ai_tile_desc">Mở chat AI Quản Lý Tiền</string>
 </resources>

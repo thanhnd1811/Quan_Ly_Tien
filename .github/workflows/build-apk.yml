@@ -87,28 +87,35 @@ jobs:
             convert "$SRC" -resize ${size}x${size} "$DIR/ic_launcher_foreground.png"
           done
 
-      - name: Inject AI Chat home screen widget vào Android project
+      - name: Inject AI Chat widget + Quick Settings tile vào Android project
         run: |
           set -e
-          # Copy widget assets vào đúng vị trí trong Android project
+          # Copy widget + tile assets vào đúng vị trí trong Android project
           mkdir -p android/app/src/main/res/xml
           mkdir -p android/app/src/main/res/layout
           mkdir -p android/app/src/main/res/drawable
           mkdir -p android/app/src/main/res/values
           mkdir -p android/app/src/main/java/com/thanh/quanlytien
 
+          # Home screen widget
           cp android-widget/res/xml/ai_chat_widget_info.xml android/app/src/main/res/xml/
           cp android-widget/res/layout/ai_chat_widget.xml android/app/src/main/res/layout/
           cp android-widget/res/drawable/ai_widget_bg.xml android/app/src/main/res/drawable/
           cp android-widget/res/values/strings_widget.xml android/app/src/main/res/values/
           cp android-widget/java/AiChatWidgetProvider.java android/app/src/main/java/com/thanh/quanlytien/
 
-          echo "--- Widget files đã được copy:"
+          # Quick Settings tile
+          cp android-widget/res/drawable/ic_ai_tile.xml android/app/src/main/res/drawable/
+          cp android-widget/java/AiChatTileService.java android/app/src/main/java/com/thanh/quanlytien/
+
+          echo "--- Widget + Tile files đã được copy:"
           ls -la android/app/src/main/res/xml/ai_chat_widget_info.xml
           ls -la android/app/src/main/res/layout/ai_chat_widget.xml
           ls -la android/app/src/main/res/drawable/ai_widget_bg.xml
+          ls -la android/app/src/main/res/drawable/ic_ai_tile.xml
           ls -la android/app/src/main/res/values/strings_widget.xml
           ls -la android/app/src/main/java/com/thanh/quanlytien/AiChatWidgetProvider.java
+          ls -la android/app/src/main/java/com/thanh/quanlytien/AiChatTileService.java
 
       - name: Inject deeplink intent-filter qltien:// + Location permissions + Widget receiver
         run: |
@@ -154,6 +161,33 @@ jobs:
                   print('OK: AiChatWidgetProvider receiver registered')
               else:
                   print('::error::FAILED to register AiChatWidgetProvider receiver — không tìm thấy </application>')
+                  sys.exit(1)
+
+          # 1c) Quick Settings TileService — vuốt status bar xuống, tap tile mở chat
+          if 'AiChatTileService' not in m:
+              tile_service_tag = (
+                  '        <service android:name=".AiChatTileService"\n'
+                  '            android:exported="true"\n'
+                  '            android:icon="@drawable/ic_ai_tile"\n'
+                  '            android:label="@string/ai_tile_label"\n'
+                  '            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">\n'
+                  '            <intent-filter>\n'
+                  '                <action android:name="android.service.quicksettings.action.QS_TILE" />\n'
+                  '            </intent-filter>\n'
+                  '            <meta-data\n'
+                  '                android:name="android.service.quicksettings.ACTIVE_TILE"\n'
+                  '                android:value="false" />\n'
+                  '            <meta-data\n'
+                  '                android:name="android.service.quicksettings.TOGGLEABLE_TILE"\n'
+                  '                android:value="false" />\n'
+                  '        </service>\n'
+              )
+              new_m, n = re.subn(r'(\s*</application>)', '\n' + tile_service_tag + r'\1', m, count=1)
+              if n > 0:
+                  m = new_m
+                  print('OK: AiChatTileService registered')
+              else:
+                  print('::error::FAILED to register AiChatTileService — không tìm thấy </application>')
                   sys.exit(1)
 
           # FIX QUAN TRỌNG: regex dùng \b (word boundary) chứ KHÔNG phải literal space
