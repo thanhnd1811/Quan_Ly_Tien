@@ -7389,17 +7389,12 @@ const App = {
 
     wrap.className = 'kw-learn-prompt';
     let html = `
-      <div class="kw-learn-head">
-        🧠 DẠY APP NHỚ CHO LẦN SAU
+      <div class="kw-learn-head">🧠 DẠY APP NHỚ CHO LẦN SAU</div>
+      <div class="kw-learn-target">
+        ${catIconHtml}
+        <span>Bạn vừa chọn: <strong>${this.escapeHtml(fullName)}</strong></span>
       </div>
-      <div style="font-size:12px;color:var(--text);background:rgba(255,255,255,.6);padding:8px 10px;border-radius:8px;margin-bottom:10px;line-height:1.5">
-        Bạn vừa chọn:
-        <div style="margin-top:4px;display:flex;align-items:center;gap:6px">
-          ${catIconHtml}
-          <strong style="color:var(--text)">${this.escapeHtml(fullName)}</strong>
-        </div>
-      </div>
-      <div style="font-size:12px;color:var(--text2);margin-bottom:6px">
+      <div class="kw-learn-instruct">
         Chọn từ <strong>ĐẶC BIỆT</strong> trong câu "<em>${this.escapeHtml(ctx.originalText)}</em>" — lần sau gặp từ này, app tự chọn cat trên:
       </div>
       <div class="kw-learn-row">
@@ -7410,8 +7405,8 @@ const App = {
     }
     html += `
       </div>
-      <div id="kwLearnPreview" style="font-size:12px;color:var(--text2);background:rgba(255,255,255,.5);border-radius:6px;padding:7px 10px;margin-bottom:10px;min-height:36px;display:flex;align-items:center;line-height:1.4">
-        <span style="color:var(--text3)">↑ Tap từ phía trên để xem app sẽ học gì</span>
+      <div id="kwLearnPreview" class="kw-learn-preview">
+        <span class="placeholder">↑ Tap từ phía trên để xem app sẽ học gì</span>
       </div>
       <div class="kw-learn-actions">
         <button type="button" class="kw-learn-btn save" data-act="save">💾 Lưu</button>
@@ -7431,7 +7426,7 @@ const App = {
       saveBtn.style.opacity = selected.size === 0 ? '0.5' : '1';
       // Live preview
       if (selected.size === 0) {
-        previewEl.innerHTML = '<span style="color:var(--text3)">↑ Tap từ phía trên để xem app sẽ học gì</span>';
+        previewEl.innerHTML = '<span class="placeholder">↑ Tap từ phía trên để xem app sẽ học gì</span>';
       } else {
         const list = [...selected].map(s => `<strong>"${this.escapeHtml(s)}"</strong>`).join(' hoặc ');
         previewEl.innerHTML = `⚡ Lần sau gõ ${list} → tự chọn ${catIconHtml} <strong>${this.escapeHtml(cat.name)}</strong>`;
