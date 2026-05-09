@@ -8250,11 +8250,10 @@ const App = {
       let usedAI = false;
 
       if (aiAvailable) {
-        // === AI Vision (Gemini) ===
+        // === AI Vision (Gemini) — ƯU TIÊN, không fallback OCR cũ trừ khi user yêu cầu ===
         usedAI = true;
-        status.textContent = '🤖 AI đang phân tích hoá đơn...';
+        status.textContent = '🤖 AI đang phân tích hoá đơn... (~15-30s)';
         const type = $('#txForm').dataset.type || 'expense';
-        // Build cat list cho AI suggest (chỉ leaf categories cùng type, không archive)
         const catList = this.state.categories
           .filter(c => c.type === type && c.parentId && !c.archived)
           .map(c => {
@@ -8267,7 +8266,7 @@ const App = {
             mimeType: imageDataUrl.match(/^data:([^;]+);/)?.[1] || 'image/jpeg',
             categoriesList: catList
           });
-          if (r.ok) {
+          if (r.ok && r.amount > 0) {
             result = {
               amount: r.amount,
               date: r.date,
@@ -8277,21 +8276,75 @@ const App = {
               items: r.items
             };
           } else {
-            // AI fail → fallback OCR cũ
-            console.warn('[AI receipt] failed, fallback OCR:', r.error);
-            usedAI = false;
-            status.textContent = '⚠️ AI không đọc được — chuyển sang OCR thường...';
+            // AI parse fail → KHÔNG fallback tự động sang OCR cũ (vì OCR cũ thường sai số tiền)
+            // Hỏi user muốn dùng OCR thường hay thử lại AI
+            console.warn('[AI receipt] parse failed:', r);
+            const choice = await QLT_UI.confirm(
+              '🤖 AI đã đọc nhưng không lấy được số tiền chính xác.\n\nLỗi: ' + (r.error || 'response không hợp lệ') + '\n\nBạn muốn:\n• [Thử lại AI] — chụp lại / thử lần nữa\n• [OCR thường] — dùng OCR đơn giản (kết quả có thể sai)',
+              { title: 'AI parse thất bại', okLabel: '🔄 Thử lại AI', cancelLabel: '📝 OCR thường' }
+            );
+            if (choice) {
+              status.textContent = '🤖 Thử lại AI...';
+              try {
+                const r2 = await window.QLT_AI.analyzeReceiptForTx({
+                  imageBase64: imageDataUrl,
+                  categoriesList: catList
+                });
+                if (r2.ok && r2.amount > 0) {
+                  result = {
+                    amount: r2.amount, date: r2.date, merchant: r2.merchant,
+                    categorySlug: r2.categorySlug, note: r2.note, items: r2.items
+                  };
+                } else {
+                  status.style.color = '#cc7a4f';
+                  status.textContent = '⚠️ AI vẫn không lấy được — vui lòng nhập tay';
+                  return;
+                }
+              } catch (e2) {
+                status.style.color = '#cc7a4f';
+                status.textContent = '⚠️ AI lỗi: ' + (e2.message || '').slice(0, 60);
+                return;
+              }
+            } else {
+              usedAI = false; // user chọn OCR thường
+            }
           }
         } catch (e) {
-          console.warn('[AI receipt] error, fallback OCR:', e);
-          usedAI = false;
-          status.textContent = '⚠️ AI lỗi — chuyển sang OCR thường... (' + (e.message || '').slice(0, 50) + ')';
+          // Network / timeout / API error
+          console.warn('[AI receipt] error:', e);
+          const choice = await QLT_UI.confirm(
+            '🤖 AI gặp lỗi khi gọi API:\n\n' + (e.message || 'Unknown error') + '\n\nBạn muốn:\n• [Thử lại AI] — gọi lại Gemini\n• [OCR thường] — dùng OCR đơn giản',
+            { title: 'AI lỗi kết nối', okLabel: '🔄 Thử lại AI', cancelLabel: '📝 OCR thường' }
+          );
+          if (choice) {
+            status.textContent = '🤖 Thử lại AI...';
+            try {
+              const r2 = await window.QLT_AI.analyzeReceiptForTx({
+                imageBase64: imageDataUrl,
+                categoriesList: catList
+              });
+              if (r2.ok && r2.amount > 0) {
+                result = {
+                  amount: r2.amount, date: r2.date, merchant: r2.merchant,
+                  categorySlug: r2.categorySlug, note: r2.note, items: r2.items
+                };
+              } else {
+                usedAI = false;
+              }
+            } catch (e2) {
+              status.style.color = '#cc7a4f';
+              status.textContent = '⚠️ AI vẫn lỗi: ' + (e2.message || '').slice(0, 60);
+              return;
+            }
+          } else {
+            usedAI = false; // user chọn OCR thường
+          }
         }
       }
 
       if (!result) {
-        // === OCR truyền thống (Tesseract / ML Kit) ===
-        status.textContent = 'Đang đọc... (OCR thường)';
+        // === OCR truyền thống (Tesseract / ML Kit) — chỉ chạy khi AI fail + user đồng ý ===
+        status.textContent = 'Đang đọc... (OCR thường — chính xác hạn chế)';
         const ocrR = await window.QLT_Ocr.recognize(imageDataUrl, p => {
           if (p.stage === 'recognizing') status.textContent = 'Đang đọc... ' + Math.round(p.progress * 100) + '%';
         });

@@ -46,23 +46,43 @@
   // ============================================================
   // GEMINI ADAPTER
   // ============================================================
-  // Models — chọn ổn định lâu dài (5/2026)
+  // Models — dùng ALIAS 'gemini-flash-latest' để Google auto-rotate
+  // (không cần mình code lại khi model deprecate). Cập nhật 5/2026:
+  // - gemini-2.5-flash sẽ deprecate 17/6/2026 — KHÔNG hard-code
+  // - gemini-flash-latest = auto-point tới Flash mới nhất stable
   const MODELS = {
-    chat: 'gemini-2.5-flash',     // free tier 1500/ngày, vẫn còn ~1 tháng trước deprecate 17/6
-    vision: 'gemini-2.5-flash',   // multimodal built-in
-    fallback: 'gemini-2.0-flash'  // backup nếu 2.5 fail (sẽ deprecate 1/6/2026)
+    chat: 'gemini-flash-latest',
+    vision: 'gemini-flash-latest',
+    // Fallback explicit nếu alias fail (rare)
+    fallback: 'gemini-2.5-flash'
   };
 
   const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta';
+  const TIMEOUT_MS = 60000; // 60s — Vision có thể chậm với ảnh lớn
 
-  // Gọi Gemini với messages + optional tools
-  async function geminiCall(apiKey, model, body) {
+  // Gọi Gemini với timeout + 1 lần retry
+  async function geminiCall(apiKey, model, body, retry = 1) {
     const url = `${ENDPOINT}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    const ac = new AbortController();
+    const tid = setTimeout(() => ac.abort(), TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: ac.signal
+      });
+    } catch (e) {
+      clearTimeout(tid);
+      // Retry 1 lần với network error / abort
+      if (retry > 0 && (e.name === 'AbortError' || e.name === 'TypeError' || /network|fetch/i.test(e.message))) {
+        await new Promise(r => setTimeout(r, 1500));
+        return geminiCall(apiKey, model, body, retry - 1);
+      }
+      throw new Error(e.name === 'AbortError' ? 'Quá thời gian chờ (60s) — thử lại' : (e.message || 'Lỗi mạng'));
+    }
+    clearTimeout(tid);
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       let errMsg = `Gemini API lỗi ${res.status}`;
@@ -72,9 +92,52 @@
       } catch (_) {
         if (errText) errMsg += ': ' + errText.slice(0, 200);
       }
+      // Retry 1 lần với 5xx (server error)
+      if (retry > 0 && res.status >= 500 && res.status < 600) {
+        await new Promise(r => setTimeout(r, 2000));
+        return geminiCall(apiKey, model, body, retry - 1);
+      }
+      // Retry 1 lần với 429 (rate limit)
+      if (retry > 0 && res.status === 429) {
+        await new Promise(r => setTimeout(r, 4000));
+        return geminiCall(apiKey, model, body, retry - 1);
+      }
       throw new Error(errMsg);
     }
     return await res.json();
+  }
+
+  // Compress image base64 nếu quá lớn (>1.5MB) — tránh API reject + tăng tốc upload
+  async function compressIfLarge(dataUrl, maxBytes = 1500000) {
+    if (!dataUrl) return dataUrl;
+    // Tính kích thước hiện tại (base64 string length / 1.33 ≈ raw bytes)
+    const currentBytes = (dataUrl.length - (dataUrl.indexOf(',') + 1)) * 0.75;
+    if (currentBytes <= maxBytes) return dataUrl;
+    // Resize + re-encode với canvas
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => {
+        // Tính scale để đạt ~target bytes (rough: bytes ~ width*height*0.5 cho JPEG q=80)
+        let { width: w, height: h } = img;
+        const scale = Math.sqrt(maxBytes / currentBytes);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+        // Cap dimensions
+        const MAX_DIM = 2000;
+        if (w > MAX_DIM || h > MAX_DIM) {
+          const r = Math.min(MAX_DIM / w, MAX_DIM / h);
+          w = Math.round(w * r);
+          h = Math.round(h * r);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        // Quality 0.85 cho receipt (cần đọc text rõ)
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
   }
 
   // Parse response Gemini → { text, toolCalls, finishReason }
@@ -171,14 +234,23 @@
     },
 
     // --- Analyze image (cho OCR bill) ---
-    // imageBase64: string (không cần "data:image/...;base64," prefix)
-    // mimeType: 'image/jpeg' | 'image/png' | ...
+    // imageBase64: string — chấp nhận có hoặc không có "data:image/...;base64," prefix
+    // mimeType: 'image/jpeg' | 'image/png' | ... (auto-detect nếu data URL có prefix)
     async analyzeImage({ imageBase64, mimeType = 'image/jpeg', prompt, systemInstruction, temperature = 0.2, maxOutputTokens = 4096 } = {}) {
       const key = await this.getApiKey();
       if (!key) throw new Error('Chưa cấu hình API key');
 
-      // Strip data URL prefix nếu có
-      const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, '');
+      // Compress nếu ảnh > 1.5MB (Gemini limit ~20MB inline nhưng to thì chậm + tốn quota)
+      let processedDataUrl = imageBase64;
+      if (imageBase64.startsWith('data:')) {
+        processedDataUrl = await compressIfLarge(imageBase64);
+        // Update mimeType từ data URL (compression có thể đổi thành jpeg)
+        const m = processedDataUrl.match(/^data:([^;]+);/);
+        if (m) mimeType = m[1];
+      }
+
+      // Strip data URL prefix
+      const cleanBase64 = processedDataUrl.replace(/^data:[^;]+;base64,/, '');
 
       const body = {
         contents: [{
