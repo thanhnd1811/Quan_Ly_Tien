@@ -250,17 +250,32 @@ jobs:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: ${{ steps.ver.outputs.tag }}
           body: |
-            **Build:** `${{ steps.ver.outputs.version }}`
+            ## 📥 TẢI FILE NÀY ĐỂ CÀI ĐẶT
+
+            **➡️ `QuanLyTien-${{ steps.ver.outputs.tag }}.apk`**
+
+            (KHÔNG tải "Source code (zip)" hoặc "Source code (tar.gz)" — đó là code nguồn, KHÔNG phải app cài được)
+
+            ---
+
+            **Phiên bản:** `${{ steps.ver.outputs.version }}`
             **Commit:** ${{ steps.ver.outputs.msg }}
-            **Date:** ${{ steps.ver.outputs.date }}
+            **Build time:** ${{ steps.ver.outputs.date }}
 
-            ### Cài đặt
-            1. Tải file `.apk` bên dưới
-            2. Mở file → Android sẽ hỏi Install → bấm Install
-            3. App tự cài đè lên bản cũ — dữ liệu giữ nguyên
+            ### Cài đặt thủ công
+            1. Tải file `.apk` ở trên (file đầu tiên trong danh sách Assets)
+            2. Mở file → Android hỏi "Install" → bấm Install
+            3. App tự cài đè lên bản cũ — **dữ liệu giữ nguyên 100%**
 
-            ### Cài tự động qua app
-            App đã cài sẽ hiện banner "🆕 Có phiên bản mới" trên Trang chủ — tap để cập nhật.
+            ### Cập nhật từ app (khuyên)
+            App đã cài sẽ tự động fetch GitHub Releases mỗi 6h:
+            - Trang chủ hiện banner **"🆕 Có phiên bản mới"**
+            - Tap nút **"📥 Tải về & cài đặt"** → tự download APK + prompt cài
+            - **Không cần vào trang này** lần sau
+
+            ### Build từ source (cho developer)
+            - Source code: 2 file `.zip` + `.tar.gz` bên dưới (do GitHub auto-attach)
+            - Build hướng dẫn: xem `HUONG_DAN_BUILD_APK.md` trong repo
           files: QuanLyTien-${{ steps.ver.outputs.tag }}.apk
           draft: false
           prerelease: false

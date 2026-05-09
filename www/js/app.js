@@ -6359,9 +6359,32 @@ const App = {
   },
 
   _openUpdateUrl(apkUrl, releaseUrl) {
-    // Ưu tiên APK URL (download trực tiếp). Fallback: release page (user tự pick file)
+    // Ưu tiên APK URL (browser_download_url) — trỏ thẳng tới file .apk
+    // → Browser hệ thống tự trigger Download Manager (không cần user pick file)
+    //
+    // Vì sao KHÔNG dùng Capacitor Browser plugin (Custom Tabs):
+    // - Custom Tabs chỉ render trang web, không download binary file
+    // - APK URL → Custom Tabs sẽ redirect về release page → user thấy 3 file
+    //   (APK + Source zip + Source tarball của GitHub auto-attach) → confuse
+    //
+    // Cách đúng: dùng window.open(url, '_system') hoặc trực tiếp window.location
+    // → Capacitor route ra default browser → tự download .apk
     const url = apkUrl || releaseUrl;
     if (!url) return;
+
+    // Method 1: window.open with '_system' target (Cordova/Capacitor convention)
+    try {
+      const w = window.open(url, '_system');
+      if (w) return; // mở thành công
+    } catch (_) {}
+
+    // Method 2: navigate top → trigger system handler
+    try {
+      window.location.href = url;
+      return;
+    } catch (_) {}
+
+    // Fallback: Capacitor Browser plugin (last resort)
     if (window.Capacitor?.Plugins?.Browser) {
       window.Capacitor.Plugins.Browser.open({ url });
     } else {
