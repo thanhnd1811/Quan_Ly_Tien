@@ -381,11 +381,18 @@ QUY TẮC TÍNH AMOUNT (rất quan trọng):
       };
     },
 
-    // --- Text-to-Speech (Web Speech Synthesis API — free, native) ---
-    // Trên Android một số device có voice tiếng Việt; nếu không có sẽ
-    // dùng default voice (đọc với accent nước ngoài).
+    // --- Text-to-Speech ---
+    // PRIORITY: Capacitor TextToSpeech plugin (Android native engine — reliable).
+    // FALLBACK: Web Speech Synthesis API (web browser / older Capacitor builds).
+    //
+    // Capacitor plugin dùng Android TextToSpeech engine của hệ thống → ổn định
+    // hơn Web Speech API. Vẫn cần user cài voice Việt nếu muốn accent đúng.
 
-    // Đợi voices load (browser load async)
+    _capTTS() {
+      return window.Capacitor?.Plugins?.TextToSpeech || null;
+    },
+
+    // Đợi voices load (Web Speech API — fallback)
     async _waitVoices() {
       const synth = window.speechSynthesis;
       if (!synth) return [];
@@ -397,7 +404,6 @@ QUY TẮC TÍNH AMOUNT (rất quan trọng):
           resolve(synth.getVoices());
         };
         synth.addEventListener('voiceschanged', handler);
-        // Timeout 1s nếu event không fire
         setTimeout(() => {
           synth.removeEventListener('voiceschanged', handler);
           resolve(synth.getVoices());
@@ -405,8 +411,28 @@ QUY TẮC TÍNH AMOUNT (rất quan trọng):
       });
     },
 
-    // Trả về { ok, voice, fallback?, reason? } — không speak
+    // Trả về { ok, engine, voice?, fallback?, reason? } — không speak
     async checkTTS() {
+      // Try Capacitor plugin first
+      const cap = this._capTTS();
+      if (cap) {
+        try {
+          const r = await cap.getSupportedLanguages();
+          const langs = r.languages || r.supportedLanguages || [];
+          const hasVi = langs.some(l => /^vi/i.test(l));
+          if (hasVi) {
+            return { ok: true, engine: 'capacitor', voice: 'Android TTS', lang: 'vi-VN' };
+          }
+          return {
+            ok: true, engine: 'capacitor', fallback: true,
+            voice: 'Android TTS', lang: langs[0] || 'en-US',
+            reason: 'no-vi-voice'
+          };
+        } catch (e) {
+          console.warn('[TTS] capacitor plugin failed, fallback web speech:', e);
+        }
+      }
+      // Web Speech API fallback
       if (!('speechSynthesis' in window)) {
         return { ok: false, reason: 'no-api' };
       }
@@ -416,13 +442,11 @@ QUY TẮC TÍNH AMOUNT (rất quan trọng):
       }
       const viVoice = voices.find(v => v.lang === 'vi-VN' || v.lang.startsWith('vi'));
       if (viVoice) {
-        return { ok: true, voice: viVoice.name, lang: viVoice.lang };
+        return { ok: true, engine: 'web-speech', voice: viVoice.name, lang: viVoice.lang };
       }
-      // Có TTS nhưng không có voice Việt — vẫn dùng được nhưng accent nước ngoài
       const en = voices.find(v => v.lang.startsWith('en'));
       return {
-        ok: true,
-        fallback: true,
+        ok: true, engine: 'web-speech', fallback: true,
         voice: (en || voices[0]).name,
         lang: (en || voices[0]).lang,
         reason: 'no-vi-voice'
@@ -430,11 +454,40 @@ QUY TẮC TÍNH AMOUNT (rất quan trọng):
     },
 
     async speak(text, opts = {}) {
+      // Stop bất cứ TTS đang chạy
+      this.stopSpeaking();
+
+      const cap = this._capTTS();
+
+      // === Try Capacitor TTS plugin ===
+      if (cap) {
+        try {
+          if (opts.onStart) opts.onStart();
+          // Capacitor speak() resolves khi đọc xong (block)
+          await cap.speak({
+            text,
+            lang: opts.lang || 'vi-VN',
+            rate: opts.rate || 1.0,
+            pitch: opts.pitch || 1.0,
+            volume: opts.volume || 1.0,
+            category: 'ambient'
+          });
+          if (opts.onEnd) opts.onEnd();
+          return { engine: 'capacitor' };
+        } catch (e) {
+          console.warn('[TTS] capacitor speak failed, fallback web speech:', e);
+          if (opts.onError) opts.onError(e);
+          // Fall through to web speech below
+        }
+      }
+
+      // === Fallback: Web Speech API ===
       if (!('speechSynthesis' in window)) {
-        console.warn('[TTS] not supported');
+        const err = new Error('TTS không khả dụng trên thiết bị này');
+        if (opts.onError) opts.onError(err);
+        if (opts.onEnd) opts.onEnd(); // gọi onEnd để UI reset
         return null;
       }
-      window.speechSynthesis.cancel();
 
       const utt = new SpeechSynthesisUtterance(text);
       utt.lang = opts.lang || 'vi-VN';
@@ -446,27 +499,51 @@ QUY TẮC TÍNH AMOUNT (rất quan trọng):
       const viVoice = voices.find(v => v.lang === 'vi-VN' || v.lang.startsWith('vi'));
       if (viVoice) {
         utt.voice = viVoice;
-        console.log('[TTS] using voice:', viVoice.name, viVoice.lang);
-      } else {
-        console.warn('[TTS] no Vietnamese voice — fallback default');
+        console.log('[TTS] web-speech voice:', viVoice.name);
       }
 
-      // Callbacks
       if (opts.onStart) utt.onstart = opts.onStart;
       if (opts.onEnd) utt.onend = opts.onEnd;
-      if (opts.onError) utt.onerror = opts.onError;
+      if (opts.onError) utt.onerror = (e) => {
+        opts.onError(e);
+        // Cũng gọi onEnd vì error → dừng → UI cần reset
+        if (opts.onEnd) opts.onEnd();
+      };
 
       window.speechSynthesis.speak(utt);
-      return utt;
+
+      // Safety timeout: nếu sau 30s không có onend / onerror → reset UI
+      // (workaround cho bug WebView một số device)
+      const safetyTimer = setTimeout(() => {
+        if (opts.onEnd) opts.onEnd();
+      }, 30000);
+      const origEnd = utt.onend;
+      utt.onend = (e) => {
+        clearTimeout(safetyTimer);
+        if (origEnd) origEnd(e);
+      };
+
+      return { engine: 'web-speech', utterance: utt };
     },
 
     stopSpeaking() {
+      const cap = this._capTTS();
+      if (cap && cap.stop) {
+        try { cap.stop(); } catch (_) {}
+      }
       if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
+        try { window.speechSynthesis.cancel(); } catch (_) {}
       }
     },
 
-    isSpeaking() {
+    async isSpeaking() {
+      const cap = this._capTTS();
+      if (cap && cap.isSpeaking) {
+        try {
+          const r = await cap.isSpeaking();
+          if (r?.value === true || r === true) return true;
+        } catch (_) {}
+      }
       return 'speechSynthesis' in window && window.speechSynthesis.speaking;
     }
   };

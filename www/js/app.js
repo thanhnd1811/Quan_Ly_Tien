@@ -6379,23 +6379,24 @@ const App = {
       ttsToggle.checked = await window.QLT_AI.getPref('tts', true);
       ttsToggle.onchange = (e) => window.QLT_AI.setPref('tts', e.target.checked);
     }
-    // TTS status: hiện voice info + cảnh báo nếu fallback
+    // TTS status: hiện engine + voice info + cảnh báo nếu fallback
     const ttsStatus = $('#setAITTSStatus');
     if (ttsStatus) {
       const check = await window.QLT_AI.checkTTS();
+      const engineLabel = check.engine === 'capacitor' ? 'Android TTS (native)' : 'Web Speech';
       if (!check.ok) {
         if (check.reason === 'no-api') {
-          ttsStatus.innerHTML = '⚠️ Thiết bị không hỗ trợ TTS — toggle này sẽ không hoạt động.';
+          ttsStatus.innerHTML = '⚠️ Thiết bị không hỗ trợ TTS — cần cài app "Speech Services by Google" qua CH Play. Tap <strong>"📖 Cách cài voice Việt"</strong> để xem hướng dẫn.';
           ttsStatus.style.color = '#dc2626';
         } else {
           ttsStatus.innerHTML = '⚠️ Chưa load được voice — thử mở lại app';
           ttsStatus.style.color = '#f59e0b';
         }
       } else if (check.fallback) {
-        ttsStatus.innerHTML = `⚠️ Chưa có voice tiếng Việt — đang dùng <strong>${check.lang}</strong> (accent nước ngoài). Tap <strong>"📖 Cách cài voice Việt"</strong> bên dưới.`;
+        ttsStatus.innerHTML = `⚠️ Engine: <strong>${engineLabel}</strong> — chưa có voice tiếng Việt, đang dùng <strong>${check.lang}</strong>. Tap <strong>"📖 Cách cài voice Việt"</strong> bên dưới.`;
         ttsStatus.style.color = '#f59e0b';
       } else {
-        ttsStatus.innerHTML = `✅ Voice: <strong>${this.escapeHtml(check.voice)}</strong> · ${check.lang}`;
+        ttsStatus.innerHTML = `✅ Engine: <strong>${engineLabel}</strong> · Voice: <strong>${this.escapeHtml(check.voice)}</strong> · ${check.lang}`;
         ttsStatus.style.color = 'var(--text3)';
       }
     }
@@ -6408,25 +6409,42 @@ const App = {
         if (modal) modal.classList.add('open');
       };
     }
-    // Test button
+    // Test button — fix stuck "Đang đọc..." bằng cách reset luôn sau speak()
+    // (Capacitor plugin block until done, Web Speech callback)
     const ttsTest = $('#setAITTSTest');
     if (ttsTest && !ttsTest._bound) {
       ttsTest._bound = true;
       ttsTest.onclick = async () => {
         const original = ttsTest.textContent;
+        const reset = () => { ttsTest.disabled = false; ttsTest.textContent = original; };
         ttsTest.disabled = true;
         ttsTest.textContent = '🔊 Đang đọc...';
+
+        // Safety timeout — reset sau 15s nếu không có callback nào fire
+        const safetyTimer = setTimeout(() => {
+          reset();
+          QLT_UI.toast('TTS không phản hồi — có thể device không hỗ trợ', { type: 'error' });
+        }, 15000);
+        const onDone = () => { clearTimeout(safetyTimer); reset(); };
+
         try {
-          await window.QLT_AI.speak(
+          const result = await window.QLT_AI.speak(
             'Xin chào, tôi là trợ lý của ứng dụng Quản Lý Tiền. Bạn có thể hỏi tôi mọi thứ về tài chính của bạn.',
-            {
-              onEnd: () => { ttsTest.disabled = false; ttsTest.textContent = original; },
-              onError: () => { ttsTest.disabled = false; ttsTest.textContent = original; }
-            }
+            { onEnd: onDone, onError: onDone }
           );
+          // Capacitor plugin block — speak() resolve khi đã đọc xong → reset ngay
+          if (result?.engine === 'capacitor') {
+            clearTimeout(safetyTimer);
+            reset();
+          }
+          // Nếu speak return null (no API) → onError đã fire → onDone reset rồi
+          if (result === null) {
+            clearTimeout(safetyTimer);
+            QLT_UI.toast('Thiết bị không hỗ trợ TTS — xem hướng dẫn cài voice', { type: 'error' });
+          }
         } catch (e) {
-          ttsTest.disabled = false;
-          ttsTest.textContent = original;
+          clearTimeout(safetyTimer);
+          reset();
           QLT_UI.toast('Lỗi TTS: ' + (e.message || ''), { type: 'error' });
         }
       };
