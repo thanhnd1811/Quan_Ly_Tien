@@ -271,82 +271,110 @@
     },
 
     // --- Phân tích hoá đơn → trả về structured data tự fill vào tx ---
-    // categoriesList: [{ slug, name, parentName }] — danh sách cat để AI suggest
-    // Returns: { merchant, date, amount, categorySlug, items?, confidence, raw }
+    // Dùng JSON Schema mode của Gemini API → guaranteed valid JSON output.
     async analyzeReceiptForTx({ imageBase64, mimeType = 'image/jpeg', categoriesList = [] } = {}) {
+      const key = await this.getApiKey();
+      if (!key) throw new Error('Chưa cấu hình API key');
+
       const catText = categoriesList.length
-        ? categoriesList.map(c => `  - ${c.slug}: ${c.parentName ? c.parentName + ' > ' : ''}${c.name}`).join('\n')
-        : '  (không có)';
+        ? categoriesList.map(c => `${c.slug} (${c.parentName ? c.parentName + ' > ' : ''}${c.name})`).join(', ')
+        : '(không có danh sách)';
 
-      const prompt = `Bạn là trợ lý nhập giao dịch tài chính cho user Việt Nam. Phân tích ảnh hoá đơn / biên lai này và trả về CHỈ JSON (không markdown, không giải thích):
+      const prompt = `Phân tích ảnh hoá đơn / biên lai mua hàng (tiếng Việt). Trích xuất các trường:
 
-{
-  "merchant": "tên cửa hàng/quán ngắn gọn (không kèm địa chỉ, không kèm tên chi nhánh dài)",
-  "date": "YYYY-MM-DD (vd 2026-05-03)",
-  "amount": <số nguyên VND user thực TRẢ cuối cùng — sau khi áp dụng tất cả giảm giá/voucher/chiết khấu>,
-  "categorySlug": "<slug từ danh sách dưới, hoặc 'other' nếu không match>",
-  "note": "ghi chú ngắn gọn về giao dịch (vd: '6 món quần áo nữ')",
-  "items": [{"name": "tên món", "amount": <số nguyên>}]
-}
+- merchant: TÊN CỬA HÀNG/QUÁN gọn (vd "ONOFF", "Highlands Coffee", "Bách Hoá Xanh"). KHÔNG kèm địa chỉ.
+- date: ngày giao dịch dạng YYYY-MM-DD. Nếu không có dùng hôm nay (${(new Date()).toISOString().slice(0,10)}).
+- amount: SỐ TIỀN USER THỰC TRẢ — số nguyên VND, KHÔNG có dấu chấm/phẩy.
 
-QUY TẮC TÍNH AMOUNT:
-- Nếu hoá đơn có "Thanh toán" / "Tiền khách trả" / "Cash paid" → DÙNG SỐ ĐÓ
-- Nếu chỉ có "Tổng cộng" và "Chiết khấu" → trừ ra (Tổng - chiết khấu - voucher)
-- Nếu nhiều dòng số lẫn nhau → chọn số tiền THỰC TRẢ cuối cùng (thường là lớn nhất hoặc dòng có chữ "thanh toán")
-- KHÔNG nhầm số bill / số order / số điện thoại với amount
-- amount LUÔN là số nguyên VND (không có dấu chấm phẩy thập phân)
+QUY TẮC TÍNH AMOUNT (rất quan trọng):
+* Ưu tiên dòng "Thanh toán thẻ ngân hàng" / "Tiền khách trả" / "Cash" / "Thanh toán" / "Đã trả".
+* Nếu chỉ có "Tổng cộng" và các dòng giảm (Chiết khấu, Voucher, Phiếu quà tặng) → amount = Tổng - tất cả giảm.
+* Vd: "Tổng cộng 945000, Chiết khấu 189000, Voucher 200000, Thanh toán 556000" → amount = 556000.
+* TUYỆT ĐỐI KHÔNG dùng: số bill, số order, số phone, mã khách, điểm tích lũy, mã barcode làm amount.
 
-CATEGORY SLUG có thể chọn:
-${catText}
+- categorySlug: chọn 1 slug từ danh sách: ${catText}. Nếu không match dùng "other".
+- note: 1 câu ngắn về giao dịch (vd "6 món quần áo nữ", "1 ly cà phê + bánh"). Tối đa 80 ký tự.
+- items: list các món lớn (>50k mỗi món, max 10 món). Nếu hoá đơn chỉ 1 món hoặc khó tách → list rỗng [].`;
 
-Items:
-- Chỉ trả về items[] nếu hoá đơn có >1 món rõ ràng và user có thể muốn tách thành nhiều giao dịch
-- Mỗi item: name = tên món gọn (max 30 ký tự), amount = số tiền sau giảm
-- Nếu chỉ 1 món hoặc không phân định được → BỎ TRỐNG items (không trả field này)
+      // Build body với JSON Schema mode — guaranteed valid JSON output
+      // Compress image first
+      let processedDataUrl = imageBase64;
+      if (imageBase64.startsWith('data:')) {
+        // Receipt cần text rõ → compress nhẹ hơn (target 2.5MB, max 2400px)
+        processedDataUrl = await compressIfLarge(imageBase64, 2500000);
+        const m = processedDataUrl.match(/^data:([^;]+);/);
+        if (m) mimeType = m[1];
+      }
+      const cleanBase64 = processedDataUrl.replace(/^data:[^;]+;base64,/, '');
 
-Date:
-- Lấy ngày trên hoá đơn (không phải ngày in)
-- Nếu không có → dùng "${(new Date()).toISOString().slice(0,10)}"`;
-
-      const r = await this.analyzeImage({
-        imageBase64,
-        mimeType,
-        prompt,
-        temperature: 0.1,
-        maxOutputTokens: 1024
-      });
-
-      // Parse JSON từ response
-      let json = null;
-      const text = r.text || '';
-      try {
-        // Strip markdown code fences nếu có
-        const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-        json = JSON.parse(cleaned);
-      } catch (e) {
-        // Try to extract JSON từ giữa text
-        const m = text.match(/\{[\s\S]*\}/);
-        if (m) {
-          try { json = JSON.parse(m[0]); } catch (_) {}
+      const body = {
+        contents: [{
+          role: 'user',
+          parts: [
+            { inline_data: { mime_type: mimeType, data: cleanBase64 } },
+            { text: prompt }
+          ]
+        }],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 2048,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'object',
+            properties: {
+              merchant: { type: 'string' },
+              date: { type: 'string', description: 'YYYY-MM-DD' },
+              amount: { type: 'integer', description: 'Số nguyên VND, số tiền user thực trả cuối cùng' },
+              categorySlug: { type: 'string' },
+              note: { type: 'string' },
+              items: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string' },
+                    amount: { type: 'integer' }
+                  },
+                  required: ['name', 'amount']
+                }
+              }
+            },
+            required: ['merchant', 'amount', 'categorySlug']
+          }
         }
+      };
+
+      const json = await geminiCall(key, MODELS.vision, body);
+      const parsed = parseGeminiResponse(json);
+
+      // JSON Schema mode → text guaranteed JSON
+      let data = null;
+      try {
+        data = JSON.parse(parsed.text);
+      } catch (e) {
+        // Fallback: try extract JSON
+        const m = parsed.text.match(/\{[\s\S]*\}/);
+        if (m) try { data = JSON.parse(m[0]); } catch (_) {}
       }
-      if (!json) {
-        return { ok: false, error: 'AI trả về format không phải JSON', raw: text };
+      if (!data) {
+        return { ok: false, error: 'Gemini không trả JSON: ' + (parsed.text || '').slice(0, 100), raw: parsed.text };
+      }
+      if (!data.amount || data.amount <= 0) {
+        return { ok: false, error: 'AI không lấy được số tiền (amount=0). Có thể ảnh mờ hoặc không phải hoá đơn.', raw: parsed.text, partialData: data };
       }
 
-      // Validate + sanitize
       return {
         ok: true,
-        merchant: typeof json.merchant === 'string' ? json.merchant.trim().slice(0, 60) : '',
-        date: typeof json.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(json.date) ? json.date : null,
-        amount: Number.isFinite(+json.amount) && +json.amount > 0 ? Math.round(+json.amount) : 0,
-        categorySlug: typeof json.categorySlug === 'string' ? json.categorySlug.trim() : null,
-        note: typeof json.note === 'string' ? json.note.trim().slice(0, 100) : '',
-        items: Array.isArray(json.items) ? json.items.filter(it => it && it.name && Number.isFinite(+it.amount)).map(it => ({
+        merchant: typeof data.merchant === 'string' ? data.merchant.trim().slice(0, 60) : '',
+        date: typeof data.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data.date) ? data.date : null,
+        amount: Math.round(+data.amount),
+        categorySlug: typeof data.categorySlug === 'string' ? data.categorySlug.trim() : null,
+        note: typeof data.note === 'string' ? data.note.trim().slice(0, 100) : '',
+        items: Array.isArray(data.items) ? data.items.filter(it => it && it.name && Number.isFinite(+it.amount) && +it.amount > 0).map(it => ({
           name: String(it.name).trim().slice(0, 50),
           amount: Math.round(+it.amount)
         })) : [],
-        raw: text
+        raw: parsed.text
       };
     },
 
