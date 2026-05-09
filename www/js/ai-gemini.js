@@ -78,76 +78,57 @@
     'gemini-2.0-flash-lite'   // 1500 RPD — last resort
   ];
 
-  // Quota exhaustion tracker — lưu localStorage để biết model nào đã hết quota
-  // hôm nay → skip không gọi nữa, đỡ tốn 1 request lỗi.
-  const QUOTA_KEY = 'qlt_ai_quota_exhausted';
-  function _todayKey() { return new Date().toISOString().slice(0, 10); }
-  function _getExhausted() {
-    try {
-      const raw = localStorage.getItem(QUOTA_KEY);
-      if (!raw) return {};
-      const data = JSON.parse(raw);
-      // Auto-reset nếu khác ngày
-      if (data._date !== _todayKey()) return {};
-      return data;
-    } catch (_) { return {}; }
-  }
-  function _markExhausted(model) {
-    const data = _getExhausted();
-    data._date = _todayKey();
-    data[model] = true;
-    try { localStorage.setItem(QUOTA_KEY, JSON.stringify(data)); } catch (_) {}
-    console.warn('[AI] Model exhausted today:', model);
-  }
-  function _isExhausted(model) {
-    return !!_getExhausted()[model];
-  }
-
-  // Heuristic: error message từ Gemini là quota exhaustion (vs rate limit tạm)?
-  // - 429 + message chứa "quota" / "RESOURCE_EXHAUSTED" / "daily" → exhausted (mark)
-  // - 429 không có dấu hiệu quota → có thể chỉ rate limit phút → retry
-  function _isQuotaError(errMsg) {
+  // Phân loại error 429 → quota exhausted (RPD/RPM) vs lỗi khác (auth/etc).
+  // Regex trùm cả "quota exceeded", "RESOURCE_EXHAUSTED", "rate limit" — đủ rộng
+  // để bắt cả per-minute lẫn per-day. Caller tự thử model khác bất kể loại nào.
+  function _isQuotaOrRateError(errMsg) {
     if (!errMsg) return false;
     const m = String(errMsg).toLowerCase();
     return m.includes('quota') || m.includes('resource_exhausted') ||
-           m.includes('daily limit') || m.includes('exceeded');
+           m.includes('rate limit') || m.includes('exceeded') ||
+           m.includes('429');
   }
 
-  // Wrapper gọi với fallback chain — thử từng model cho đến khi success
-  // hoặc hết chain. Throw error cuối nếu tất cả fail.
+  // Wrapper gọi với fallback chain — KHÔNG cache state, mỗi request luôn thử
+  // model tốt nhất TRƯỚC. Trade-off: nếu smart đã hết RPD, mỗi request tốn ~1s
+  // để hỏi smart trước rồi mới rớt xuống lite. Đổi lại: không bao giờ miss
+  // request smart nào, không bị bug do mark sai (RPM nhầm thành RPD).
+  //
+  // User chọn cách này (vs cache localStorage) để đảm bảo correctness > tốc độ.
   async function geminiCallWithFallback(apiKey, chain, body, opts = {}) {
     const errors = [];
     let lastErr;
-    for (const model of chain) {
-      if (_isExhausted(model)) {
-        console.log('[AI] Skip', model, '(đã exhausted hôm nay)');
-        continue;
-      }
+    for (let i = 0; i < chain.length; i++) {
+      const model = chain[i];
       try {
         const json = await geminiCall(apiKey, model, body);
         // Success — gắn meta info để caller biết model nào dùng
         if (json && typeof json === 'object') json._modelUsed = model;
+        if (i > 0) console.log('[AI] Fell through to', model, '(', chain.slice(0, i).join(', '), 'failed)');
         return json;
       } catch (e) {
         lastErr = e;
         const msg = e.message || String(e);
         errors.push(`${model}: ${msg.slice(0, 100)}`);
-        // Quota exhausted → mark + try next
-        if (_isQuotaError(msg)) {
-          _markExhausted(model);
+        // Quota / rate limit → thử model tiếp theo
+        if (_isQuotaOrRateError(msg)) {
+          console.warn('[AI]', model, 'quota/rate hit, fall through:', msg.slice(0, 80));
           continue;
         }
-        // Lỗi không phải quota (auth/network/...) → throw ngay, không thử model khác
-        // (vì các model khác cũng cùng key + cùng network)
+        // Lỗi không phải quota (auth/network/timeout) → throw ngay, không thử
+        // model khác (vì cùng key + cùng network → cũng fail).
         throw e;
       }
     }
     // Hết chain mà chưa thành công → throw error tổng hợp
-    const err = new Error('Tất cả AI models đã hết quota hôm nay. ' + errors.join(' | '));
+    const err = new Error('Tất cả AI models đã hết quota. ' + errors.join(' | '));
     err.allExhausted = true;
     err.lastError = lastErr;
     throw err;
   }
+
+  // Cleanup: clear legacy quota cache key (từ phiên bản trước có cache localStorage)
+  try { localStorage.removeItem('qlt_ai_quota_exhausted'); } catch (_) {}
 
   const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta';
   const TIMEOUT_MS = 60000; // 60s — Vision có thể chậm với ảnh lớn
