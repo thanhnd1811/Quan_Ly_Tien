@@ -2216,6 +2216,8 @@ const App = {
 
     // Update banner — async, không block render
     this.renderHomeUpdateBanner();
+    // AI chat FAB — chỉ hiện khi đã setup API key
+    this.renderAiChatFab();
 
     // Tổng số dư = CHỈ tính ví thanh toán (tiền dùng được)
     const paymentAccs = this.state.accounts.filter(a => this.isPayment(a));
@@ -5800,6 +5802,216 @@ const App = {
         refreshDarkUI();
       };
     }
+  },
+
+  // ============================================================
+  // AI CHAT — modal hỏi đáp + voice + TTS
+  // ============================================================
+  async renderAiChatFab() {
+    const fab = $('#homeAiChatFab');
+    if (!fab) return;
+    const hasKey = window.QLT_AI && await window.QLT_AI.hasApiKey();
+    fab.style.display = hasKey ? 'flex' : 'none';
+    if (hasKey && !fab._bound) {
+      fab._bound = true;
+      fab.onclick = () => this.openAiChatModal();
+    }
+  },
+
+  openAiChatModal() {
+    const modal = $('#aiChatModal');
+    if (!modal) return;
+    modal.classList.add('open');
+
+    const messagesEl = $('#aiChatMessages');
+    const input = $('#aiChatInput');
+    const sendBtn = $('#aiChatSend');
+    const micBtn = $('#aiChatMic');
+    const clearBtn = $('#aiChatClear');
+    const sugWrap = $('#aiChatSuggestions');
+
+    // Init history nếu chưa có
+    if (!this.state._aiChatHistory) this.state._aiChatHistory = [];
+
+    // Render existing history (khi user mở lại)
+    this._renderAiChatMessages();
+
+    // Empty state nếu history trống
+    if (this.state._aiChatHistory.length === 0) {
+      messagesEl.innerHTML = `
+        <div class="ai-chat-empty">
+          <span class="emoji">🤖</span>
+          <div>Hỏi gì về tài chính của bạn?</div>
+          <div style="margin-top:8px;font-size:11px">VD: "Tháng này tôi chi cà phê bao nhiêu?", "Còn budget không?", "So sánh chi 3 tháng"</div>
+        </div>
+      `;
+    }
+
+    // Bind handlers (re-bind để override _bound state cũ)
+    if (!modal._bound) {
+      modal._bound = true;
+
+      const send = async () => {
+        const txt = (input.value || '').trim();
+        if (!txt) return;
+        input.value = '';
+        sendBtn.disabled = true;
+        await this._sendAiChatMessage(txt);
+        sendBtn.disabled = false;
+        input.focus();
+      };
+
+      sendBtn.onclick = send;
+      input.onkeydown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          send();
+        }
+      };
+
+      // Suggestion chips
+      sugWrap.querySelectorAll('[data-q]').forEach(chip => {
+        chip.onclick = () => {
+          input.value = chip.dataset.q;
+          send();
+        };
+      });
+
+      // Voice input
+      micBtn.onclick = () => this._aiChatVoiceInput(input, send);
+
+      // Clear history
+      clearBtn.onclick = async () => {
+        const ok = await QLT_UI.confirm('Xoá toàn bộ lịch sử chat?', { okLabel: 'Xoá', cancelLabel: 'Huỷ', danger: true });
+        if (!ok) return;
+        this.state._aiChatHistory = [];
+        // Stop any TTS
+        if (window.QLT_AI?.stopSpeaking) window.QLT_AI.stopSpeaking();
+        this._renderAiChatMessages();
+      };
+    }
+
+    // Auto-focus input (web only — mobile would popup keyboard)
+    if (!('Capacitor' in window)) setTimeout(() => input.focus(), 200);
+  },
+
+  _renderAiChatMessages() {
+    const messagesEl = $('#aiChatMessages');
+    const history = this.state._aiChatHistory || [];
+    if (history.length === 0) return; // empty state đã handle ở openAiChatModal
+
+    messagesEl.innerHTML = history.map((m, idx) => {
+      if (m.role === 'user') {
+        return `<div class="ai-msg user">${this.escapeHtml(m.content)}</div>`;
+      }
+      if (m.role === 'tool') {
+        return `<div class="ai-msg tool">🔍 ${this.escapeHtml(m.content)}</div>`;
+      }
+      // assistant — convert markdown bold + linebreaks
+      const html = this.escapeHtml(m.content)
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\n/g, '<br>');
+      const ttsBtn = `<button class="ai-msg-action" data-tts-idx="${idx}" title="Đọc to">🔊</button>`;
+      return `<div class="ai-msg assistant">${html}<div class="ai-msg-actions">${ttsBtn}</div></div>`;
+    }).join('');
+
+    // Scroll to bottom
+    const body = $('#aiChatBody');
+    if (body) body.scrollTop = body.scrollHeight;
+
+    // Bind TTS buttons
+    messagesEl.querySelectorAll('[data-tts-idx]').forEach(btn => {
+      btn.onclick = () => {
+        const idx = parseInt(btn.dataset.ttsIdx, 10);
+        const msg = (this.state._aiChatHistory || [])[idx];
+        if (msg && window.QLT_AI?.speak) {
+          window.QLT_AI.speak(msg.content);
+        }
+      };
+    });
+  },
+
+  async _sendAiChatMessage(text) {
+    if (!window.QLT_AIChat) return;
+    const history = this.state._aiChatHistory = this.state._aiChatHistory || [];
+    history.push({ role: 'user', content: text });
+    this._renderAiChatMessages();
+
+    const typing = $('#aiChatTyping');
+    if (typing) typing.style.display = 'flex';
+
+    try {
+      // Convert app history → API history format
+      const apiHistory = [];
+      for (const m of history.slice(0, -1)) { // exclude last user msg (will be added by ask())
+        if (m.role === 'tool') continue; // skip tool indicator messages
+        apiHistory.push({
+          role: m.role === 'assistant' ? 'model' : m.role,
+          text: m.content
+        });
+      }
+      const r = await window.QLT_AIChat.ask(text, apiHistory);
+
+      if (typing) typing.style.display = 'none';
+
+      // Add tool usage indicator if any
+      if (r.toolsUsed && r.toolsUsed.length) {
+        history.push({
+          role: 'tool',
+          content: `Đã xem: ${r.toolsUsed.map(n => n.replace(/_/g, ' ')).join(', ')}`
+        });
+      }
+
+      history.push({ role: 'assistant', content: r.reply });
+      this._renderAiChatMessages();
+
+      // TTS nếu user bật
+      const tts = await window.QLT_AI.getPref('tts', true);
+      if (tts) window.QLT_AI.speak(r.reply);
+
+    } catch (e) {
+      if (typing) typing.style.display = 'none';
+      history.push({ role: 'assistant', content: '❌ Lỗi: ' + (e.message || 'Không gọi được AI. Thử lại?') });
+      this._renderAiChatMessages();
+    }
+  },
+
+  _aiChatVoiceInput(inputEl, sendFn) {
+    if (!window.QLT_Voice || !window.QLT_Voice.available()) {
+      QLT_UI.toast('Thiết bị không hỗ trợ giọng nói (cần APK build có plugin)', { type: 'error' });
+      return;
+    }
+    const micBtn = $('#aiChatMic');
+    micBtn.classList.add('recording');
+    micBtn.textContent = '⏹';
+    inputEl.placeholder = '🎙️ Đang nghe...';
+
+    QLT_Voice.listen({
+      lang: 'vi-VN',
+      onPartial: (p) => { inputEl.value = p; },
+      onResult: (text) => {
+        micBtn.classList.remove('recording');
+        micBtn.textContent = '🎙️';
+        inputEl.placeholder = 'Hỏi gì đó...';
+        inputEl.value = text;
+        // Auto send sau 0.5s nếu user không sửa
+        setTimeout(() => {
+          if (inputEl.value === text) sendFn();
+        }, 500);
+      },
+      onError: (e) => {
+        micBtn.classList.remove('recording');
+        micBtn.textContent = '🎙️';
+        inputEl.placeholder = 'Hỏi gì đó...';
+        QLT_UI.toast('Lỗi mic: ' + (e?.message || ''), { type: 'error' });
+      },
+      onEnd: () => {
+        micBtn.classList.remove('recording');
+        micBtn.textContent = '🎙️';
+        inputEl.placeholder = 'Hỏi gì đó...';
+      }
+    });
   },
 
   // ============================================================
