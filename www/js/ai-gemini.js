@@ -399,6 +399,41 @@ QUY TẮC TÍNH AMOUNT (rất quan trọng):
       return window.Capacitor?.Plugins?.TextToSpeech || null;
     },
 
+    // Preprocess text trước khi đưa vào TTS — replace ký tự viết tắt
+    // bằng từ đầy đủ để engine đọc đúng tiếng Việt.
+    _ttsPreprocess(text) {
+      if (!text) return text;
+      let t = String(text);
+
+      // Số + 'k' → 'nghìn' (vd '50k' → '50 nghìn')
+      t = t.replace(/(\d)\s*k(?=\s|$|[đ,.!?;:)\n])/gi, '$1 nghìn');
+
+      // Số + 'tr' → 'triệu' (vd '1tr5' → '1 triệu 5', '2tr' → '2 triệu')
+      t = t.replace(/(\d)\s*tr(?=\d|\s|$|[đ,.!?;:)\n])/gi, '$1 triệu ');
+
+      // Số + 'tỷ' / 'ty' → 'tỷ'
+      t = t.replace(/(\d)\s*ty(?=\s|$|[đ,.!?;:)\n])/gi, '$1 tỷ');
+
+      // Số + 'đ' → 'đồng' (vd '1.250.000 đ' → '1.250.000 đồng')
+      // Match 'đ' chỉ khi đứng trước whitespace/end/punct, sau khi đã có số
+      t = t.replace(/(\d[\d.,]*)\s*đ(?=\s|$|[,.!?;:)\n])/g, '$1 đồng');
+
+      // 'đ' đứng riêng (cuối câu, đầu sau khoảng trắng) → 'đồng'
+      // Chỉ khi đ là chữ riêng, không phải đầu của 'đỏ', 'đông', 'đứng'...
+      t = t.replace(/(\s)đ(?=\s|$|[,.!?;:)])/g, '$1đồng');
+
+      // Một số ký hiệu khác có thể đọc nhầm
+      t = t.replace(/\$/g, ' đô la ');
+      t = t.replace(/%/g, ' phần trăm');
+      t = t.replace(/\bGD\b/g, 'giao dịch');
+      t = t.replace(/\bTB\b/g, 'trung bình');
+
+      // Nhiều space liên tục → 1 space
+      t = t.replace(/\s+/g, ' ').trim();
+
+      return t;
+    },
+
     // Đợi voices load (Web Speech API — fallback)
     async _waitVoices() {
       const synth = window.speechSynthesis;
@@ -464,6 +499,9 @@ QUY TẮC TÍNH AMOUNT (rất quan trọng):
       // Stop bất cứ TTS đang chạy
       this.stopSpeaking();
 
+      // Preprocess: 'đ' → 'đồng', 'k' → 'nghìn', 'tr' → 'triệu', etc.
+      const processedText = this._ttsPreprocess(text);
+
       const cap = this._capTTS();
 
       // === Try Capacitor TTS plugin ===
@@ -472,7 +510,7 @@ QUY TẮC TÍNH AMOUNT (rất quan trọng):
           if (opts.onStart) opts.onStart();
           // Capacitor speak() resolves khi đọc xong (block)
           await cap.speak({
-            text,
+            text: processedText,
             lang: opts.lang || 'vi-VN',
             rate: opts.rate || 1.0,
             pitch: opts.pitch || 1.0,
@@ -496,7 +534,7 @@ QUY TẮC TÍNH AMOUNT (rất quan trọng):
         return null;
       }
 
-      const utt = new SpeechSynthesisUtterance(text);
+      const utt = new SpeechSynthesisUtterance(processedText);
       utt.lang = opts.lang || 'vi-VN';
       utt.rate = opts.rate || 1.0;
       utt.pitch = opts.pitch || 1.0;
