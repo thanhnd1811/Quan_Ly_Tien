@@ -7412,6 +7412,10 @@ const App = {
         <button type="button" class="kw-learn-btn save" data-act="save">💾 Lưu</button>
         <button type="button" class="kw-learn-btn skip" data-act="skip">Bỏ qua</button>
       </div>
+      <div style="font-size:11px;color:#1e3a8a;margin-top:8px;text-align:center">
+        💡 Muốn thêm/xoá từ khác?
+        <a href="#" class="kw-learn-edit-link" style="color:#2563eb;font-weight:600;text-decoration:underline">Mở "Từ khoá voice" của ${this.escapeHtml(cat.name)} →</a>
+      </div>
     `;
     wrap.innerHTML = html;
     wrap.style.display = 'block';
@@ -7454,7 +7458,7 @@ const App = {
       if (added > 0) {
         await window.QLT_Store.put('categories', cat);
         await this.reload();
-        QLT_UI.toast(`✨ Đã dạy app ${added} từ cho "${cat.name}"`, { type: 'success', duration: 2800 });
+        QLT_UI.toast(`✨ Đã dạy ${added} từ cho "${cat.name}" — sửa lại trong Danh mục → tap cat`, { type: 'success', duration: 4000 });
         this.autoSync();
       }
       wrap.style.display = 'none';
@@ -7464,6 +7468,22 @@ const App = {
       wrap.style.display = 'none';
       delete this.state._catDetectContext;
     };
+    // Link "Mở từ khoá voice của <cat>"
+    const editLink = wrap.querySelector('.kw-learn-edit-link');
+    if (editLink) {
+      editLink.onclick = (e) => {
+        e.preventDefault();
+        wrap.style.display = 'none';
+        delete this.state._catDetectContext;
+        // Mở cat modal cho cat user vừa chọn
+        this.openCatModal(cat.id);
+        // Scroll đến section Từ khoá sau khi modal load
+        setTimeout(() => {
+          const kwLabel = $('#catKeywordsWrap');
+          if (kwLabel) kwLabel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 250);
+      };
+    }
   },
 
   // Trích keyword candidate từ text — lọc thông minh + xếp hạng theo mức "đặc biệt"
