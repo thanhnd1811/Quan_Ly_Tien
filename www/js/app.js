@@ -2143,6 +2143,12 @@ const App = {
   // Phân biệt 'payment' (tiền dùng được) và 'savings' (sổ tiết kiệm — locked)
   isSavings(acc) { return (acc?.accountType || 'payment') === 'savings'; },
   isPayment(acc) { return (acc?.accountType || 'payment') === 'payment'; },
+
+  // Helper: tx là thu/chi THẬT (không phải Điều chỉnh số dư)
+  // Điều chỉnh số dư = giao dịch hệ thống tạo khi user dùng nút "⚖️" để fix sai lệch
+  // → KHÔNG nên tính vào "Thu nhập" / "Chi tiêu" tháng (gây hiểu nhầm)
+  isRealIncome(t) { return t && t.type === 'income' && !t._adjustment; },
+  isRealExpense(t) { return t && t.type === 'expense' && !t._adjustment; },
   // Sổ tiết kiệm "đang hoạt động" (chưa đóng/đáo hạn/rút trước hạn)
   isActiveSavings(acc) { return this.isSavings(acc) && !acc.savingsClosed; },
   isClosedSavings(acc) { return this.isSavings(acc) && !!acc.savingsClosed; },
@@ -2241,12 +2247,14 @@ const App = {
     for (const a of this.state.accounts) accChange[a.id] = 0;
     for (const t of this.state.transactions) {
       if (!t.date.startsWith(ym)) continue;
-      // Bỏ qua transfer giữa savings ↔ payment khỏi Thu/Chi tháng (không phải thu nhập/chi tiêu thật)
+      // Tổng Thu/Chi tháng: BỎ giao dịch _adjustment (Điều chỉnh số dư)
+      // — đó không phải thu nhập / chi tiêu thật, chỉ là fix sai lệch số dư.
+      // accChange (thay đổi số dư từng ví) VẪN tính _adjustment vì nó là sự thay đổi thực tế.
       if (t.type === 'income') {
-        inc += t.amount;
+        if (!t._adjustment) inc += t.amount;
         accChange[t.accountId] = (accChange[t.accountId] || 0) + t.amount;
       } else if (t.type === 'expense') {
-        exp += t.amount;
+        if (!t._adjustment) exp += t.amount;
         accChange[t.accountId] = (accChange[t.accountId] || 0) - t.amount;
       } else if (t.type === 'transfer') {
         accChange[t.accountId] = (accChange[t.accountId] || 0) - t.amount;
@@ -2746,8 +2754,8 @@ const App = {
 
       list.innerHTML = Object.keys(groups).sort().reverse().map(date => {
         const dayTxs = groups[date];
-        const dayInc = dayTxs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-        const dayExp = dayTxs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+        const dayInc = dayTxs.filter(t => this.isRealIncome(t)).reduce((s, t) => s + t.amount, 0);
+        const dayExp = dayTxs.filter(t => this.isRealExpense(t)).reduce((s, t) => s + t.amount, 0);
         return `
           <div class="day-header">
             <div>${this.formatDate(date)}</div>
@@ -3173,8 +3181,8 @@ const App = {
     let totalInc = 0, totalExp = 0;
     for (const t of this.state.transactions) {
       if (t.date < from || t.date > to) continue;
-      if (t.type === 'income') totalInc += t.amount;
-      else if (t.type === 'expense') totalExp += t.amount;
+      if (this.isRealIncome(t)) totalInc += t.amount;
+      else if (this.isRealExpense(t)) totalExp += t.amount;
     }
     const balance = totalInc - totalExp;
     const savePct = totalInc > 0 ? Math.round(balance / totalInc * 100) : 0;
@@ -3707,6 +3715,10 @@ const App = {
   },
 
   groupByPeriod(period) {
+    // BỎ giao dịch _adjustment (Điều chỉnh số dư) khỏi income/expense
+    // → biểu đồ chỉ thể hiện thu/chi thật, không bị nhiễu bởi balance fix.
+    const isInc = (t) => this.isRealIncome(t);
+    const isExp = (t) => this.isRealExpense(t);
     const out = [];
     const now = new Date();
     if (period === 'day') {
@@ -3714,8 +3726,8 @@ const App = {
       for (let i = 6; i >= 0; i--) {
         const d = new Date(now); d.setDate(d.getDate() - i);
         const key = d.toISOString().slice(0, 10);
-        const inc = this.state.transactions.filter(t => t.type === 'income' && t.date === key).reduce((s, t) => s + t.amount, 0);
-        const exp = this.state.transactions.filter(t => t.type === 'expense' && t.date === key).reduce((s, t) => s + t.amount, 0);
+        const inc = this.state.transactions.filter(t => isInc(t) && t.date === key).reduce((s, t) => s + t.amount, 0);
+        const exp = this.state.transactions.filter(t => isExp(t) && t.date === key).reduce((s, t) => s + t.amount, 0);
         out.push({ label: `${d.getDate()}/${d.getMonth() + 1}`, income: inc, expense: exp });
       }
     } else if (period === 'week') {
@@ -3726,8 +3738,8 @@ const App = {
         const end = new Date(start); end.setDate(start.getDate() + 6);
         const fromS = start.toISOString().slice(0, 10);
         const toS = end.toISOString().slice(0, 10);
-        const inc = this.state.transactions.filter(t => t.type === 'income' && t.date >= fromS && t.date <= toS).reduce((s, t) => s + t.amount, 0);
-        const exp = this.state.transactions.filter(t => t.type === 'expense' && t.date >= fromS && t.date <= toS).reduce((s, t) => s + t.amount, 0);
+        const inc = this.state.transactions.filter(t => isInc(t) && t.date >= fromS && t.date <= toS).reduce((s, t) => s + t.amount, 0);
+        const exp = this.state.transactions.filter(t => isExp(t) && t.date >= fromS && t.date <= toS).reduce((s, t) => s + t.amount, 0);
         out.push({ label: `T${start.getDate()}/${start.getMonth() + 1}`, income: inc, expense: exp });
       }
     } else if (period === 'month') {
@@ -3735,16 +3747,16 @@ const App = {
       for (let i = 11; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const ym = d.toISOString().slice(0, 7);
-        const inc = this.state.transactions.filter(t => t.type === 'income' && t.date.startsWith(ym)).reduce((s, t) => s + t.amount, 0);
-        const exp = this.state.transactions.filter(t => t.type === 'expense' && t.date.startsWith(ym)).reduce((s, t) => s + t.amount, 0);
+        const inc = this.state.transactions.filter(t => isInc(t) && t.date.startsWith(ym)).reduce((s, t) => s + t.amount, 0);
+        const exp = this.state.transactions.filter(t => isExp(t) && t.date.startsWith(ym)).reduce((s, t) => s + t.amount, 0);
         out.push({ label: `T${d.getMonth() + 1}`, income: inc, expense: exp });
       }
     } else if (period === 'year') {
       // 5 năm gần nhất
       for (let i = 4; i >= 0; i--) {
         const y = now.getFullYear() - i;
-        const inc = this.state.transactions.filter(t => t.type === 'income' && t.date.startsWith(y + '')).reduce((s, t) => s + t.amount, 0);
-        const exp = this.state.transactions.filter(t => t.type === 'expense' && t.date.startsWith(y + '')).reduce((s, t) => s + t.amount, 0);
+        const inc = this.state.transactions.filter(t => isInc(t) && t.date.startsWith(y + '')).reduce((s, t) => s + t.amount, 0);
+        const exp = this.state.transactions.filter(t => isExp(t) && t.date.startsWith(y + '')).reduce((s, t) => s + t.amount, 0);
         out.push({ label: y + '', income: inc, expense: exp });
       }
     } else if (period === 'custom') {
@@ -3758,8 +3770,8 @@ const App = {
         for (let i = 0; i < days; i++) {
           const d = new Date(fromD); d.setDate(fromD.getDate() + i);
           const key = d.toISOString().slice(0, 10);
-          const inc = this.state.transactions.filter(t => t.type === 'income' && t.date === key).reduce((s, t) => s + t.amount, 0);
-          const exp = this.state.transactions.filter(t => t.type === 'expense' && t.date === key).reduce((s, t) => s + t.amount, 0);
+          const inc = this.state.transactions.filter(t => isInc(t) && t.date === key).reduce((s, t) => s + t.amount, 0);
+          const exp = this.state.transactions.filter(t => isExp(t) && t.date === key).reduce((s, t) => s + t.amount, 0);
           out.push({ label: `${d.getDate()}/${d.getMonth() + 1}`, income: inc, expense: exp });
         }
       } else if (days <= 180) {
@@ -3768,16 +3780,16 @@ const App = {
           const wEnd = new Date(s); wEnd.setDate(s.getDate() + 6);
           const fromW = s.toISOString().slice(0, 10);
           const toW = wEnd.toISOString().slice(0, 10);
-          const inc = this.state.transactions.filter(t => t.type === 'income' && t.date >= fromW && t.date <= toW && t.date >= fromS && t.date <= toS).reduce((sum, t) => sum + t.amount, 0);
-          const exp = this.state.transactions.filter(t => t.type === 'expense' && t.date >= fromW && t.date <= toW && t.date >= fromS && t.date <= toS).reduce((sum, t) => sum + t.amount, 0);
+          const inc = this.state.transactions.filter(t => isInc(t) && t.date >= fromW && t.date <= toW && t.date >= fromS && t.date <= toS).reduce((sum, t) => sum + t.amount, 0);
+          const exp = this.state.transactions.filter(t => isExp(t) && t.date >= fromW && t.date <= toW && t.date >= fromS && t.date <= toS).reduce((sum, t) => sum + t.amount, 0);
           out.push({ label: `T${s.getDate()}/${s.getMonth() + 1}`, income: inc, expense: exp });
         }
       } else {
         const m = new Date(fromD.getFullYear(), fromD.getMonth(), 1);
         while (m <= toD) {
           const ym = m.toISOString().slice(0, 7);
-          const inc = this.state.transactions.filter(t => t.type === 'income' && t.date.startsWith(ym) && t.date >= fromS && t.date <= toS).reduce((sum, t) => sum + t.amount, 0);
-          const exp = this.state.transactions.filter(t => t.type === 'expense' && t.date.startsWith(ym) && t.date >= fromS && t.date <= toS).reduce((sum, t) => sum + t.amount, 0);
+          const inc = this.state.transactions.filter(t => isInc(t) && t.date.startsWith(ym) && t.date >= fromS && t.date <= toS).reduce((sum, t) => sum + t.amount, 0);
+          const exp = this.state.transactions.filter(t => isExp(t) && t.date.startsWith(ym) && t.date >= fromS && t.date <= toS).reduce((sum, t) => sum + t.amount, 0);
           out.push({ label: `${m.getMonth() + 1}/${(m.getFullYear() + '').slice(2)}`, income: inc, expense: exp });
           m.setMonth(m.getMonth() + 1);
         }
@@ -3976,13 +3988,13 @@ const App = {
     const prevSameDay = Math.min(dayOfMonth, new Date(prev.getFullYear(), prev.getMonth() + 1, 0).getDate());
 
     const txs = this.state.transactions;
-    const expThis = txs.filter(t => t.type === 'expense' && t.date.startsWith(ym))
+    const expThis = txs.filter(t => this.isRealExpense(t) && t.date.startsWith(ym))
       .reduce((s, t) => s + t.amount, 0);
-    const incThis = txs.filter(t => t.type === 'income' && t.date.startsWith(ym))
+    const incThis = txs.filter(t => this.isRealIncome(t) && t.date.startsWith(ym))
       .reduce((s, t) => s + t.amount, 0);
 
     // 1) So sánh chi tiêu với cùng kỳ tháng trước
-    const expPrevSameDay = txs.filter(t => t.type === 'expense' && t.date.startsWith(prevYm) &&
+    const expPrevSameDay = txs.filter(t => this.isRealExpense(t) && t.date.startsWith(prevYm) &&
       parseInt(t.date.slice(8, 10), 10) <= prevSameDay
     ).reduce((s, t) => s + t.amount, 0);
     if (expPrevSameDay > 100000 && expThis > 100000) {
@@ -4109,9 +4121,9 @@ const App = {
     const remainDays = totalDays - dayOfMonth;
     const monthLabel = `T${now.getMonth() + 1}`;
 
-    // Đã chi tháng này
+    // Đã chi tháng này (KHÔNG tính giao dịch _adjustment — không phải chi thật)
     const spent = this.state.transactions
-      .filter(t => t.type === 'expense' && t.date.startsWith(ym))
+      .filter(t => this.isRealExpense(t) && t.date.startsWith(ym))
       .reduce((s, t) => s + t.amount, 0);
 
     // Cần ít nhất 2 ngày data + có chi mới dự báo có ý nghĩa
@@ -4149,11 +4161,11 @@ const App = {
     // Recurring info chỉ hiển thị riêng để user tham khảo, không nhập vào forecast.
     const forecast = Math.round(spent + avgPerDay * remainDays);
 
-    // Tháng trước (cùng cả tháng)
+    // Tháng trước (cùng cả tháng) — bỏ giao dịch _adjustment
     const lastDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastYm = lastDate.toISOString().slice(0, 7);
     const lastSpent = this.state.transactions
-      .filter(t => t.type === 'expense' && t.date.startsWith(lastYm))
+      .filter(t => this.isRealExpense(t) && t.date.startsWith(lastYm))
       .reduce((s, t) => s + t.amount, 0);
 
     // Compare
