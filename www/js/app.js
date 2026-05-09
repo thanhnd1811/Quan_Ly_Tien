@@ -6147,6 +6147,7 @@ const App = {
     const cd = $('#txCatDetected');
     if (cd) { cd.style.display = 'none'; cd.innerHTML = ''; }
     delete this.state._catDetectContext;
+    this.state._catDetectFromNote = false;
     const isNew = !id;
     let tx;
     if (isNew) {
@@ -6191,6 +6192,18 @@ const App = {
     $('#txNote').value = tx.note || '';
     $('#txDelete').style.display = isNew ? 'none' : 'block';
     $('#txTitle').textContent = isNew ? 'Thêm giao dịch' : 'Sửa giao dịch';
+
+    // Note typing → auto-detect cat (debounced 400ms)
+    // Chỉ trigger khi: tx mới (chưa có cat) HOẶC cat hiện tại do auto-detect (user chưa lock manual)
+    const noteEl = $('#txNote');
+    if (noteEl && !noteEl._catDetectBound) {
+      noteEl._catDetectBound = true;
+      let dbTimer = null;
+      noteEl.addEventListener('input', () => {
+        clearTimeout(dbTimer);
+        dbTimer = setTimeout(() => this._detectCatFromNote(noteEl.value), 400);
+      });
+    }
 
     // Render account picker
     $('#txAccountList').innerHTML = this.state.accounts.slice().sort(sortByOrder).map(a => `
@@ -6613,18 +6626,22 @@ const App = {
     $('#txCategoryList').innerHTML = html;
 
     // ===== Click handlers =====
+    // Helper: lock cat manual → các flag auto-detect bị clear
+    const lockManual = (cid) => {
+      this.state.editingTx.categoryId = cid;
+      delete this.state.editingTx._activeParent;
+      delete this.state.editingTx._catFromAutoDetect;
+    };
+
     // Parent tile: leaf → chọn; có children → set active parent (re-render)
     $$('#txCategoryList .cat-grid-tile').forEach(el => {
       el.onclick = () => {
         const pid = el.dataset.parentId;
         const hasChildren = el.dataset.hasChildren === '1';
         if (!hasChildren) {
-          // Cha không có con → coi như leaf, chọn luôn
-          this.state.editingTx.categoryId = pid;
-          delete this.state.editingTx._activeParent;
+          lockManual(pid);
           this._maybeOfferKeywordLearning(pid);
         } else {
-          // Set active parent → sub area swap
           this.state.editingTx._activeParent = pid;
         }
         this.renderTxCategoryPicker(type);
@@ -6636,8 +6653,7 @@ const App = {
     $$('#txCategoryList .cat-sub-tile').forEach(el => {
       el.onclick = () => {
         const cid = el.dataset.cat;
-        this.state.editingTx.categoryId = cid;
-        delete this.state.editingTx._activeParent;
+        lockManual(cid);
         this.renderTxCategoryPicker(type);
         this.renderTxBudgetHint();
         this._maybeOfferKeywordLearning(cid);
@@ -6648,8 +6664,7 @@ const App = {
     $$('#txCategoryList [data-pick-parent]').forEach(el => {
       el.onclick = () => {
         const cid = el.dataset.pickParent;
-        this.state.editingTx.categoryId = cid;
-        delete this.state.editingTx._activeParent;
+        lockManual(cid);
         this.renderTxCategoryPicker(type);
         this.renderTxBudgetHint();
         this._maybeOfferKeywordLearning(cid);
@@ -6660,8 +6675,7 @@ const App = {
     $$('#txCategoryList .cat-recent-tile, #txCategoryList .cat-orphan-tile').forEach(el => {
       el.onclick = () => {
         const cid = el.dataset.cat;
-        this.state.editingTx.categoryId = cid;
-        delete this.state.editingTx._activeParent;
+        lockManual(cid);
         this.renderTxCategoryPicker(type);
         this.renderTxBudgetHint();
         this._maybeOfferKeywordLearning(cid);
@@ -7216,6 +7230,64 @@ const App = {
     const status = $('#txOcrStatus');
     if (status) { status.style.display = 'none'; status.style.color = ''; }
     if (autoSave) setTimeout(() => this.saveTx(), 250);
+  },
+
+  // Detect category từ note typing (debounced) — auto-pick + show banner
+  _detectCatFromNote(noteText) {
+    const tx = this.state.editingTx;
+    if (!tx) return;
+    const text = (noteText || '').trim();
+    // Reset state nếu note bị xoá hết
+    if (text.length < 2) {
+      const wrap = $('#txCatDetected');
+      if (wrap && this.state._catDetectFromNote) {
+        wrap.style.display = 'none';
+        // Nếu cat đang chọn là do auto-detect từ note → bỏ
+        if (tx.categoryId && tx._catFromAutoDetect) {
+          tx.categoryId = null;
+          delete tx._catFromAutoDetect;
+          this.renderTxCategoryPicker(tx.type || 'expense');
+        }
+      }
+      this.state._catDetectFromNote = false;
+      return;
+    }
+
+    const type = tx.type || $('#txForm').dataset.type || 'expense';
+    if (type === 'transfer') return;
+
+    // Nếu user đã chọn cat thủ công (không phải auto-detect) → KHÔNG override
+    if (tx.categoryId && !tx._catFromAutoDetect) return;
+
+    const cands = this.state.categories.filter(c => c.type === type && !c.archived);
+    const M = window.QLT_CategoryMatcher;
+    if (!M) return;
+
+    const now = new Date();
+    const recentCatIds = (this.state.transactions || [])
+      .filter(t => t.type === type && t.categoryId).slice(-15).map(t => t.categoryId);
+    const amount = parseVoiceAmount(text) || (tx.amount || 0);
+    const r = M.match(text, cands, { type, amount, hourOfDay: now.getHours(), recentCatIds });
+
+    const wrap = $('#txCatDetected');
+    if (r.confidence >= M.THRESHOLD.SUGGEST) {
+      // Auto-pick + show banner
+      tx.categoryId = r.categoryId;
+      tx._catFromAutoDetect = true;
+      delete tx._activeParent;
+      this.renderTxCategoryPicker(type);
+      this._showCatDetectedBanner(r.categoryId, r.confidence, text, type);
+      this.state._catDetectFromNote = true;
+    } else if (this.state._catDetectFromNote) {
+      // Trước đó có detect, giờ note đổi không match nữa → ẩn banner + clear cat auto
+      if (wrap) wrap.style.display = 'none';
+      if (tx._catFromAutoDetect) {
+        tx.categoryId = null;
+        delete tx._catFromAutoDetect;
+        this.renderTxCategoryPicker(type);
+      }
+      this.state._catDetectFromNote = false;
+    }
   },
 
   // ============================================================
