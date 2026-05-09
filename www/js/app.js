@@ -5876,12 +5876,26 @@ const App = {
     }
     if (r?.latest) {
       if (r.hasUpdate) {
-        html += `<div style="margin-top:8px;padding:8px 10px;background:rgba(34,197,94,.1);border-radius:6px"><span class="new">🆕 Có bản mới: ${this.escapeHtml(r.latest.tag)}</span></div>`;
+        const apkSize = r.latest.apk?.size ? ` · ${(r.latest.apk.size / 1024 / 1024).toFixed(1)} MB` : '';
+        const date = r.latest.publishedAt ? new Date(r.latest.publishedAt).toLocaleDateString('vi-VN') : '';
+        html += `
+          <div style="margin-top:10px;padding:10px;background:linear-gradient(135deg,#1e40af,#3b82f6);color:#fff;border-radius:8px">
+            <div style="font-weight:700;font-size:13px;margin-bottom:4px">🆕 Có bản mới: ${this.escapeHtml(r.latest.tag)}</div>
+            <div style="font-size:11px;opacity:.9;margin-bottom:8px">${this.escapeHtml(r.latest.name || '')} · ${date}${apkSize}</div>
+            <button id="setUpdateInstallBtn" style="width:100%;padding:9px;background:#fff;color:#1e40af;border:none;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer">📥 Tải về & cài đặt</button>
+          </div>
+        `;
       } else {
         html += `<div style="margin-top:6px;color:var(--text3);font-size:11px">✅ Bạn đang dùng phiên bản mới nhất</div>`;
       }
     }
     el.innerHTML = html;
+
+    // Bind nút install
+    const installBtn = $('#setUpdateInstallBtn');
+    if (installBtn && r?.hasUpdate) {
+      installBtn.onclick = () => this._openUpdateUrl(r.apkUrl, r.releaseUrl);
+    }
   },
 
   // ============================================================
