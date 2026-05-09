@@ -501,9 +501,11 @@ VÍ DỤ:
               toolResults.push({ name: call.name, response: { error: e.message } });
             }
           }
+          // Push lại RAW parts từ model response — KHÔNG rebuild lại,
+          // để giữ nguyên `thoughtSignature` mà Gemini 2.5/3 yêu cầu.
           messages.push({
             role: 'model',
-            parts: r.toolCalls.map(c => ({ functionCall: { name: c.name, args: c.args || {} } }))
+            parts: r.rawParts || r.toolCalls.map(c => ({ functionCall: { name: c.name, args: c.args || {} } }))
           });
           messages.push({
             role: 'user',

@@ -140,10 +140,12 @@
     });
   }
 
-  // Parse response Gemini → { text, toolCalls, finishReason }
+  // Parse response Gemini → { text, toolCalls, finishReason, rawParts }
+  // rawParts: nguyên parts từ response — PHẢI giữ lại để gửi LẠI model trong
+  // turn sau (Gemini 2.5/3 yêu cầu thoughtSignature ở part level).
   function parseGeminiResponse(json) {
     const cand = json.candidates?.[0];
-    if (!cand) return { text: '', toolCalls: [], finishReason: 'no-candidate' };
+    if (!cand) return { text: '', toolCalls: [], finishReason: 'no-candidate', rawParts: [] };
     const parts = cand.content?.parts || [];
     let text = '';
     const toolCalls = [];
@@ -157,7 +159,8 @@
       text,
       toolCalls,
       finishReason: cand.finishReason || 'stop',
-      usage: json.usageMetadata
+      usage: json.usageMetadata,
+      rawParts: parts
     };
   }
 
