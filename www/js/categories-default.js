@@ -100,11 +100,30 @@
       keywords: { brand: [], strong: ['di lai', 'phuong tien'], weak: [] }
     },
     {
-      slug: 'transport_fuel', type: 'expense', name: 'Xăng xe', icon: 'fuel', color: '#dc2626',
+      // Cat tổng hợp "Chi phí xe" — gộp Xăng xe + Bảo dưỡng/Sửa xe + Đăng kiểm + BH xe.
+      // Khi user pick cat này trong Tx form → hiện panel mở rộng với Loại + Xe + fields tương ứng,
+      // Save → vừa tạo tx vừa tạo fuel log / maintenance log đầy đủ.
+      slug: 'transport_vehicle', type: 'expense', name: 'Chi phí xe', icon: 'fuel', color: '#dc2626',
       parentSlug: 'transport',
       keywords: {
-        brand: ['petrolimex', 'pvoil', 'pv oil', 'pv-oil', 'shell', 'castrol', 'caltex', 'mipec', 'saigon petro', 'idemitsu', 'comeco', 'mipecorp'],
-        strong: ['do xang', 'bom xang', 'xang xe', 'tien xang', 'xang a95', 'xang a92', 'xang e5', 'ron 95', 'ron 92', 'ron95', 'ron92', 'dau diesel', 'dau do', 'fill xang', 'cay xang'],
+        // Brands xăng dầu + tiệm sửa xe + hãng bảo hiểm xe
+        brand: ['petrolimex', 'pvoil', 'pv oil', 'pv-oil', 'shell', 'castrol', 'caltex', 'mipec', 'saigon petro', 'idemitsu', 'comeco', 'mipecorp', 'honda head', 'yamaha town', 'yamaha 3s'],
+        strong: [
+          // Đổ xăng
+          'do xang', 'bom xang', 'xang xe', 'tien xang', 'xang a95', 'xang a92', 'xang e5',
+          'ron 95', 'ron 92', 'ron95', 'ron92', 'dau diesel', 'dau do', 'fill xang', 'cay xang',
+          'chi phi xe', 'tien xe',
+          // Bảo dưỡng / Sửa xe
+          'bao duong xe', 'bao duong', 'sua xe', 'sua o to', 'sua xe may', 'thay nhot',
+          'thay dau nhot', 'thay lop', 'thay banh', 'rua xe', 'rua o to', 'tiem xe', 'garage',
+          'thay binh', 'thay binh ac quy', 'thay phanh', 'thay xich', 'thay lop xe',
+          'thay xich xe', 'sua tham xe', 'kiem tra xe',
+          // Đăng kiểm
+          'dang kiem', 'phi dang kiem', 'tien dang kiem',
+          // Bảo hiểm xe
+          'bao hiem xe', 'bao hiem o to', 'bao hiem xe may', 'bao hiem xe co gioi',
+          'phi bao hiem xe', 'mua bao hiem xe'
+        ],
         weak: ['xang', 'gas', 'fuel', 'xang dau']
       },
       antiKeywords: {
@@ -112,8 +131,7 @@
         'binh ga': 'bills_gas',
         'gas dun': 'bills_gas',
         'binh gas': 'bills_gas',
-        'ro ri ga': 'housing_repair',
-        'gas station': 'transport_fuel'
+        'ro ri ga': 'housing_repair'
       }
     },
     {
@@ -156,15 +174,7 @@
         weak: []
       }
     },
-    {
-      slug: 'transport_repair', type: 'expense', name: 'Bảo dưỡng / Sửa xe', icon: 'wrench', color: '#7c3aed',
-      parentSlug: 'transport',
-      keywords: {
-        brand: ['honda head', 'yamaha town', 'yamaha 3s'],
-        strong: ['bao duong xe', 'bao duong', 'sua xe', 'sua o to', 'sua xe may', 'thay nhot', 'thay dau nhot', 'thay lop', 'thay banh', 'rua xe', 'rua o to', 'tiem xe', 'garage', 'thay binh', 'thay binh ac quy', 'thay phanh', 'thay xich', 'thay lop xe', 'thay xich xe', 'sua tham xe', 'kiem tra xe', 'dang kiem'],
-        weak: []
-      }
-    },
+    // (transport_repair đã GỘP vào transport_vehicle — không còn cat riêng)
 
     // ─────────────────────── 3. NHÀ Ở ───────────────────────
     {
@@ -368,8 +378,9 @@
       slug: 'health_insurance', type: 'expense', name: 'Bảo hiểm sức khỏe', icon: 'shield', color: '#0891b2',
       parentSlug: 'health',
       keywords: {
-        brand: ['bao viet', 'baoviet', 'manulife', 'prudential', 'aia', 'dai-ichi', 'daiichi', 'fwd', 'generali', 'cathay', 'pvi care', 'bao hiem viet'],
-        strong: ['bao hiem suc khoe', 'bao hiem y te', 'bao hiem nhan tho', 'bhyt', 'tham nien bao hiem', 'phi bao hiem y te', 'tien bao hiem suc khoe', 'phi bao hiem suc khoe'],
+        // Brand riêng cho BH y tế (không trùng với BH nhân thọ chung)
+        brand: ['pvi care', 'bao hiem viet', 'bao viet healthcare'],
+        strong: ['bao hiem suc khoe', 'bao hiem y te', 'bhyt', 'phi bao hiem y te', 'tien bao hiem suc khoe', 'phi bao hiem suc khoe', 'mua bhyt', 'gia han bhyt'],
         weak: []
       }
     },
@@ -594,12 +605,23 @@
       }
     },
     {
-      slug: 'fin_insurance', type: 'expense', name: 'Bảo hiểm (xe/nhà/nhân thọ)', icon: 'shield', color: '#0891b2',
+      slug: 'fin_insurance', type: 'expense', name: 'Bảo hiểm (nhà/nhân thọ)', icon: 'shield', color: '#0891b2',
       parentSlug: 'finance',
       keywords: {
-        brand: ['bao viet', 'baoviet', 'manulife', 'prudential', 'aia', 'dai-ichi', 'fwd', 'generali', 'pvi', 'pvi care', 'mic', 'pjico', 'liberty', 'bid'],
-        strong: ['bao hiem xe', 'bao hiem o to', 'bao hiem xe may', 'bao hiem nha', 'bao hiem chay no', 'bao hiem nhan tho', 'phi bao hiem', 'tien bao hiem', 'phi bh', 'gia han bao hiem', 'mua bao hiem', 'dong bao hiem', 'phi bao hiem xe', 'phi bao hiem nha'],
-        weak: ['bh']
+        brand: ['manulife', 'prudential', 'aia', 'dai-ichi', 'fwd', 'generali'],
+        strong: ['bao hiem nha', 'bao hiem chay no', 'bao hiem nhan tho', 'phi bao hiem nhan tho', 'phi bao hiem nha', 'gia han bao hiem nha', 'gia han bao hiem nhan tho', 'mua bao hiem nha', 'mua bao hiem nhan tho'],
+        weak: []
+      },
+      antiKeywords: {
+        // Bảo hiểm xe ô tô / xe máy → vào "Chi phí xe" để theo dõi tổng chi phí xe đó
+        'bao hiem xe': 'transport_vehicle',
+        'bao hiem o to': 'transport_vehicle',
+        'bao hiem xe may': 'transport_vehicle',
+        'phi bao hiem xe': 'transport_vehicle',
+        'mua bao hiem xe': 'transport_vehicle',
+        // Bảo hiểm sức khỏe → cat riêng
+        'bao hiem suc khoe': 'health_insurance',
+        'bao hiem y te': 'health_insurance'
       }
     },
     {
@@ -810,8 +832,16 @@
     'an nha hang': 'food_dining',
     'nha hang': 'food_dining',
 
-    'xang xe': 'transport_fuel',
-    'xang': 'transport_fuel',
+    'xang xe': 'transport_vehicle',
+    'xang': 'transport_vehicle',
+    'chi phi xe': 'transport_vehicle',
+    'sua xe': 'transport_vehicle',
+    'bao duong xe': 'transport_vehicle',
+    'bao duong / sua xe': 'transport_vehicle',
+    'sua chua xe': 'transport_vehicle',
+    // Slug cũ V2 → slug mới (cho user đã migrate trước)
+    'transport_fuel': 'transport_vehicle',
+    'transport_repair': 'transport_vehicle',
     'xe co': 'transport',
     'di lai grab': 'transport_taxi',
     'di lai / grab': 'transport_taxi',
@@ -821,8 +851,6 @@
     've xe': 'transport_ticket',
     've may bay': 'transport_ticket',
     'gui xe': 'transport_parking',
-    'sua xe': 'transport_repair',
-    'bao duong xe': 'transport_repair',
     'do xe': 'transport_parking',
 
     'tien nha': 'housing_rent',

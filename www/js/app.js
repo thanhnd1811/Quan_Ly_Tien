@@ -4124,7 +4124,7 @@ const App = {
     const remainDays = totalDays - dayOfMonth;
     const monthLabel = `T${now.getMonth() + 1}`;
 
-    // Đã chi tháng này (KHÔNG tính giao dịch _adjustment — không phải chi thật)
+    // Đã chi tháng này (loại _adjustment — không phải chi thật)
     const spent = this.state.transactions
       .filter(t => this.isRealExpense(t) && t.date.startsWith(ym))
       .reduce((s, t) => s + t.amount, 0);
@@ -4133,75 +4133,53 @@ const App = {
     if (dayOfMonth < 2 || spent === 0) { wrap.style.display = 'none'; return; }
 
     const avgPerDay = spent / dayOfMonth;
-
-    // ===== Recurring rules sắp fire trong phần còn lại của tháng =====
-    const todayStr = now.toISOString().slice(0, 10);
-    const eom = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    const eomStr = eom.toISOString().slice(0, 10);
-    let recExp = 0, recInc = 0, recCount = 0;
-    for (const rule of (this.state.recurringRules || [])) {
-      if (!rule.active) continue;
-      // Bắt đầu duyệt từ ngày sau hôm nay (tránh cộng lại các tx đã fire)
-      let cursor = new Date(now);
-      cursor.setDate(cursor.getDate() + 1);
-      for (let i = 0; i < 35; i++) {
-        const cursorStr = cursor.toISOString().slice(0, 10);
-        if (cursorStr > eomStr) break;
-        const nextStr = this.recurringNextDate(rule, cursorStr);
-        if (nextStr > eomStr) break;
-        if (rule.endDate && nextStr > rule.endDate) break;
-        if (rule.type === 'income') { recInc += rule.amount || 0; recCount++; }
-        else if (rule.type === 'expense') { recExp += rule.amount || 0; recCount++; }
-        // transfer không ảnh hưởng tổng số dư nên bỏ qua
-        cursor = new Date(nextStr + 'T00:00:00');
-        cursor.setDate(cursor.getDate() + 1);
-      }
-    }
-
-    // Forecast chi = đã chi + (trung bình ngày × ngày còn lại)
-    // KHÔNG cộng recExp vì avgPerDay đã ngoại suy theo pattern hiện tại (bao gồm recurring đã fire).
-    // Cộng recExp nữa sẽ DOUBLE-COUNT các giao dịch định kỳ sẽ tiếp tục fire.
-    // Recurring info chỉ hiển thị riêng để user tham khảo, không nhập vào forecast.
     const forecast = Math.round(spent + avgPerDay * remainDays);
 
-    // Tháng trước (cùng cả tháng) — bỏ giao dịch _adjustment
-    const lastDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastYm = lastDate.toISOString().slice(0, 7);
-    const lastSpent = this.state.transactions
-      .filter(t => this.isRealExpense(t) && t.date.startsWith(lastYm))
-      .reduce((s, t) => s + t.amount, 0);
-
-    // Compare
+    // ===== So sánh với TRUNG BÌNH 3 tháng gần nhất (ổn định hơn 1 tháng) =====
+    // Chỉ hiển thị nếu có ít nhất 1 tháng có data đủ (≥ 30% forecast hiện tại)
+    // — tránh "tháng trước = 1.3M, tháng này = 21M → +1539%" gây hoảng vô lý
+    const last3Months = [];
+    for (let i = 1; i <= 3; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const m = d.toISOString().slice(0, 7);
+      const sum = this.state.transactions
+        .filter(t => this.isRealExpense(t) && t.date.startsWith(m))
+        .reduce((s, t) => s + t.amount, 0);
+      if (sum > 0) last3Months.push({ ym: m, label: `T${d.getMonth() + 1}`, sum });
+    }
+    const validMonths = last3Months.filter(m => m.sum >= forecast * 0.3);
     let trend = 'flat', cmpHtml = '';
-    if (lastSpent > 0) {
-      const diff = forecast - lastSpent;
-      const pct = Math.round(Math.abs(diff) / lastSpent * 100);
-      if (diff > lastSpent * 0.02) {
+    if (validMonths.length > 0) {
+      const avgPrev = validMonths.reduce((s, m) => s + m.sum, 0) / validMonths.length;
+      const diff = forecast - avgPrev;
+      const pct = Math.round(Math.abs(diff) / avgPrev * 100);
+      const baselineLabel = validMonths.length >= 2 ? `TB ${validMonths.length} tháng gần` : validMonths[0].label;
+      if (diff > avgPrev * 0.05) {
         trend = 'up';
-        cmpHtml = `<span class="forecast-compare up">▲ +${pct}% so với T${lastDate.getMonth() + 1} (${fmt(lastSpent)} đ)</span>`;
-      } else if (diff < -lastSpent * 0.02) {
+        cmpHtml = `<span class="forecast-compare up">▲ +${pct}% so với ${baselineLabel} (${fmt(Math.round(avgPrev))} đ)</span>`;
+      } else if (diff < -avgPrev * 0.05) {
         trend = 'down';
-        cmpHtml = `<span class="forecast-compare down">▼ -${pct}% so với T${lastDate.getMonth() + 1} (${fmt(lastSpent)} đ)</span>`;
+        cmpHtml = `<span class="forecast-compare down">▼ -${pct}% so với ${baselineLabel} (${fmt(Math.round(avgPrev))} đ)</span>`;
       } else {
-        cmpHtml = `<span class="forecast-compare flat">≈ tương đương T${lastDate.getMonth() + 1} (${fmt(lastSpent)} đ)</span>`;
+        cmpHtml = `<span class="forecast-compare flat">≈ tương đương ${baselineLabel} (${fmt(Math.round(avgPrev))} đ)</span>`;
       }
     } else {
-      cmpHtml = `<span class="forecast-compare flat">📊 Tháng trước chưa có dữ liệu để so sánh</span>`;
+      // Không đủ data tháng trước → hint thay vì so sánh sai
+      cmpHtml = `<span class="forecast-compare flat" style="opacity:.7">📊 Đang tháng đầu — chưa đủ data để so sánh</span>`;
+    }
+
+    // ===== Action hint =====
+    // Tính mức chi/ngày cần giữ để KHÔNG vượt forecast hoặc baseline trước
+    let hintHtml = '';
+    if (remainDays > 0) {
+      // Giữ ≤ X đ/ngày để forecast không tăng thêm
+      const safeDailyCap = Math.round(avgPerDay); // = giữ nguyên tốc độ hiện tại
+      hintHtml = `<div class="forecast-hint">💡 Giữ ≤ <strong>${fmt(safeDailyCap)} đ/ngày</strong> trong ${remainDays} ngày còn lại để không vượt dự báo</div>`;
     }
 
     // Progress bar: đã chi (xanh) — marker ở vị trí % ngày đã qua
     const dayPct = Math.round(dayOfMonth / totalDays * 100);
     const spentPct = forecast > 0 ? Math.min(100, Math.round(spent / forecast * 100)) : 0;
-
-    // Recurring info line — CHỈ HIỂN THỊ tham khảo, không cộng vào forecast
-    // Vì forecast đã ngoại suy theo trung bình chi (đã bao gồm recurring đã fire trong tháng)
-    let recHtml = '';
-    if (recCount > 0) {
-      const parts = [];
-      if (recExp > 0) parts.push(`<strong style="color:#e76f51">−${fmt(recExp)} đ chi</strong>`);
-      if (recInc > 0) parts.push(`<strong style="color:#52b788">+${fmt(recInc)} đ thu</strong>`);
-      recHtml = `<div class="forecast-detail" style="margin-top:4px;font-size:11px;color:var(--text3)">📌 Định kỳ còn ${recCount} GD: ${parts.join(' · ')} <span style="opacity:.7">(không cộng vào dự báo — đã có trong trung bình)</span></div>`;
-    }
 
     wrap.style.display = 'block';
     wrap.innerHTML = `
@@ -4210,9 +4188,10 @@ const App = {
         <div class="forecast-amount ${trend}">~${fmt(forecast)} đ</div>
         ${cmpHtml}
         <div class="forecast-detail">
-          Đã chi <strong>${fmt(spent)} đ</strong> sau ${dayOfMonth}/${totalDays} ngày · trung bình <strong>${fmt(Math.round(avgPerDay))} đ/ngày</strong>
+          Đã chi <strong>${fmt(spent)} đ</strong> · còn <strong>${remainDays} ngày</strong><br>
+          TB <strong>${fmt(Math.round(avgPerDay))} đ/ngày</strong>
         </div>
-        ${recHtml}
+        ${hintHtml}
         <div class="forecast-progress">
           <div class="forecast-progress-spent" style="width:${spentPct}%"></div>
           <div class="forecast-progress-marker" style="left:${dayPct}%" title="Hôm nay"></div>
@@ -6709,6 +6688,37 @@ const App = {
       hint.style.display = 'none';
       return;
     }
+
+    // Nếu user pick cat "Chi phí xe" (transport_vehicle) → gợi ý dùng tab Chi phí xe
+    // để có data đầy đủ (xe, odometer, lít, kind...) cho báo cáo chi tiết
+    const cat = this.state.categories.find(c => c.id === tx.categoryId);
+    if (cat?.slug === 'transport_vehicle') {
+      hint.style.display = 'block';
+      hint.className = 'tx-budget-hint vehicle-hint';
+      hint.innerHTML = `
+        🚗 <strong>Chi phí xe</strong> — để app theo dõi <em>tiêu thụ xăng / cảnh báo thay nhớt / báo cáo theo từng xe</em>,
+        khuyến khích ghi qua <strong>tab "Chi phí xe"</strong> (có đầy đủ field xe, odometer, lít, loại bảo dưỡng).
+        <br>
+        <a href="#" id="txGoFuelTab" style="color:var(--accent);font-weight:600;text-decoration:underline">
+          → Mở tab Chi phí xe (giữ amount này)
+        </a>
+      `;
+      const goLink = hint.querySelector('#txGoFuelTab');
+      if (goLink) {
+        goLink.onclick = (e) => {
+          e.preventDefault();
+          // Đóng tx form + mở fuel tab + pre-fill amount
+          const amountInput = $('#txAmount');
+          const amount = readAmount(amountInput);
+          $('#txModal').classList.remove('open');
+          this.switchTab('fuel');
+          // Mở modal đổ xăng pre-fill amount (default — user có thể chuyển sang bảo dưỡng)
+          setTimeout(() => this.openFuelLogModal(null, { amount }), 200);
+        };
+      }
+      return;
+    }
+
     const budget = this.state.budgets.find(b => b.categoryId === tx.categoryId);
     if (!budget) { hint.style.display = 'none'; return; }
 
@@ -10277,7 +10287,7 @@ const App = {
         id: null, date: today(),
         vehicleName: preset?.vehicleName || '',
         vehicleType: preset?.vehicleType || 'motorbike',
-        amount: 0, liters: 0, pricePerLiter: 0, odometer: 0,
+        amount: preset?.amount || 0, liters: 0, pricePerLiter: 0, odometer: 0,
         station: '',
         accountId: this.state.accounts.find(a => this.isPayment(a))?.id || null,
         bookId: this.state.currentBookId

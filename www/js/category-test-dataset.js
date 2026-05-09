@@ -25,9 +25,9 @@
     { input: 'shopeefood', expectedSlug: 'food_delivery' },
 
     // ─────────────────── ĐI LẠI (12) ───────────────────
-    { input: 'đổ xăng 100k', expectedSlug: 'transport_fuel' },
-    { input: 'petrolimex 200k', expectedSlug: 'transport_fuel' },
-    { input: 'xăng a95 150k', expectedSlug: 'transport_fuel' },
+    { input: 'đổ xăng 100k', expectedSlug: 'transport_vehicle' },
+    { input: 'petrolimex 200k', expectedSlug: 'transport_vehicle' },
+    { input: 'xăng a95 150k', expectedSlug: 'transport_vehicle' },
     { input: 'grab 45k', expectedSlug: 'transport_taxi' },
     { input: 'taxi mai linh 80k', expectedSlug: 'transport_taxi' },
     { input: 'gojek về nhà', expectedSlug: 'transport_taxi' },
@@ -35,8 +35,12 @@
     { input: 'vé máy bay vietjet 1tr5', expectedSlug: 'transport_ticket' },
     { input: 'vé xe phương trang đà lạt 250k', expectedSlug: 'transport_ticket' },
     { input: 'gửi xe 5k', expectedSlug: 'transport_parking' },
-    { input: 'thay nhớt xe 150k', expectedSlug: 'transport_repair' },
-    { input: 'rửa xe 30k', expectedSlug: 'transport_repair' },
+    { input: 'thay nhớt xe 150k', expectedSlug: 'transport_vehicle' },
+    { input: 'rửa xe 30k', expectedSlug: 'transport_vehicle' },
+    { input: 'đăng kiểm 500k', expectedSlug: 'transport_vehicle', note: 'Đăng kiểm xe' },
+    { input: 'bảo hiểm xe ô tô 1tr2', expectedSlug: 'transport_vehicle', note: 'BH xe → Chi phí xe (không phải fin_insurance)' },
+    { input: 'mua bảo hiểm xe máy 200k', expectedSlug: 'transport_vehicle' },
+    { input: 'bảo hiểm nhân thọ manulife 5tr', expectedSlug: 'fin_insurance', note: 'BH nhân thọ vẫn ở fin_insurance' },
 
     // ─────────────────── HÓA ĐƠN (10) ───────────────────
     { input: 'tiền điện tháng 5 800k', expectedSlug: 'bills_electric' },
@@ -101,7 +105,7 @@
     { input: 'nạp binance 10tr', expectedSlug: 'fin_invest' },
     { input: 'mua vàng sjc 6tr', expectedSlug: 'fin_invest' },
     { input: 'gửi tiết kiệm 50tr', expectedSlug: 'fin_savings' },
-    { input: 'bảo hiểm xe ô tô', expectedSlug: 'fin_insurance' },
+    { input: 'bảo hiểm xe ô tô', expectedSlug: 'transport_vehicle', note: 'BH xe đã chuyển vào Chi phí xe' },
     { input: 'trả nợ ngân hàng 5tr', expectedSlug: 'fin_debt' },
     { input: 'thanh toán thẻ tín dụng vcb', expectedSlug: 'fin_debt' },
     { input: 'phí chuyển khoản 11k', expectedSlug: 'fin_fees' },
@@ -139,7 +143,7 @@
     // ─────────────────── VOICE-STYLE TIẾNG VIỆT KHÔNG DẤU (10) ───────────────────
     { input: 'an com 50k', expectedSlug: 'food_dining' },
     { input: 'ca phe sang 30k', expectedSlug: 'food_coffee' },
-    { input: 'do xang xe 100k', expectedSlug: 'transport_fuel' },
+    { input: 'do xang xe 100k', expectedSlug: 'transport_vehicle' },
     { input: 'di cho 200k', expectedSlug: 'food_grocery' },
     { input: 'thuoc cam 50k', expectedSlug: 'health_medical' },
     { input: 'tien dien thang 5', expectedSlug: 'bills_electric' },
