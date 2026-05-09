@@ -993,9 +993,10 @@ html[data-theme="dark"] .rec-type-pill.on{
 .ai-chat-fab.hidden{display:none}
 
 /* AI Chat modal — popup chatbot style (KHÔNG fullscreen)
-   Kiểu Intercom/Zendesk: 1 cửa sổ nhỏ ở góc dưới phải, không có backdrop */
-.ai-chat-modal{background:transparent !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important;align-items:flex-end !important;justify-content:flex-end !important;padding:0 12px 96px 12px;pointer-events:none}
-.ai-chat-modal.open{pointer-events:none}
+   Kiểu Intercom/Zendesk: 1 cửa sổ nhỏ ở góc dưới phải, không có backdrop
+   Tap vùng trống (ngoài card) → đóng chat (state preserve) */
+.ai-chat-modal{background:transparent !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important;align-items:flex-end !important;justify-content:flex-end !important;padding:0 12px 96px 12px;pointer-events:auto;cursor:pointer}
+.ai-chat-modal .ai-chat-card{cursor:default}
 .ai-chat-modal .ai-chat-card{
   pointer-events:auto;
   width:100%;
@@ -2432,14 +2433,24 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
               <span class="qlt-switch-slider"></span>
             </label>
           </div>
-          <div class="setting-row">
-            <span class="setting-label" style="line-height:1.5">Notification thường trú
-              <div style="font-size:11px;color:var(--text3);margin-top:2px">Hiện AI ở thanh thông báo (cả khi tắt màn / khoá máy). Tap notif → mở chat ngay.</div>
-            </span>
-            <label class="qlt-switch">
-              <input type="checkbox" id="setAIPersistentNotif">
-              <span class="qlt-switch-slider"></span>
-            </label>
+          <div class="setting-row" style="flex-direction:column;align-items:stretch;gap:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+              <span class="setting-label" style="line-height:1.5">Notification thường trú
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">Hiện AI ở thanh thông báo. Tap notif → mở chat.</div>
+              </span>
+              <label class="qlt-switch">
+                <input type="checkbox" id="setAIPersistentNotif">
+                <span class="qlt-switch-slider"></span>
+              </label>
+            </div>
+            <button id="setAINotifTest" type="button" class="btn btn-secondary" style="font-size:12px;padding:8px;width:100%;display:none">🔔 Test notification ngay</button>
+            <div id="setAINotifMiuiHint" style="font-size:11px;color:#f59e0b;line-height:1.5;display:none;background:rgba(245,158,11,.08);padding:8px 10px;border-radius:6px">
+              📱 <strong>MIUI/Xiaomi</strong>: cần whitelist app để giữ notif:<br>
+              Cài đặt → Apps → Quản Lý Tiền:<br>
+              • <strong>Battery saver</strong>: No restrictions<br>
+              • <strong>Auto-start</strong>: ON<br>
+              • <strong>Notifications → Lock screen</strong>: Show all
+            </div>
           </div>
         </div>
         <div class="settings-group-actions">

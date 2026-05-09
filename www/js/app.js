@@ -5865,17 +5865,20 @@ const App = {
       return { ok: false, reason: 'no-permission', error: 'Permission notification CHƯA CẤP. Vào Cài đặt Android → Apps → Quản Lý Tiền → Notifications → BẬT.' };
     }
 
-    // Create notification channel (Android 8+) — visibility PUBLIC để hiện trên lock screen
+    // Create notification channel (Android 8+) — DEFAULT importance để hiện
+    // rõ trên lock screen + status bar (LOW có thể bị giấu trên 1 số ROM)
     try {
       if (LN.createChannel) {
         await LN.createChannel({
           id: CHANNEL_ID,
           name: 'Trợ lý AI',
           description: 'Notification truy cập nhanh AI từ lock screen',
-          importance: 2,    // LOW — không kêu khi xuất hiện
+          importance: 3,    // DEFAULT — hiện trên status bar + lock screen, không kêu (vì sound:null)
           visibility: 1,    // PUBLIC — hiện full content trên lock screen
           sound: null,
-          vibration: false
+          vibration: false,
+          lights: true,
+          lightColor: '#a855f7'
         });
       }
     } catch (e) {
@@ -5955,7 +5958,19 @@ const App = {
     const fab = $('#homeAiChatFab');
     if (fab) fab.style.opacity = '0';
 
-    // Listen close → restore FAB
+    // Tap vùng TRỐNG (ngoài card) → đóng chat (state preserve, hỏi lại lần sau)
+    if (!modal._outsideClickBound) {
+      modal._outsideClickBound = true;
+      modal.addEventListener('click', (e) => {
+        // Click trực tiếp lên modal (không phải card hoặc child)
+        if (e.target === modal) {
+          modal.classList.remove('open');
+          if (fab) fab.style.opacity = '1';
+        }
+      });
+    }
+
+    // Listen close (X button) → restore FAB
     if (!modal._closeListener) {
       modal._closeListener = true;
       const observer = new MutationObserver(() => {
@@ -6660,29 +6675,32 @@ const App = {
 
     // Persistent notification toggle — diagnostic rõ ràng
     const persistToggle = $('#setAIPersistentNotif');
+    const persistTestBtn = $('#setAINotifTest');
+    const persistMiuiHint = $('#setAINotifMiuiHint');
+
+    // Update visibility test button + hint khi toggle thay đổi
+    const updatePersistUI = (on) => {
+      if (persistTestBtn) persistTestBtn.style.display = on ? 'block' : 'none';
+      // Show MIUI hint nếu device MIUI (rough detect)
+      const isMiui = /MIUI|Redmi|Xiaomi|HyperOS/i.test(navigator.userAgent);
+      if (persistMiuiHint) persistMiuiHint.style.display = (on && isMiui) ? 'block' : 'none';
+    };
+
     if (persistToggle) {
-      persistToggle.checked = await window.QLT_AI.getPref('persistentNotif', false);
+      const initialOn = await window.QLT_AI.getPref('persistentNotif', false);
+      persistToggle.checked = initialOn;
+      updatePersistUI(initialOn);
       persistToggle.onchange = async (e) => {
         await window.QLT_AI.setPref('persistentNotif', e.target.checked);
+        updatePersistUI(e.target.checked);
         if (e.target.checked) {
           const r = await this.scheduleAiPersistentNotif();
           if (r.ok) {
-            QLT_UI.alert(
-              '✅ Đã bật notification thường trú.\n\n' +
-              '📱 Cách dùng:\n' +
-              '1. Bật màn hình (kể cả khi đang khoá)\n' +
-              '2. Kéo notification panel xuống từ trên đỉnh\n' +
-              '3. Thấy "✨ Trợ lý AI · Quản Lý Tiền"\n' +
-              '4. Tap notification HOẶC nút "🎙️ Hỏi AI"\n' +
-              '5. Android sẽ yêu cầu unlock (PIN/vân tay)\n' +
-              '6. Sau unlock → app mở + chat tự active\n\n' +
-              '⚠️ Lưu ý: TẮT MÀN HÌNH HOÀN TOÀN (đen) thì không thấy gì — phải BẬT MÀN trước.',
-              { title: '✅ Đã bật' }
-            );
+            QLT_UI.toast('✅ Đã schedule — kéo notification panel xuống xem. Bấm "🔔 Test" nếu chưa thấy.', { type: 'success', duration: 4000 });
           } else {
-            // Revert toggle nếu fail
             await window.QLT_AI.setPref('persistentNotif', false);
             persistToggle.checked = false;
+            updatePersistUI(false);
             QLT_UI.alert(
               '❌ Không bật được notification.\n\nLỗi: ' + r.error +
               (r.reason === 'no-permission' ?
@@ -6695,6 +6713,44 @@ const App = {
             await window.Capacitor?.Plugins?.LocalNotifications?.cancel({ notifications: [{ id: 99002 }] });
           } catch (_) {}
           QLT_UI.toast('Đã tắt notification thường trú', { type: 'info' });
+        }
+      };
+    }
+
+    // Test button — fire 1 notif test ngay để verify
+    if (persistTestBtn && !persistTestBtn._bound) {
+      persistTestBtn._bound = true;
+      persistTestBtn.onclick = async () => {
+        const LN = window.Capacitor?.Plugins?.LocalNotifications;
+        if (!LN) {
+          QLT_UI.alert('Plugin LocalNotifications chưa cài. Cần build APK mới.', { title: 'Không khả dụng' });
+          return;
+        }
+        persistTestBtn.disabled = true;
+        persistTestBtn.textContent = '⏳ Đang test...';
+        try {
+          // Re-schedule notification ngay để verify
+          const r = await this.scheduleAiPersistentNotif();
+          if (r.ok) {
+            QLT_UI.alert(
+              '✅ Đã gửi notification.\n\n' +
+              '📱 Kiểm tra:\n' +
+              '1. Kéo notification panel xuống TỪ TRÊN ĐỈNH màn hình\n' +
+              '2. Phải thấy "✨ Trợ lý AI · Quản Lý Tiền"\n\n' +
+              '❌ Nếu KHÔNG thấy:\n' +
+              '• Vào Cài đặt Android → Apps → Quản Lý Tiền → Notifications → BẬT TẤT CẢ\n' +
+              '• MIUI: thêm bước whitelist (xem hint ở trên)\n' +
+              '• Reboot máy + bật lại toggle',
+              { title: '🔔 Test notification' }
+            );
+          } else {
+            QLT_UI.alert('Lỗi: ' + r.error, { title: 'Test thất bại' });
+          }
+        } catch (e) {
+          QLT_UI.alert('Lỗi: ' + (e.message || e), { title: 'Test thất bại' });
+        } finally {
+          persistTestBtn.disabled = false;
+          persistTestBtn.textContent = '🔔 Test notification ngay';
         }
       };
     }
