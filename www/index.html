@@ -992,11 +992,47 @@ html[data-theme="dark"] .rec-type-pill.on{
 @keyframes aiSparkleFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 .ai-chat-fab.hidden{display:none}
 
-/* AI Chat modal — full height */
-.ai-chat-modal .ai-chat-card{display:flex;flex-direction:column;height:100vh;max-height:100vh;border-radius:0}
-@media(min-width:600px){.ai-chat-modal .ai-chat-card{height:90vh;max-height:700px;border-radius:16px}}
-.ai-chat-head{flex-shrink:0;display:flex;align-items:center;gap:12px}
-.ai-chat-head h3{flex:1;margin:0}
+/* AI Chat modal — popup chatbot style (KHÔNG fullscreen)
+   Kiểu Intercom/Zendesk: 1 cửa sổ nhỏ ở góc dưới phải, không có backdrop */
+.ai-chat-modal{background:transparent !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important;align-items:flex-end !important;justify-content:flex-end !important;padding:0 12px 96px 12px;pointer-events:none}
+.ai-chat-modal.open{pointer-events:none}
+.ai-chat-modal .ai-chat-card{
+  pointer-events:auto;
+  width:100%;
+  max-width:380px;
+  height:70vh;
+  max-height:580px;
+  border-radius:18px !important;
+  box-shadow:0 12px 40px rgba(0,0,0,.3),0 0 0 1px rgba(99,102,241,.15);
+  transform-origin:bottom right;
+  animation:chatPopIn .28s cubic-bezier(.2,.8,.3,1) !important;
+  display:flex;flex-direction:column;
+  overflow:hidden;
+}
+.ai-chat-modal .ai-chat-card::before{display:none}  /* ẩn drag handle bottom drawer */
+@keyframes chatPopIn{
+  from{opacity:0;transform:scale(.6) translateY(20px) translateX(20px)}
+  to{opacity:1;transform:scale(1) translateY(0) translateX(0)}
+}
+/* Mobile small: vẫn compact, chỉ chiếm 90vw - chừa chỗ FAB sau lưng */
+@media(max-width:600px){
+  .ai-chat-modal{padding:0 8px 88px 8px}
+  .ai-chat-modal .ai-chat-card{
+    max-width:none;
+    height:75vh;
+    max-height:none;
+  }
+}
+/* Trên desktop wide: fix kích thước nhỏ gọn ở corner */
+@media(min-width:600px){
+  .ai-chat-modal{padding:0 18px 110px 18px}
+  .ai-chat-modal .ai-chat-card{height:600px;max-height:75vh}
+}
+.ai-chat-head{flex-shrink:0;display:flex;align-items:center;gap:10px;padding:12px 14px !important;background:linear-gradient(135deg,#6366f1,#a855f7,#ec4899);color:#fff;border-radius:18px 18px 0 0}
+.ai-chat-head h3{flex:1;margin:0;font-size:15px;color:#fff;font-weight:700}
+.ai-chat-head button{background:transparent;border:none;color:#fff;cursor:pointer;padding:4px 8px;border-radius:6px}
+.ai-chat-head button:hover{background:rgba(255,255,255,.15)}
+.ai-chat-head button [data-icon="close"]{filter:brightness(0) invert(1)}
 .ai-chat-body{flex:1;overflow-y:auto;padding:14px;background:var(--bg2)}
 .ai-chat-messages{display:flex;flex-direction:column;gap:10px}
 .ai-chat-empty{text-align:center;padding:40px 20px;color:var(--text3);font-size:13px;line-height:1.6}

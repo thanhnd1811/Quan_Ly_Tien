@@ -5912,6 +5912,21 @@ const App = {
     if (!modal) return;
     modal.classList.add('open');
 
+    // Ẩn FAB khi chat mở (avoid visual overlap với chat window)
+    const fab = $('#homeAiChatFab');
+    if (fab) fab.style.opacity = '0';
+
+    // Listen close → restore FAB
+    if (!modal._closeListener) {
+      modal._closeListener = true;
+      const observer = new MutationObserver(() => {
+        if (!modal.classList.contains('open')) {
+          if (fab) fab.style.opacity = '1';
+        }
+      });
+      observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+    }
+
     const messagesEl = $('#aiChatMessages');
     const input = $('#aiChatInput');
     const sendBtn = $('#aiChatSend');
