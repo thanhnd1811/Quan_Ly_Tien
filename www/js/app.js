@@ -6392,12 +6392,21 @@ const App = {
           ttsStatus.style.color = '#f59e0b';
         }
       } else if (check.fallback) {
-        ttsStatus.innerHTML = `⚠️ Thiết bị KHÔNG có voice tiếng Việt — sẽ đọc với accent <strong>${check.lang}</strong>. Cài thêm voice Việt trong Settings → System → Languages → Text-to-speech.`;
+        ttsStatus.innerHTML = `⚠️ Chưa có voice tiếng Việt — đang dùng <strong>${check.lang}</strong> (accent nước ngoài). Tap <strong>"📖 Cách cài voice Việt"</strong> bên dưới.`;
         ttsStatus.style.color = '#f59e0b';
       } else {
         ttsStatus.innerHTML = `✅ Voice: <strong>${this.escapeHtml(check.voice)}</strong> · ${check.lang}`;
         ttsStatus.style.color = 'var(--text3)';
       }
+    }
+    // Guide button — mở hướng dẫn cài voice Việt
+    const ttsGuide = $('#setAITTSGuide');
+    if (ttsGuide && !ttsGuide._bound) {
+      ttsGuide._bound = true;
+      ttsGuide.onclick = () => {
+        const modal = $('#ttsGuideModal');
+        if (modal) modal.classList.add('open');
+      };
     }
     // Test button
     const ttsTest = $('#setAITTSTest');

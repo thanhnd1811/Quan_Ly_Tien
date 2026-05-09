@@ -2400,7 +2400,10 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
               </label>
             </div>
             <div id="setAITTSStatus" style="font-size:11px;color:var(--text3);line-height:1.4"></div>
-            <button id="setAITTSTest" type="button" class="btn btn-secondary" style="font-size:12px;padding:8px">🔊 Test giọng đọc</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button id="setAITTSTest" type="button" class="btn btn-secondary" style="font-size:12px;padding:8px;flex:1;min-width:120px">🔊 Test giọng đọc</button>
+              <button id="setAITTSGuide" type="button" class="btn btn-secondary" style="font-size:12px;padding:8px;flex:1;min-width:120px">📖 Cách cài voice Việt</button>
+            </div>
           </div>
           <div class="setting-row">
             <span class="setting-label" style="line-height:1.5">Gửi chi tiết giao dịch (raw)
@@ -2667,6 +2670,81 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
 <div id="drawerOverlay" class="drawer-overlay"></div>
 
 <!-- Modal: Test matcher (paste câu → xem cat match) -->
+<!-- ========== TTS GUIDE MODAL ========== -->
+<div id="ttsGuideModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3>📖 Cách cài voice tiếng Việt</h3>
+    </div>
+    <div class="modal-body" style="font-size:13px;line-height:1.6;color:var(--text)">
+      <div style="background:rgba(245,158,11,.1);border-left:3px solid #f59e0b;padding:10px 12px;border-radius:6px;margin-bottom:14px">
+        ⚠️ <strong>App KHÔNG tự cài được</strong> — Android không cho phép app cài voice cho hệ thống. Bạn phải làm thủ công 1 lần (~2 phút), sau đó dùng vĩnh viễn.
+      </div>
+
+      <div style="margin-bottom:14px">
+        <strong style="color:var(--accent)">Cách 1 — Cài qua CH Play (đơn giản nhất)</strong>
+        <ol style="margin:8px 0 0 18px;padding:0">
+          <li>Mở <strong>CH Play (Play Store)</strong></li>
+          <li>Tìm: <code style="background:var(--bg2);padding:1px 4px;border-radius:3px">Speech Services by Google</code></li>
+          <li>Cài đặt / cập nhật app này</li>
+          <li>Mở app → tap <strong>"Tiếng nói"</strong> hoặc <strong>"Voice data"</strong></li>
+          <li>Tìm <strong>"Tiếng Việt (Vietnam)"</strong> → tap để tải (~30MB)</li>
+          <li>Quay lại app Quản Lý Tiền → tap "🔊 Test giọng đọc"</li>
+        </ol>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <strong style="color:var(--accent)">Cách 2 — Qua Settings hệ thống</strong>
+        <p style="margin:6px 0;color:var(--text2);font-size:12px">Path khác nhau theo hãng máy:</p>
+
+        <div style="background:var(--bg2);padding:10px;border-radius:6px;margin-bottom:6px;font-size:12px">
+          <strong>📱 Samsung (One UI):</strong><br>
+          Cài đặt → Quản lý chung (General Management) → <strong>Văn bản chuyển giọng nói (Text-to-speech)</strong><br>
+          <em>Hoặc:</em> Cài đặt → Trợ năng (Accessibility) → <strong>Hỗ trợ nói (Spoken assistance)</strong>
+        </div>
+
+        <div style="background:var(--bg2);padding:10px;border-radius:6px;margin-bottom:6px;font-size:12px">
+          <strong>📱 Xiaomi / Redmi (MIUI):</strong><br>
+          Cài đặt → Cài đặt bổ sung (Additional settings) → <strong>Ngôn ngữ &amp; nhập (Languages &amp; input)</strong> → <strong>Văn bản chuyển giọng nói</strong>
+        </div>
+
+        <div style="background:var(--bg2);padding:10px;border-radius:6px;margin-bottom:6px;font-size:12px">
+          <strong>📱 OPPO / Realme (ColorOS):</strong><br>
+          Cài đặt → Cài đặt thêm (Additional Settings) → <strong>Trợ năng (Accessibility)</strong> → <strong>Văn bản chuyển giọng nói</strong>
+        </div>
+
+        <div style="background:var(--bg2);padding:10px;border-radius:6px;margin-bottom:6px;font-size:12px">
+          <strong>📱 OnePlus (OxygenOS):</strong><br>
+          Cài đặt → Hệ thống (System) → <strong>Ngôn ngữ &amp; nhập</strong> → Nâng cao (Advanced) → <strong>Văn bản chuyển giọng nói</strong>
+        </div>
+
+        <div style="background:var(--bg2);padding:10px;border-radius:6px;margin-bottom:6px;font-size:12px">
+          <strong>📱 Vivo:</strong><br>
+          Cài đặt → Cài đặt thêm (More Settings) → <strong>Ngôn ngữ &amp; nhập</strong> → <strong>Văn bản chuyển giọng nói</strong>
+        </div>
+
+        <div style="background:var(--bg2);padding:10px;border-radius:6px;margin-bottom:6px;font-size:12px">
+          <strong>📱 Pixel / Stock Android:</strong><br>
+          Cài đặt → Hệ thống (System) → <strong>Ngôn ngữ &amp; nhập</strong> → <strong>Đầu ra văn bản chuyển giọng nói</strong>
+        </div>
+
+        <p style="margin-top:10px;color:var(--text2);font-size:12px">
+          → Sau khi vào: chọn <strong>"Google Text-to-speech"</strong> làm engine → tap ⚙️ bên cạnh → <strong>"Cài đặt dữ liệu giọng nói"</strong> → tải <strong>"Tiếng Việt"</strong>.
+        </p>
+      </div>
+
+      <div style="margin-bottom:14px;padding:10px;background:rgba(34,197,94,.08);border-radius:6px">
+        <strong style="color:#16a34a">💡 Mẹo:</strong> Sau khi tải xong, restart app Quản Lý Tiền → vào Cài đặt → Trợ lý AI → tap "🔊 Test giọng đọc" để verify.
+      </div>
+
+      <div style="font-size:12px;color:var(--text2)">
+        🆘 Nếu không tìm thấy menu / không cài được → tạm thời TTS sẽ đọc với <em>accent tiếng Anh</em> (vẫn hiểu được nhưng phát âm không hay). Hoặc tắt TTS, đọc text trực tiếp cũng OK.
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ========== AI CHAT MODAL ========== -->
 <div id="aiChatModal" class="modal ai-chat-modal">
   <div class="modal-card ai-chat-card">
