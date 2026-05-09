@@ -5697,6 +5697,15 @@ const App = {
     const showPriv = $('#setShowPrivacy');
     if (showPriv) showPriv.onclick = () => $('#privacyModal').classList.add('open');
 
+    // ===== Danh mục chuẩn — bind 3 nút =====
+    this.renderCatStandardStatus();
+    const upBtn = $('#setUpgradeCats');
+    if (upBtn) upBtn.onclick = () => this.openCatMigrateModal();
+    const tmBtn = $('#setTestMatcher');
+    if (tmBtn) tmBtn.onclick = () => this.openMatcherTestModal();
+    const acBtn = $('#setRunAccuracy');
+    if (acBtn) acBtn.onclick = () => this.openMatcherAccuracyModal();
+
     // Gỡ banner cũ nếu còn (từ phiên bản trước hide login trên native)
     const oldNote = $('#setNativeNote');
     if (oldNote) oldNote.remove();
@@ -5740,6 +5749,306 @@ const App = {
         refreshDarkUI();
       };
     }
+  },
+
+  // ============================================================
+  // DANH MỤC CHUẨN — Migration + Test matcher + Accuracy
+  // ============================================================
+  renderCatStandardStatus() {
+    const el = $('#setCatStatus');
+    if (!el) return;
+    const def = window.QLT_CategoriesDefault;
+    if (!def) { el.innerHTML = '⚠️ Không tải được bộ chuẩn'; return; }
+    const all = this.state.categories.filter(c => c.bookId === this.state.currentBookId);
+    const haveSlugs = new Set(all.filter(c => c.slug).map(c => c.slug));
+    const totalStandard = def.ALL.length;
+    const migrated = def.ALL.filter(d => haveSlugs.has(d.slug)).length;
+    const customNonStd = all.filter(c => !c.slug && !c.archived).length;
+    const archived = all.filter(c => c.archived).length;
+    const pct = Math.round(migrated / totalStandard * 100);
+    el.innerHTML = `
+      <div>📊 Sổ hiện tại: <strong>${all.length} danh mục</strong></div>
+      <div>✅ Đã có chuẩn: <strong>${migrated}/${totalStandard}</strong> (${pct}%)</div>
+      <div>📝 Tự thêm (chưa migrate): <strong>${customNonStd}</strong></div>
+      <div>🗄️ Đã archive: <strong>${archived}</strong></div>
+      <div style="margin-top:6px;color:${pct < 100 ? 'var(--accent)' : 'var(--text2)'}">
+        ${pct < 100 ? '👉 Bấm "Cập nhật" để migrate sang bộ chuẩn V2' : '✨ Đã đầy đủ bộ chuẩn V2'}
+      </div>
+    `;
+  },
+
+  // Build preview cho migration: cat cũ nào sẽ map sang slug mới, cat nào chưa map
+  _buildMigrationPreview() {
+    const def = window.QLT_CategoriesDefault;
+    if (!def) return null;
+    const bookId = this.state.currentBookId;
+    const existing = this.state.categories.filter(c => c.bookId === bookId);
+    const existingBySlug = {};
+    for (const c of existing) if (c.slug) existingBySlug[c.slug] = c;
+
+    // 1. Slug nào trong def còn THIẾU → sẽ tạo mới
+    const toCreate = def.ALL.filter(d => !existingBySlug[d.slug]);
+
+    // 2. Cat cũ nào (không có slug) → tìm map
+    const oldCats = existing.filter(c => !c.slug && !c.archived);
+    const N = window.QLT_CategoryMatcher?.normalize || (s => s.toLowerCase());
+    const mapped = []; // { oldCat, newSlug }
+    const unmapped = [];
+    for (const old of oldCats) {
+      const k = N(old.name);
+      const newSlug = def.MIGRATION_MAP[k];
+      if (newSlug) mapped.push({ oldCat: old, newSlug });
+      else unmapped.push(old);
+    }
+
+    // 3. Đếm số GD bị ảnh hưởng (cat cũ → cat mới)
+    const txCountByOldCat = {};
+    for (const t of this.state.transactions) {
+      if (t.categoryId) txCountByOldCat[t.categoryId] = (txCountByOldCat[t.categoryId] || 0) + 1;
+    }
+
+    return {
+      toCreate, // [def cat]
+      mapped,   // [{ oldCat, newSlug }]
+      unmapped, // [oldCat]
+      txCountByOldCat
+    };
+  },
+
+  openCatMigrateModal() {
+    const preview = this._buildMigrationPreview();
+    if (!preview) { QLT_UI.alert('Lỗi: chưa tải được bộ chuẩn', { title: 'Lỗi' }); return; }
+    const { toCreate, mapped, unmapped, txCountByOldCat } = preview;
+
+    let html = `
+      <div style="background:var(--bg2);padding:12px;border-radius:8px;margin-bottom:12px">
+        <div><strong>📥 ${toCreate.length}</strong> danh mục chuẩn mới sẽ được tạo</div>
+        <div><strong>🔄 ${mapped.length}</strong> danh mục cũ sẽ được map sang chuẩn (giao dịch giữ nguyên, chỉ đổi categoryId)</div>
+        <div><strong>📌 ${unmapped.length}</strong> danh mục tự đặt KHÔNG match được — giữ nguyên</div>
+      </div>
+    `;
+
+    if (mapped.length) {
+      html += '<div style="margin-bottom:8px"><strong>🔄 Sẽ map:</strong></div>';
+      html += '<div style="font-size:12px;background:var(--bg2);padding:8px;border-radius:6px;margin-bottom:12px">';
+      for (const m of mapped.slice(0, 30)) {
+        const def = window.QLT_CategoriesDefault.ALL.find(d => d.slug === m.newSlug);
+        const txN = txCountByOldCat[m.oldCat.id] || 0;
+        html += `<div style="margin:3px 0">• <span style="color:var(--text2)">${this.escapeHtml(m.oldCat.name)}</span> → <strong>${this.escapeHtml(def?.name || m.newSlug)}</strong>${txN ? ` <span style="color:var(--text3)">(${txN} GD)</span>` : ''}</div>`;
+      }
+      if (mapped.length > 30) html += `<div style="color:var(--text3);margin-top:6px">+ ${mapped.length - 30} cat khác…</div>`;
+      html += '</div>';
+    }
+
+    if (unmapped.length) {
+      html += '<div style="margin-bottom:8px"><strong>📌 Giữ nguyên (chưa match):</strong></div>';
+      html += '<div style="font-size:12px;color:var(--text2);background:var(--bg2);padding:8px;border-radius:6px;margin-bottom:12px">';
+      html += unmapped.slice(0, 15).map(c => `• ${this.escapeHtml(c.name)}`).join('<br>');
+      if (unmapped.length > 15) html += `<br><span style="color:var(--text3)">+ ${unmapped.length - 15} cat khác…</span>`;
+      html += '</div>';
+    }
+
+    html += `
+      <div style="background:#fef3c7;border-left:3px solid #f59e0b;padding:10px;border-radius:4px;font-size:12px;line-height:1.6">
+        <strong>⚠️ Lưu ý:</strong>
+        <ul style="margin:6px 0 0 18px;padding:0">
+          <li>Giao dịch cũ <strong>KHÔNG bị xoá</strong> — chỉ <em>categoryId</em> được trỏ sang cat chuẩn mới</li>
+          <li>Cat cũ được <strong>archive</strong> (không xoá), có thể restore sau</li>
+          <li>Cat tự đặt không match → giữ nguyên, dùng song song với bộ chuẩn</li>
+        </ul>
+      </div>
+    `;
+
+    $('#catMigratePreview').innerHTML = html;
+    $('#catMigrateModal').classList.add('open');
+    $('#catMigrateConfirm').onclick = () => this.runCatMigration();
+  },
+
+  async runCatMigration() {
+    const preview = this._buildMigrationPreview();
+    if (!preview) return;
+    const { toCreate, mapped } = preview;
+    const bookId = this.state.currentBookId;
+    const def = window.QLT_CategoriesDefault;
+
+    // 1. Tạo cat chuẩn còn thiếu (cha trước, con sau)
+    const slugToId = {};
+    for (const c of this.state.categories) if (c.slug) slugToId[c.slug] = c.id;
+    let order = Math.max(0, ...this.state.categories.map(c => c.order || 0)) + 1;
+
+    // Pass 1: parent
+    for (const d of toCreate.filter(x => !x.parentSlug)) {
+      const obj = await window.QLT_Store.put('categories', {
+        slug: d.slug, type: d.type, name: d.name, icon: d.icon, color: d.color,
+        parentId: null,
+        keywords: [...(d.keywords.brand || []), ...(d.keywords.strong || []), ...(d.keywords.weak || [])],
+        antiKeywords: d.antiKeywords || {},
+        archived: false, order: order++, bookId
+      });
+      slugToId[d.slug] = obj.id;
+    }
+    // Pass 2: children
+    for (const d of toCreate.filter(x => x.parentSlug)) {
+      const obj = await window.QLT_Store.put('categories', {
+        slug: d.slug, type: d.type, name: d.name, icon: d.icon, color: d.color,
+        parentId: slugToId[d.parentSlug] || null,
+        keywords: [...(d.keywords.brand || []), ...(d.keywords.strong || []), ...(d.keywords.weak || [])],
+        antiKeywords: d.antiKeywords || {},
+        archived: false, order: order++, bookId
+      });
+      slugToId[d.slug] = obj.id;
+    }
+
+    // 2. Map cat cũ → cat mới
+    let movedTx = 0;
+    let archivedCats = 0;
+    for (const m of mapped) {
+      const newId = slugToId[m.newSlug];
+      if (!newId) continue;
+      // Update mọi GD trỏ sang cat cũ
+      for (const t of this.state.transactions) {
+        if (t.categoryId === m.oldCat.id) {
+          t.categoryId = newId;
+          await window.QLT_Store.put('transactions', t);
+          movedTx++;
+        }
+      }
+      // Update budgets nếu có
+      const allBudgets = await window.QLT_Store.getAll('budgets');
+      for (const b of allBudgets) {
+        if (b.categoryId === m.oldCat.id) {
+          b.categoryId = newId;
+          await window.QLT_Store.put('budgets', b);
+        }
+      }
+      // Archive cat cũ
+      m.oldCat.archived = true;
+      m.oldCat._archivedReason = 'migrated_to_' + m.newSlug;
+      await window.QLT_Store.put('categories', m.oldCat);
+      archivedCats++;
+    }
+
+    await this.reload();
+    $('#catMigrateModal').classList.remove('open');
+    QLT_UI.toast(`✨ Migration xong: tạo ${toCreate.length} cat chuẩn, map ${movedTx} GD, archive ${archivedCats} cat cũ`, { type: 'success', duration: 4000 });
+    this.renderSettings();
+    this.autoSync();
+  },
+
+  openMatcherTestModal() {
+    $('#matcherTestModal').classList.add('open');
+    $('#matcherTestResult').innerHTML = '<div style="color:var(--text3);text-align:center;padding:14px">↑ Gõ câu rồi bấm Match thử</div>';
+    $('#matcherTestInput').value = '';
+    $('#matcherTestRun').onclick = () => this._runMatcherTest();
+    $('#matcherTestInput').onkeydown = (e) => {
+      if (e.key === 'Enter') this._runMatcherTest();
+    };
+    setTimeout(() => $('#matcherTestInput').focus(), 100);
+  },
+
+  _runMatcherTest() {
+    const input = $('#matcherTestInput').value.trim();
+    if (!input) return;
+    const type = $('#matcherTestType').value || 'expense';
+    const cands = this.state.categories.filter(c => c.type === type && !c.archived);
+    const M = window.QLT_CategoryMatcher;
+    const r = M.match(input, cands, { type });
+    const resWrap = $('#matcherTestResult');
+
+    let badge, badgeColor;
+    if (r.confidence >= M.THRESHOLD.AUTO) { badge = '⚡ AUTO'; badgeColor = '#16a34a'; }
+    else if (r.confidence >= M.THRESHOLD.SUGGEST) { badge = '💡 SUGGEST'; badgeColor = '#f59e0b'; }
+    else { badge = '⏸️ ABSTAIN'; badgeColor = '#525252'; }
+
+    let html = `
+      <div style="background:var(--bg2);padding:10px;border-radius:8px;margin-bottom:10px">
+        <div style="font-size:12px;color:var(--text2)">Input: <strong style="color:var(--text)">${this.escapeHtml(input)}</strong></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        <span style="background:${badgeColor};color:white;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600">${badge}</span>
+        <span style="font-size:12px;color:var(--text2)">Confidence: <strong>${r.confidence.toFixed(2)}</strong></span>
+      </div>
+    `;
+
+    if (r.candidates && r.candidates.length) {
+      html += '<div style="font-size:12px;color:var(--text2);margin-bottom:6px">Top match:</div>';
+      html += '<div style="background:var(--bg2);padding:8px;border-radius:6px">';
+      for (const c of r.candidates) {
+        const isBest = c.id === r.candidates[0].id;
+        html += `
+          <div style="display:flex;justify-content:space-between;padding:4px 0;${isBest ? 'font-weight:600;color:var(--text)' : 'color:var(--text2)'}">
+            <span>${isBest ? '🥇 ' : '   '}${this.escapeHtml(c.name)}</span>
+            <span style="font-size:11px">${c.score.toFixed(2)} · ${c.tier} · "${this.escapeHtml(c.kw || '')}"</span>
+          </div>
+        `;
+      }
+      html += '</div>';
+    } else {
+      html += '<div style="color:var(--text3);text-align:center;padding:14px">Không có cat nào match — matcher abstain</div>';
+    }
+
+    resWrap.innerHTML = html;
+  },
+
+  openMatcherAccuracyModal() {
+    const wrap = $('#matcherAccuracyResult');
+    wrap.innerHTML = '<div style="text-align:center;padding:20px">⏳ Đang chạy 100+ test cases…</div>';
+    $('#matcherAccuracyModal').classList.add('open');
+
+    setTimeout(() => {
+      const TD = window.QLT_CategoryTestDataset;
+      if (!TD) { wrap.innerHTML = '⚠️ Test dataset chưa load'; return; }
+      const def = window.QLT_CategoriesDefault;
+      // Build cat list từ default (không cần đợi user migrate — test chạy với bộ default)
+      // Mỗi def cat tạo 1 fake cat object có id = slug, slug, type, name, keywords (flat), antiKeywords
+      const fakeExpense = def.EXPENSE.map(d => ({
+        id: d.slug, slug: d.slug, type: 'expense', name: d.name,
+        keywords: [...(d.keywords.brand || []), ...(d.keywords.strong || []), ...(d.keywords.weak || [])],
+        antiKeywords: d.antiKeywords || {}
+      }));
+      const fakeIncome = def.INCOME.map(d => ({
+        id: d.slug, slug: d.slug, type: 'income', name: d.name,
+        keywords: [...(d.keywords.brand || []), ...(d.keywords.strong || []), ...(d.keywords.weak || [])],
+        antiKeywords: d.antiKeywords || {}
+      }));
+
+      const stats = TD.runTests({ expense: fakeExpense, income: fakeIncome });
+
+      const acc = parseFloat(stats.accuracy);
+      const accColor = acc >= 85 ? '#16a34a' : acc >= 75 ? '#f59e0b' : '#dc2626';
+      const accLabel = acc >= 85 ? '✅ ĐẠT (≥85%)' : acc >= 75 ? '⚠️ Chưa tốt' : '❌ Thấp';
+
+      let html = `
+        <div style="background:var(--bg2);padding:14px;border-radius:8px;margin-bottom:12px;text-align:center">
+          <div style="font-size:32px;font-weight:700;color:${accColor}">${stats.accuracy}%</div>
+          <div style="font-size:13px;color:${accColor};margin-top:4px">${accLabel}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:8px">
+            Pass: ${stats.pass}/${stats.total} · Fail: ${stats.fail}
+          </div>
+        </div>
+      `;
+
+      // Hiện list FAIL
+      const fails = stats.results.filter(r => !r.pass);
+      if (fails.length) {
+        html += `<div style="font-size:13px;font-weight:600;margin-bottom:6px">❌ ${fails.length} case FAIL:</div>`;
+        html += '<div style="background:var(--bg2);padding:8px;border-radius:6px;font-size:11px;line-height:1.5">';
+        for (const r of fails.slice(0, 30)) {
+          html += `
+            <div style="margin:6px 0;padding:6px;background:var(--bg);border-radius:4px">
+              <div><strong>${this.escapeHtml(r.input)}</strong>${r.note ? ` <span style="color:var(--text3)">— ${this.escapeHtml(r.note)}</span>` : ''}</div>
+              <div style="color:var(--text2)">Expect: <code>${this.escapeHtml(r.expected)}</code> · Got: <code style="color:#dc2626">${this.escapeHtml(r.got)}</code> (${r.confidence}, ${r.tier || '—'})</div>
+            </div>
+          `;
+        }
+        if (fails.length > 30) html += `<div style="color:var(--text3);margin-top:6px">+ ${fails.length - 30} case khác…</div>`;
+        html += '</div>';
+      } else {
+        html += '<div style="text-align:center;padding:14px;color:#16a34a">🎉 Tất cả pass!</div>';
+      }
+
+      wrap.innerHTML = html;
+    }, 50);
   },
 
   renderHomeWidgetSettings() {
@@ -6174,7 +6483,7 @@ const App = {
   },
 
   renderTxCategoryPicker(type) {
-    const cats = this.state.categories.filter(c => c.type === type);
+    const cats = this.state.categories.filter(c => c.type === type && !c.archived);
     const sel = this.state.editingTx?.categoryId;
 
     const parents = cats.filter(c => !c.parentId).sort(sortByOrder);
@@ -6183,65 +6492,171 @@ const App = {
       if (c.parentId) (childrenByParent[c.parentId] = childrenByParent[c.parentId] || []).push(c);
     }
     Object.keys(childrenByParent).forEach(pid => childrenByParent[pid].sort(sortByOrder));
+    // Orphan: con của 1 cha không tồn tại / bị archived → render riêng
     const orphans = cats.filter(c => c.parentId && !cats.find(x => x.id === c.parentId)).sort(sortByOrder);
 
-    if (!this.state.expandedTxCats) this.state.expandedTxCats = new Set();
-    const expanded = this.state.expandedTxCats;
+    // Resolve activeParentId: ưu tiên (1) editingTx._activeParent (vừa tap)
+    // (2) parent của selected leaf, (3) parent của recent cat, (4) parent đầu tiên có con
+    let activeParentId = this.state.editingTx?._activeParent;
+    if (!activeParentId && sel) {
+      const c = cats.find(x => x.id === sel);
+      if (c) activeParentId = c.parentId || c.id;
+    }
+    if (!activeParentId) {
+      const recent = (this.state.transactions || [])
+        .filter(t => t.type === type && t.categoryId).slice(-30).reverse();
+      for (const r of recent) {
+        const c = cats.find(x => x.id === r.categoryId);
+        if (c) { activeParentId = c.parentId || c.id; break; }
+      }
+    }
+    if (!activeParentId) {
+      activeParentId = parents.find(p => (childrenByParent[p.id] || []).length > 0)?.id || parents[0]?.id;
+    }
 
-    // Tự mở cha của danh mục đang chọn (vd: edit tx có sẵn → cha tương ứng auto-mở)
-    if (sel) {
-      const selCat = cats.find(c => c.id === sel);
-      if (selCat?.parentId) expanded.add(selCat.parentId);
+    // Recent — 6 cat dùng gần nhất (cả parent + sub)
+    const recentSet = new Set();
+    const recentCats = [];
+    for (const t of (this.state.transactions || []).slice(-50).reverse()) {
+      if (t.type !== type || !t.categoryId) continue;
+      const c = cats.find(x => x.id === t.categoryId);
+      if (c && !recentSet.has(c.id)) {
+        recentSet.add(c.id);
+        recentCats.push(c);
+        if (recentCats.length >= 6) break;
+      }
     }
 
     let html = '';
-    [...parents, ...orphans].forEach(p => {
+
+    // 1) Recent row
+    if (recentCats.length) {
+      html += '<div class="cat-recent-label">⭐ GẦN ĐÂY</div>';
+      html += '<div class="cat-recent-row">';
+      for (const c of recentCats) {
+        const isSel = sel === c.id;
+        html += `
+          <div class="cat-recent-tile ${isSel ? 'on' : ''}" data-cat="${c.id}">
+            <span class="picker-icon" style="color:${c.color || ''}">${svgIcon(c.icon)}</span>
+            <span>${this.escapeHtml(c.name)}</span>
+          </div>
+        `;
+      }
+      html += '</div>';
+    }
+
+    // 2) Parent grid 4 cột
+    html += '<div class="cat-grid-parents">';
+    for (const p of parents) {
       const children = childrenByParent[p.id] || [];
-      const isOpen = expanded.has(p.id);
-      const isSel = sel === p.id;
-      // Cha — luôn render. Có con: tap = toggle mở/đóng. Không con: tap = chọn.
-      const cls = ['picker-item'];
-      if (isSel) cls.push('on');
-      if (children.length) cls.push('picker-parent');
+      const hasChildren = children.length > 0;
+      const isActive = p.id === activeParentId;
+      const isSelLeaf = sel === p.id; // chọn cha trực tiếp (không qua sub)
+      const cls = ['cat-grid-tile'];
+      if (isActive && hasChildren) cls.push('parent-active');
+      if (isSelLeaf) cls.push('leaf-selected');
       html += `
-        <div class="${cls.join(' ')}" data-cat="${p.id}" data-has-children="${children.length ? '1' : '0'}">
-          <span class="picker-icon" style="color:${p.color}">${svgIcon(p.icon)}</span>
-          <span style="flex:1">${this.escapeHtml(p.name)}</span>
-          ${children.length ? `<span class="picker-chev">${isOpen ? '▾' : '▸'}</span><span class="picker-badge">${children.length}</span>` : ''}
+        <div class="${cls.join(' ')}" data-parent-id="${p.id}" data-has-children="${hasChildren ? '1' : '0'}">
+          <span class="cat-grid-tile-icon" style="color:${p.color || ''}">${svgIcon(p.icon)}</span>
+          <span class="cat-grid-tile-name">${this.escapeHtml(p.name)}</span>
         </div>
       `;
-      if (isOpen) {
-        for (const ch of children) {
-          const chSel = sel === ch.id;
-          html += `
-            <div class="picker-item picker-child ${chSel ? 'on' : ''}" data-cat="${ch.id}">
-              <span class="picker-icon" style="color:${ch.color}">${svgIcon(ch.icon)}</span>
-              <span>↳ ${this.escapeHtml(ch.name)}</span>
-            </div>
-          `;
-        }
+    }
+    html += '</div>';
+
+    // 3) Sub area cho parent đang active
+    const activeParent = parents.find(p => p.id === activeParentId);
+    const activeChildren = (activeParent && childrenByParent[activeParent.id]) || [];
+    if (activeParent && activeChildren.length) {
+      const isParentSel = sel === activeParent.id;
+      html += '<div class="cat-sub-area">';
+      html += `<div class="cat-sub-head">▸ ${this.escapeHtml(activeParent.name)}</div>`;
+      html += `
+        <div class="cat-sub-pick-parent ${isParentSel ? 'on' : ''}" data-pick-parent="${activeParent.id}">
+          ${isParentSel ? '✓ ' : ''}Chọn cả nhóm "${this.escapeHtml(activeParent.name)}"
+        </div>
+      `;
+      html += '<div class="cat-sub-grid">';
+      for (const ch of activeChildren) {
+        const isSel = sel === ch.id;
+        html += `
+          <div class="cat-sub-tile ${isSel ? 'on' : ''}" data-cat="${ch.id}">
+            <span class="cat-sub-tile-icon" style="color:${ch.color || ''}">${svgIcon(ch.icon)}</span>
+            <span class="cat-sub-tile-name">${this.escapeHtml(ch.name)}</span>
+          </div>
+        `;
       }
-    });
+      html += '</div>';
+      html += '</div>';
+    }
+
+    // 4) Orphan (cat con bị mất cha) — render riêng cuối
+    if (orphans.length) {
+      html += '<div class="cat-orphan-row">';
+      html += '<div class="cat-orphan-label">📌 Khác (không có nhóm cha)</div>';
+      for (const o of orphans) {
+        const isSel = sel === o.id;
+        html += `
+          <div class="cat-orphan-tile ${isSel ? 'on' : ''}" data-cat="${o.id}">
+            <span class="picker-icon" style="color:${o.color || ''}">${svgIcon(o.icon)}</span>
+            <span>${this.escapeHtml(o.name)}</span>
+          </div>
+        `;
+      }
+      html += '</div>';
+    }
+
     $('#txCategoryList').innerHTML = html;
 
-    $$('#txCategoryList .picker-item').forEach(el => {
+    // ===== Click handlers =====
+    // Parent tile: leaf → chọn; có children → set active parent (re-render)
+    $$('#txCategoryList .cat-grid-tile').forEach(el => {
       el.onclick = () => {
-        const id = el.dataset.cat;
+        const pid = el.dataset.parentId;
         const hasChildren = el.dataset.hasChildren === '1';
-        if (hasChildren) {
-          // Cha có con → toggle mở/đóng (KHÔNG chọn cha)
-          if (expanded.has(id)) expanded.delete(id);
-          else expanded.add(id);
-          this.renderTxCategoryPicker(type);
-          return;
+        if (!hasChildren) {
+          // Cha không có con → coi như leaf, chọn luôn
+          this.state.editingTx.categoryId = pid;
+          delete this.state.editingTx._activeParent;
+        } else {
+          // Set active parent → sub area swap
+          this.state.editingTx._activeParent = pid;
         }
-        // Cha không con / con → chọn
-        $$('#txCategoryList .picker-item').forEach(x => x.classList.remove('on'));
-        el.classList.add('on');
-        this.state.editingTx.categoryId = id;
+        this.renderTxCategoryPicker(type);
         this.renderTxBudgetHint();
       };
     });
+
+    // Sub tile: chọn con
+    $$('#txCategoryList .cat-sub-tile').forEach(el => {
+      el.onclick = () => {
+        this.state.editingTx.categoryId = el.dataset.cat;
+        delete this.state.editingTx._activeParent;
+        this.renderTxCategoryPicker(type);
+        this.renderTxBudgetHint();
+      };
+    });
+
+    // Pick parent (nút "Chọn cả nhóm")
+    $$('#txCategoryList [data-pick-parent]').forEach(el => {
+      el.onclick = () => {
+        this.state.editingTx.categoryId = el.dataset.pickParent;
+        delete this.state.editingTx._activeParent;
+        this.renderTxCategoryPicker(type);
+        this.renderTxBudgetHint();
+      };
+    });
+
+    // Recent + Orphan tile: chọn trực tiếp
+    $$('#txCategoryList .cat-recent-tile, #txCategoryList .cat-orphan-tile').forEach(el => {
+      el.onclick = () => {
+        this.state.editingTx.categoryId = el.dataset.cat;
+        delete this.state.editingTx._activeParent;
+        this.renderTxCategoryPicker(type);
+        this.renderTxBudgetHint();
+      };
+    });
+
     this.renderTxBudgetHint();
   },
 
@@ -6781,8 +7196,10 @@ const App = {
   _pickSuggestedCategory(catId, autoSave) {
     if (!this.state.editingTx) return;
     this.state.editingTx.categoryId = catId;
-    $$('#txCategoryList .picker-item').forEach(el =>
-      el.classList.toggle('on', el.dataset.cat === catId));
+    delete this.state.editingTx._activeParent;
+    // Re-render picker mới để cập nhật highlight
+    const type = this.state.editingTx.type || 'expense';
+    this.renderTxCategoryPicker(type);
     const wrap = $('#txCatSuggest');
     if (wrap) wrap.style.display = 'none';
     const status = $('#txOcrStatus');
@@ -6813,10 +7230,9 @@ const App = {
     };
     await window.QLT_Store.put('categories', newCat);
     await this.reload();
-    this.renderTxCategoryPicker(type);
     this.state.editingTx.categoryId = newCat.id;
-    $$('#txCategoryList .picker-item').forEach(el =>
-      el.classList.toggle('on', el.dataset.cat === newCat.id));
+    delete this.state.editingTx._activeParent;
+    this.renderTxCategoryPicker(type);
     const wrap = $('#txCatSuggest');
     if (wrap) wrap.style.display = 'none';
     QLT_UI.toast(`✨ Đã tạo danh mục "${noteName}"`, { type: 'success', duration: 2200 });
@@ -6896,92 +7312,28 @@ const App = {
       if (words && !tags.includes('#' + words)) tags.push('#' + words);
     }
 
-    // 4) Danh mục — chỉ với expense/income, match trong cùng type
+    // 4) Danh mục — chỉ với expense/income, dùng QLT_CategoryMatcher (tier scoring + anti-keyword + abstain)
     let categoryId = null;
+    let categoryConfidence = 0;
     if (type !== 'transfer') {
       const cands = this.state.categories.filter(c => c.type === type);
-      // Bước 1: tìm match dài nhất (substring trực tiếp, không dấu)
-      // Bước 2: alias mapping (cafe→cà phê, an→ăn, xang→xăng...)
-      // Bước 3: substring 2 chiều — danh mục chứa từ trong câu hoặc câu chứa từ trong danh mục
-      // Alias mở rộng: thêm từ đồng nghĩa vào câu trước khi match
-      // Mỗi entry [synonym, expanded] — nếu câu nói chứa synonym, append expanded
-      // → tăng cơ hội match danh mục có tên hơi khác
-      const aliasMap = [
-        // ====== ĐỒ UỐNG ======
-        ['cafe', 'ca phe'], ['café', 'ca phe'], ['coffee', 'ca phe'],
-        ['tra sua', 'tra sua'], ['bubble tea', 'tra sua'], ['nuoc ngot', 'nuoc ngot'],
-        // ====== ĂN UỐNG ======
-        ['com', 'com an uong'], ['an trua', 'an ngoai'], ['an sang', 'an ngoai'],
-        ['an toi', 'an ngoai'], ['di an', 'an ngoai'],
-        ['an ngoai', 'an ngoai'],
-        ['di cho', 'dua vo'], ['cho', 'dua vo'], ['vo', 'dua vo'],
-        // ====== XE / ĐI LẠI ======
-        ['gas', 'xang'], ['fuel', 'xang'], ['xang', 'xang xe'],
-        ['grab', 'di lai grab'], ['taxi', 'di lai grab'], ['xe om', 'di lai grab'],
-        ['bao duong', 'bao duong xe'], ['rua xe', 'bao duong xe'],
-        // ====== HOÁ ĐƠN ======
-        ['dien', 'dien tien dien'],
-        ['nuoc sach', 'nuoc tien nuoc'],
-        ['internet', 'internet mang wifi'], ['wifi', 'internet mang wifi'],
-        ['phone', 'dien thoai'], ['sim', 'dien thoai'],
-        ['cuoc', 'dien thoai cuoc'], ['5g', 'dien thoai 5g'], ['4g', 'dien thoai 4g'],
-        // ====== NHÀ CỬA ======
-        ['nha', 'tien nha'], ['thue nha', 'tien nha'], ['rent', 'tien nha'],
-        ['do gia dung', 'gia dinh'], ['gia dung', 'gia dinh'],
-        // ====== MUA SẮM ======
-        ['shopping', 'mua sam'], ['quan ao', 'mua sam'],
-        ['giay', 'mua sam'], ['my pham', 'mua sam'],
-        // ====== SỨC KHOẺ ======
-        ['thuoc', 'suc khoe thuoc'], ['benh vien', 'suc khoe'], ['kham', 'suc khoe'],
-        ['nha si', 'suc khoe'], ['rang', 'suc khoe'],
-        // ====== GIẢI TRÍ ======
-        ['xem phim', 'giai tri'], ['game', 'giai tri'],
-        ['karaoke', 'giai tri'], ['di choi', 'giai tri'],
-        // ====== HỌC HÀNH ======
-        ['hoc', 'hoc'], ['sach', 'hoc'],
-        ['gia su', 'gia su'], ['hoc them', 'gia su hoc them'],
-        ['trung tam', 'hoc chinh trung tam'],
-        // ====== GIA ĐÌNH / QUÀ / SỰ KIỆN ======
-        ['qua', 'qua tang gia dinh'], ['biếu', 'qua tang gia dinh'],
-        ['cuoi hoi', 'gia dinh cuoi'], ['sinh nhat', 'qua'],
-        // ====== THU NHẬP ======
-        ['luong', 'luong'], ['salary', 'luong'], ['lương về', 'luong'],
-        ['thuong', 'thuong'], ['bonus', 'thuong'],
-        ['day them', 'mo lop day'], ['day hoc', 'mo lop'], ['lop', 'mo lop']
-      ];
-      let normSearch = norm;
-      for (const [from, to] of aliasMap) {
-        if (normSearch.includes(from)) normSearch += ' ' + to;
-      }
-
-      let best = null, bestLen = 0;
-      for (const c of cands) {
-        const cn = normalizeVi(c.name);
-        // 1) ƯU TIÊN: match keywords user đã đặt riêng cho danh mục
-        if (Array.isArray(c.keywords)) {
-          for (const kw of c.keywords) {
-            const kn = normalizeVi(kw);
-            if (kn && kn.length > bestLen && normSearch.includes(kn)) {
-              best = c; bestLen = kn.length;
-            }
-          }
-        }
-        if (!cn) continue;
-        // 2) Match tên danh mục (substring dài nhất)
-        if (cn.length > bestLen && normSearch.includes(cn)) {
-          best = c; bestLen = cn.length;
-        }
-        // 3) Match từng từ ≥3 ký tự của tên danh mục (ưu tiên thấp nhất)
-        if (!best || bestLen < cn.length) {
-          const words = cn.split(/[\s/]+/).filter(w => w.length >= 3);
-          for (const w of words) {
-            if (normSearch.includes(w) && w.length > bestLen) {
-              best = c; bestLen = w.length;
-            }
-          }
+      const M = window.QLT_CategoryMatcher;
+      if (M) {
+        // Tie-breaker context: hour-of-day + recent cat ids
+        const now = new Date();
+        const hourOfDay = now.getHours();
+        const recentCatIds = (this.state.transactions || [])
+          .filter(t => t.type === type && t.categoryId)
+          .slice(-15)
+          .map(t => t.categoryId);
+        const r = M.match(workText, cands, { type, amount, hourOfDay, recentCatIds });
+        // Chỉ chọn cat khi confidence >= SUGGEST (>= 0.70)
+        // Nếu confidence < 0.70 → abstain (categoryId = null), suggestion UI sẽ fire
+        if (r.confidence >= M.THRESHOLD.SUGGEST) {
+          categoryId = r.categoryId;
+          categoryConfidence = r.confidence;
         }
       }
-      categoryId = best?.id || null;
     }
 
     // 5) Smart note — cắt phần trước số tiền + bỏ từ giao dịch + bỏ tên ví
@@ -7010,7 +7362,7 @@ const App = {
     // Fallback: nếu cắt sạch quá → dùng workText
     if (cleanNote.length < 2) cleanNote = workText;
 
-    return { type, amount, accountId, toAccountId, categoryId, tags, note: cleanNote, autoSave };
+    return { type, amount, accountId, toAccountId, categoryId, categoryConfidence, tags, note: cleanNote, autoSave };
   },
 
   async voiceInput() {
@@ -7067,8 +7419,8 @@ const App = {
         // Danh mục
         if (parsed.categoryId) {
           this.state.editingTx.categoryId = parsed.categoryId;
-          $$('#txCategoryList .picker-item').forEach(el =>
-            el.classList.toggle('on', el.dataset.cat === parsed.categoryId));
+          delete this.state.editingTx._activeParent;
+          this.renderTxCategoryPicker(parsed.type || 'expense');
           // Ẩn banner gợi ý nếu trước đó có hiện
           const sg = $('#txCatSuggest');
           if (sg) sg.style.display = 'none';

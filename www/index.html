@@ -630,6 +630,46 @@ select.fi{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xml
 .picker-chev{font-size:12px;color:var(--text3);margin-left:4px}
 .picker-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;background:var(--accent);color:#fff;border-radius:9px;font-size:10px;font-weight:700;margin-left:2px}
 
+/* Category picker mới — Grid 4 cột cha + sub area inline */
+.cat-recent-label{font-size:10px;color:var(--text3);margin-bottom:5px;letter-spacing:.3px;font-weight:600}
+.cat-recent-row{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;margin-bottom:10px;scrollbar-width:none}
+.cat-recent-row::-webkit-scrollbar{display:none}
+.cat-recent-tile{flex-shrink:0;display:flex;align-items:center;gap:5px;padding:5px 10px;background:var(--surface);border:1px solid var(--border);border-radius:14px;font-size:11px;cursor:pointer;transition:all .15s ease}
+.cat-recent-tile:active{transform:scale(.95)}
+.cat-recent-tile.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+.cat-recent-tile .picker-icon{width:14px;height:14px}
+.cat-recent-tile .picker-icon svg{width:14px;height:14px}
+
+.cat-grid-parents{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.cat-grid-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:10px 4px;background:var(--surface);border:1.5px solid var(--border);border-radius:11px;cursor:pointer;text-align:center;min-height:74px;transition:all .15s ease}
+.cat-grid-tile:active{transform:scale(.95)}
+.cat-grid-tile.parent-active{border-color:var(--accent);background:var(--acl);color:var(--accent)}
+.cat-grid-tile.parent-active .cat-grid-tile-name{font-weight:600}
+.cat-grid-tile.leaf-selected{border-color:var(--accent);background:var(--accent);color:#fff}
+.cat-grid-tile.leaf-selected .cat-grid-tile-icon{color:#fff !important}
+.cat-grid-tile-icon{width:30px;height:30px;display:flex;align-items:center;justify-content:center}
+.cat-grid-tile-icon svg{width:26px;height:26px}
+.cat-grid-tile-name{font-size:11px;line-height:1.2;word-break:break-word;max-width:100%}
+
+.cat-sub-area{background:var(--bg2);border-radius:10px;padding:10px;animation:catSubSlide .2s ease}
+@keyframes catSubSlide{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.cat-sub-head{font-size:12px;color:var(--text2);margin-bottom:8px;font-weight:600}
+.cat-sub-pick-parent{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px;background:var(--surface);border:1.5px dashed var(--accent);border-radius:8px;margin-bottom:8px;cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);transition:all .15s ease}
+.cat-sub-pick-parent:active{transform:scale(.97)}
+.cat-sub-pick-parent.on{background:var(--accent);color:#fff;border-style:solid}
+.cat-sub-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.cat-sub-tile{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;text-align:center;min-height:62px;transition:all .15s ease}
+.cat-sub-tile:active{transform:scale(.94)}
+.cat-sub-tile.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+.cat-sub-tile.on .cat-sub-tile-icon{color:#fff !important}
+.cat-sub-tile-icon{width:20px;height:20px;display:flex;align-items:center;justify-content:center}
+.cat-sub-tile-icon svg{width:20px;height:20px}
+.cat-sub-tile-name{font-size:10px;line-height:1.2}
+.cat-orphan-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
+.cat-orphan-label{font-size:10px;color:var(--text3);width:100%;margin-bottom:4px}
+.cat-orphan-tile{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;font-size:11px;cursor:pointer}
+.cat-orphan-tile.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+
 /* Color picker (12 swatch tròn + 1 ô tuỳ chỉnh rainbow) */
 .color-picker{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;padding:6px 0}
 .color-swatch{aspect-ratio:1/1;border-radius:50%;cursor:pointer;position:relative;transition:transform .15s ease, box-shadow .15s ease;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
@@ -2272,6 +2312,22 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
       </div>
     </div>
 
+    <!-- Danh mục chuẩn -->
+    <div class="settings-group">
+      <div class="settings-group-head">
+        <div class="settings-group-icon">🗂️</div>
+        <div class="settings-group-title">Danh mục chuẩn</div>
+      </div>
+      <div id="setCatStatus" style="padding:14px 16px;font-size:12px;color:var(--text2);line-height:1.7;border-bottom:1px solid var(--border)">
+        Đang kiểm tra…
+      </div>
+      <div class="settings-group-actions" style="border-top:none">
+        <button id="setUpgradeCats" class="btn btn-primary btn-block">⬆️ Cập nhật danh mục chuẩn</button>
+        <button id="setTestMatcher" class="btn btn-secondary btn-block">🧪 Test bộ keyword (paste câu)</button>
+        <button id="setRunAccuracy" class="btn btn-secondary btn-block">📊 Chạy 100+ test cases (đo accuracy)</button>
+      </div>
+    </div>
+
     <!-- Trợ giúp -->
     <div class="settings-group">
       <div class="settings-group-head">
@@ -2367,6 +2423,60 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
   </div>
 </div>
 <div id="drawerOverlay" class="drawer-overlay"></div>
+
+<!-- Modal: Test matcher (paste câu → xem cat match) -->
+<div id="matcherTestModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3>🧪 Test bộ keyword matcher</h3>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--text2);margin-bottom:12px">
+        Gõ 1 câu (như voice/note) → app sẽ chỉ ra danh mục match được + confidence + keyword nào trúng.
+      </p>
+      <div class="fg">
+        <select id="matcherTestType" class="fi" style="margin-bottom:8px">
+          <option value="expense">Chi tiêu</option>
+          <option value="income">Thu nhập</option>
+        </select>
+        <input id="matcherTestInput" class="fi" placeholder="VD: highlands 65k" autocomplete="off">
+      </div>
+      <button id="matcherTestRun" class="btn btn-primary btn-block" style="margin-top:8px">▶️ Match thử</button>
+      <div id="matcherTestResult" style="margin-top:14px;font-size:13px;line-height:1.7"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Accuracy report (chạy 100+ test cases) -->
+<div id="matcherAccuracyModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3>📊 Test accuracy bộ matcher</h3>
+    </div>
+    <div class="modal-body">
+      <div id="matcherAccuracyResult" style="font-size:12px;line-height:1.6"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Confirm migration danh mục cũ → chuẩn -->
+<div id="catMigrateModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close><span data-icon="close"></span></button>
+      <h3>⬆️ Cập nhật danh mục chuẩn</h3>
+    </div>
+    <div class="modal-body">
+      <div id="catMigratePreview" style="font-size:13px;line-height:1.7;max-height:60vh;overflow-y:auto"></div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn btn-secondary" data-close style="flex:1">Huỷ</button>
+        <button id="catMigrateConfirm" class="btn btn-primary" style="flex:1">Tôi hiểu — Áp dụng</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Modal: FAQ -->
 <div id="faqModal" class="modal">
@@ -2598,7 +2708,7 @@ html[data-theme="dark"] .tx-loc-badge{background:#1a3a5c;color:#7eb6e8}
         <div id="txBudgetHint" class="tx-budget-hint" style="display:none"></div>
         <label class="fl">Danh mục</label>
         <div id="txCatSuggest" class="tx-cat-suggest" style="display:none"></div>
-        <div id="txCategoryList" class="picker-list"></div>
+        <div id="txCategoryList" class="cat-grid-container"></div>
       </div>
       <div class="fg" id="txParticipantsSection" style="display:none">
         <label class="fl" style="display:flex;justify-content:space-between;align-items:center">
@@ -3128,6 +3238,9 @@ html[data-theme="dark"] .tx-loc-badge{background:#1a3a5c;color:#7eb6e8}
 
 <script src="js/config.js"></script>
 <script src="js/icons.js"></script>
+<script src="js/categories-default.js"></script>
+<script src="js/category-matcher.js"></script>
+<script src="js/category-test-dataset.js"></script>
 <script src="js/storage.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/sync.js"></script>

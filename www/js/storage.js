@@ -9,6 +9,13 @@
     return 'qltien_' + (userKey || 'guest').replace(/[^a-zA-Z0-9_]/g, '_');
   }
 
+  // Gộp keywords {brand, strong, weak} thành flat array để lưu DB
+  // Tier info được giữ nguyên qua _tieredKeywords (matcher đọc field này)
+  function collectKw(kw) {
+    if (!kw) return [];
+    return [...(kw.brand || []), ...(kw.strong || []), ...(kw.weak || [])];
+  }
+
   function open(userKey) {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open(dbName(userKey), DB_VERSION);
@@ -181,38 +188,34 @@
       const cats = (await this.getAll('categories')).filter(c => c.bookId === bookId);
       if (cats.length > 0) return;
 
-      // Danh mục mặc định cho người Việt — đa dạng, dùng icon mới
-      const expenseCats = [
-        { type: 'expense', name: 'Ăn uống', icon: 'food', color: '#f97316' },
-        { type: 'expense', name: 'Cà phê / Trà sữa', icon: 'coffee', color: '#92400e' },
-        { type: 'expense', name: 'Đi siêu thị', icon: 'cart', color: '#73a942' },
-        { type: 'expense', name: 'Xăng xe', icon: 'fuel', color: '#dc2626' },
-        { type: 'expense', name: 'Đi lại / Grab', icon: 'taxi', color: '#3b82f6' },
-        { type: 'expense', name: 'Tiền nhà', icon: 'home', color: '#f4a261' },
-        { type: 'expense', name: 'Tiền điện', icon: 'electricity', color: '#f59e0b' },
-        { type: 'expense', name: 'Tiền nước', icon: 'water', color: '#06b6d4' },
-        { type: 'expense', name: 'Internet / Điện thoại', icon: 'wifi', color: '#6366f1' },
-        { type: 'expense', name: 'Mua sắm', icon: 'shopping', color: '#ec4899' },
-        { type: 'expense', name: 'Sức khoẻ / Thuốc', icon: 'medical', color: '#e63946' },
-        { type: 'expense', name: 'Giải trí', icon: 'film', color: '#a855f7' },
-        { type: 'expense', name: 'Du lịch', icon: 'travel', color: '#14b8a6' },
-        { type: 'expense', name: 'Học hành', icon: 'graduation', color: '#4f86c6' },
-        { type: 'expense', name: 'Gia đình / Biếu tặng', icon: 'gift', color: '#e65a9e' },
-        { type: 'expense', name: 'Khác', icon: 'other', color: '#888888' }
-      ];
-
-      const incomeCats = [
-        { type: 'income', name: 'Lương', icon: 'briefcase', color: '#2d6a4f' },
-        { type: 'income', name: 'Thưởng', icon: 'award', color: '#f59e0b' },
-        { type: 'income', name: 'Đầu tư', icon: 'trending', color: '#10b981' },
-        { type: 'income', name: 'Freelance', icon: 'laptop', color: '#6366f1' },
-        { type: 'income', name: 'Bán hàng', icon: 'shop', color: '#ec4899' },
-        { type: 'income', name: 'Quà tặng', icon: 'gift', color: '#e65a9e' },
-        { type: 'income', name: 'Khác', icon: 'other', color: '#888888' }
-      ];
-
-      for (const c of [...expenseCats, ...incomeCats]) {
-        await this.put('categories', { ...c, bookId });
+      // Bộ danh mục chuẩn V2 — load từ categories-default.js
+      // Cha trước, con sau — để parentSlug → parentId resolve đúng
+      const def = window.QLT_CategoriesDefault;
+      if (!def) {
+        console.error('[storage] QLT_CategoriesDefault not loaded — fallback empty');
+        return;
+      }
+      const slugToId = {};
+      let order = 0;
+      // Pass 1: tạo cha (parentSlug = null)
+      for (const c of def.ALL.filter(x => !x.parentSlug)) {
+        const obj = await this.put('categories', {
+          slug: c.slug, type: c.type, name: c.name, icon: c.icon, color: c.color,
+          parentId: null, keywords: collectKw(c.keywords),
+          antiKeywords: c.antiKeywords || {},
+          archived: false, order: order++, bookId
+        });
+        slugToId[c.slug] = obj.id;
+      }
+      // Pass 2: tạo con (parentSlug → parentId)
+      for (const c of def.ALL.filter(x => x.parentSlug)) {
+        await this.put('categories', {
+          slug: c.slug, type: c.type, name: c.name, icon: c.icon, color: c.color,
+          parentId: slugToId[c.parentSlug] || null,
+          keywords: collectKw(c.keywords),
+          antiKeywords: c.antiKeywords || {},
+          archived: false, order: order++, bookId
+        });
       }
 
       await this.put('accounts', {
