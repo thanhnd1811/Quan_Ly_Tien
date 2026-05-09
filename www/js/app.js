@@ -2214,6 +2214,9 @@ const App = {
       el.style.display = this.isHomeWidgetOn(el.dataset.homeWidget) ? '' : 'none';
     });
 
+    // Update banner — async, không block render
+    this.renderHomeUpdateBanner();
+
     // Tổng số dư = CHỈ tính ví thanh toán (tiền dùng được)
     const paymentAccs = this.state.accounts.filter(a => this.isPayment(a));
     const savingsAccs = this.state.accounts.filter(a => this.isActiveSavings(a));
@@ -5550,7 +5553,34 @@ const App = {
   },
 
   // ============ SETTINGS ============
+  // Accordion: tap heading → toggle expand/collapse, persist trong localStorage
+  initSettingsAccordion() {
+    const STATE_KEY = 'qlt_settings_accordion';
+    const saved = JSON.parse(localStorage.getItem(STATE_KEY) || '{}');
+
+    $$('.settings-group[data-collapsible]').forEach(group => {
+      const id = group.id;
+      // Restore saved state (override default expanded class nếu user đã đóng/mở thủ công)
+      if (id && Object.prototype.hasOwnProperty.call(saved, id)) {
+        group.classList.toggle('expanded', !!saved[id]);
+      }
+      const head = group.querySelector('.settings-group-head');
+      if (!head || head._accBound) return;
+      head._accBound = true;
+      head.onclick = () => {
+        group.classList.toggle('expanded');
+        if (id) {
+          saved[id] = group.classList.contains('expanded');
+          localStorage.setItem(STATE_KEY, JSON.stringify(saved));
+        }
+      };
+    });
+  },
+
   async renderSettings() {
+    // Init accordion behavior
+    this.initSettingsAccordion();
+
     $('#setUser').textContent = window.QLT_Auth.user ? window.QLT_Auth.user.email : 'Chưa đăng nhập';
     const last = await window.QLT_Store.getMeta('lastSync');
     $('#setLastSync').textContent = last ? new Date(last).toLocaleString('vi-VN') : 'Chưa đồng bộ';
@@ -5700,6 +5730,33 @@ const App = {
     const acBtn = $('#setRunAccuracy');
     if (acBtn) acBtn.onclick = () => this.openMatcherAccuracyModal();
 
+    // ===== AI Settings — bind handlers =====
+    await this.renderAISettings();
+
+    // ===== Update info trong section Trợ giúp =====
+    this.renderUpdateInfo();
+    const checkBtn = $('#setCheckUpdate');
+    if (checkBtn) {
+      checkBtn.onclick = async () => {
+        checkBtn.disabled = true;
+        checkBtn.textContent = '⏳ Đang kiểm tra…';
+        const r = await this.checkForUpdates({ force: true });
+        checkBtn.disabled = false;
+        checkBtn.textContent = '🔄 Kiểm tra cập nhật';
+        await this.renderUpdateInfo();
+        if (r?.hasUpdate) {
+          QLT_UI.toast(`🆕 Có phiên bản mới: ${r.latest.tag}`, { type: 'success', duration: 3500 });
+          await this.renderHomeUpdateBanner();
+        } else if (r?.reason === 'dev-build') {
+          QLT_UI.toast('Đang chạy DEV — không có update để check', { type: 'info' });
+        } else if (r?.reason === 'fetch-failed') {
+          QLT_UI.toast('Không kết nối được GitHub — kiểm tra mạng', { type: 'error' });
+        } else {
+          QLT_UI.toast('✅ Đang dùng phiên bản mới nhất', { type: 'success' });
+        }
+      };
+    }
+
     // Gỡ banner cũ nếu còn (từ phiên bản trước hide login trên native)
     const oldNote = $('#setNativeNote');
     if (oldNote) oldNote.remove();
@@ -5741,6 +5798,230 @@ const App = {
         if (e.target.checked) this.setThemePref('auto');
         else this.setThemePref(window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
         refreshDarkUI();
+      };
+    }
+  },
+
+  // ============================================================
+  // IN-APP UPDATE — banner trên Home + Settings info
+  // ============================================================
+  async checkForUpdates(opts = {}) {
+    if (!window.QLT_Update) return null;
+    const force = !!opts.force;
+    const r = await window.QLT_Update.check(force);
+    return r;
+  },
+
+  async renderHomeUpdateBanner() {
+    const wrap = $('#homeUpdateBanner');
+    if (!wrap) return;
+    const r = await this.checkForUpdates();
+    if (!r || !r.hasUpdate || r.dismissed) {
+      wrap.style.display = 'none';
+      return;
+    }
+    const latest = r.latest;
+    const apkSize = latest.apk?.size ? ` · ${(latest.apk.size / 1024 / 1024).toFixed(1)} MB` : '';
+    const date = latest.publishedAt ? new Date(latest.publishedAt).toLocaleDateString('vi-VN') : '';
+    wrap.innerHTML = `
+      <div class="update-banner">
+        <div class="update-banner-head">🆕 Có phiên bản mới ${this.escapeHtml(latest.tag)}</div>
+        <div class="update-banner-body">${this.escapeHtml(latest.name || 'Bản cập nhật mới')}</div>
+        <div class="update-banner-meta">${date}${apkSize}</div>
+        <div class="update-banner-actions">
+          <button class="update-banner-btn primary" data-act="install">📥 Tải về & cài đặt</button>
+          <button class="update-banner-btn secondary" data-act="later">Để sau</button>
+        </div>
+      </div>
+    `;
+    wrap.style.display = 'block';
+    wrap.querySelector('[data-act="install"]').onclick = () => this._openUpdateUrl(r.apkUrl, r.releaseUrl);
+    wrap.querySelector('[data-act="later"]').onclick = () => {
+      window.QLT_Update.dismiss(latest.tag);
+      wrap.style.display = 'none';
+    };
+  },
+
+  _openUpdateUrl(apkUrl, releaseUrl) {
+    // Ưu tiên APK URL (download trực tiếp). Fallback: release page (user tự pick file)
+    const url = apkUrl || releaseUrl;
+    if (!url) return;
+    if (window.Capacitor?.Plugins?.Browser) {
+      window.Capacitor.Plugins.Browser.open({ url });
+    } else {
+      window.open(url, '_blank');
+    }
+  },
+
+  async renderUpdateInfo() {
+    const el = $('#setUpdateInfo');
+    if (!el) return;
+    const cur = window.QLT_BUILD || {};
+    const isDev = !cur.version || cur.version === 'dev';
+    if (isDev) {
+      el.innerHTML = `
+        <div>📦 Phiên bản hiện tại: <span class="ver">DEV (local)</span></div>
+        <div style="margin-top:4px;color:var(--text3)">Đang chạy local — không kiểm tra cập nhật.</div>
+      `;
+      return;
+    }
+    const r = await this.checkForUpdates();
+    let html = `<div>📦 Phiên bản hiện tại: <span class="ver">${this.escapeHtml(cur.tag || cur.version)}</span></div>`;
+    if (cur.buildDate) {
+      const d = new Date(cur.buildDate);
+      html += `<div style="color:var(--text3);font-size:11px;margin-top:2px">Build: ${d.toLocaleString('vi-VN')}</div>`;
+    }
+    if (cur.commitMsg) {
+      html += `<div style="color:var(--text3);font-size:11px;margin-top:2px">"${this.escapeHtml(cur.commitMsg)}"</div>`;
+    }
+    if (r?.latest) {
+      if (r.hasUpdate) {
+        html += `<div style="margin-top:8px;padding:8px 10px;background:rgba(34,197,94,.1);border-radius:6px"><span class="new">🆕 Có bản mới: ${this.escapeHtml(r.latest.tag)}</span></div>`;
+      } else {
+        html += `<div style="margin-top:6px;color:var(--text3);font-size:11px">✅ Bạn đang dùng phiên bản mới nhất</div>`;
+      }
+    }
+    el.innerHTML = html;
+  },
+
+  // ============================================================
+  // AI SETTINGS — Gemini config (API key + TTS + raw mode)
+  // ============================================================
+  async renderAISettings() {
+    if (!window.QLT_AI) return;
+
+    const statusEl = $('#setAIStatus');
+    const badgeEl = $('#setAIBadge');
+    const keyInput = $('#setAIKey');
+    const removeBtn = $('#setAIRemove');
+    const ttsToggle = $('#setAITTS');
+    const rawToggle = $('#setAIRawMode');
+
+    // Render trạng thái
+    const hasKey = await window.QLT_AI.hasApiKey();
+    if (statusEl) {
+      if (hasKey) {
+        statusEl.innerHTML = `✅ <strong>Đã kết nối</strong> — model <code>${window.QLT_AI.MODELS.chat}</code> · AI đã sẵn sàng`;
+        statusEl.style.background = 'rgba(34,197,94,.08)';
+        statusEl.style.color = 'var(--text)';
+      } else {
+        statusEl.innerHTML = `⚠️ <strong>Chưa cấu hình API key</strong> — tính năng AI bị tắt`;
+        statusEl.style.background = 'rgba(245,158,11,.08)';
+        statusEl.style.color = 'var(--text)';
+      }
+    }
+    if (badgeEl) badgeEl.style.display = hasKey ? 'none' : 'inline-block';
+    if (removeBtn) removeBtn.style.display = hasKey ? 'block' : 'none';
+
+    // Auto-expand section AI nếu chưa setup (để user thấy ngay)
+    const aiSec = $('#setSecAI');
+    if (aiSec && !hasKey && !aiSec.classList.contains('expanded')) {
+      const stateKey = 'qlt_settings_accordion';
+      const saved = JSON.parse(localStorage.getItem(stateKey) || '{}');
+      // Chỉ auto-expand nếu user CHƯA tự đóng (không có entry trong saved state)
+      if (!Object.prototype.hasOwnProperty.call(saved, 'setSecAI')) {
+        aiSec.classList.add('expanded');
+      }
+    }
+
+    // Restore key vào ô input nếu có (mask hết)
+    if (keyInput && hasKey) {
+      const k = await window.QLT_AI.getApiKey();
+      keyInput.value = k || '';
+      keyInput.type = 'password';
+    } else if (keyInput) {
+      keyInput.value = '';
+    }
+
+    // Toggle hiện/ẩn key
+    const keyToggle = $('#setAIKeyToggle');
+    if (keyToggle && !keyToggle._bound) {
+      keyToggle._bound = true;
+      keyToggle.onclick = () => {
+        if (keyInput.type === 'password') {
+          keyInput.type = 'text';
+          keyToggle.textContent = '🙈';
+        } else {
+          keyInput.type = 'password';
+          keyToggle.textContent = '👁';
+        }
+      };
+    }
+
+    // TTS toggle
+    if (ttsToggle) {
+      ttsToggle.checked = await window.QLT_AI.getPref('tts', true);
+      ttsToggle.onchange = (e) => window.QLT_AI.setPref('tts', e.target.checked);
+    }
+
+    // Raw mode toggle
+    if (rawToggle) {
+      rawToggle.checked = await window.QLT_AI.getPref('rawMode', false);
+      rawToggle.onchange = (e) => window.QLT_AI.setPref('rawMode', e.target.checked);
+    }
+
+    // Test connection
+    const testBtn = $('#setAITest');
+    if (testBtn) {
+      testBtn.onclick = async () => {
+        const resultEl = $('#setAITestResult');
+        const k = (keyInput?.value || '').trim();
+        if (!k) {
+          resultEl.style.display = 'block';
+          resultEl.innerHTML = '<span style="color:var(--danger)">⚠️ Vui lòng nhập API key trước</span>';
+          return;
+        }
+        resultEl.style.display = 'block';
+        resultEl.innerHTML = '<span style="color:var(--text2)">⏳ Đang test kết nối…</span>';
+        testBtn.disabled = true;
+        try {
+          const r = await window.QLT_AI.testConnection(k);
+          if (r.ok) {
+            resultEl.innerHTML = `<span style="color:#16a34a">✅ Kết nối OK — model <code>${r.model}</code> hoạt động</span>`;
+          } else {
+            resultEl.innerHTML = `<span style="color:#f59e0b">⚠️ Kết nối được nhưng response lạ — kiểm tra lại</span>`;
+          }
+        } catch (err) {
+          resultEl.innerHTML = `<span style="color:var(--danger)">❌ Lỗi: ${this.escapeHtml(err.message || String(err))}</span>`;
+        } finally {
+          testBtn.disabled = false;
+        }
+      };
+    }
+
+    // Save key
+    const saveBtn = $('#setAISave');
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        const k = (keyInput?.value || '').trim();
+        if (!k) {
+          QLT_UI.toast('Vui lòng nhập API key', { type: 'error' });
+          return;
+        }
+        if (!k.startsWith('AIza') || k.length < 20) {
+          const ok = await QLT_UI.confirm(
+            'Key không có dạng quen thuộc (Gemini key thường bắt đầu "AIza..."). Vẫn lưu?',
+            { okLabel: 'Vẫn lưu', cancelLabel: 'Huỷ' }
+          );
+          if (!ok) return;
+        }
+        await window.QLT_AI.setApiKey(k);
+        QLT_UI.toast('✨ Đã lưu API key — AI đã bật', { type: 'success' });
+        await this.renderAISettings(); // re-render
+      };
+    }
+
+    // Remove key
+    if (removeBtn) {
+      removeBtn.onclick = async () => {
+        const ok = await QLT_UI.confirm(
+          'Xoá API key? Tính năng AI sẽ bị tắt cho đến khi bạn nhập key mới.',
+          { okLabel: 'Xoá', cancelLabel: 'Huỷ', danger: true }
+        );
+        if (!ok) return;
+        await window.QLT_AI.removeApiKey();
+        QLT_UI.toast('Đã xoá API key', { type: 'info' });
+        await this.renderAISettings();
       };
     }
   },

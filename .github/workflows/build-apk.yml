@@ -5,11 +5,47 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+permissions:
+  contents: write   # Cần để tạo GitHub Release
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # Cần full history để đếm commit count cho version
+
+      - name: Compute version (commit-count + short-sha)
+        id: ver
+        run: |
+          COUNT=$(git rev-list --count HEAD)
+          SHA=$(git rev-parse --short=7 HEAD)
+          MSG=$(git log -1 --pretty=%s | head -c 100)
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          VERSION="b${COUNT}.${SHA}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          echo "msg=$MSG" >> $GITHUB_OUTPUT
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+          echo "commit_count=$COUNT" >> $GITHUB_OUTPUT
+          echo "Build version: $VERSION ($MSG)"
+
+      - name: Inject build version into app
+        run: |
+          cat > www/js/app-version.js <<EOF
+          // AUTO-GENERATED bởi GitHub Actions — KHÔNG sửa thủ công
+          window.QLT_BUILD = {
+            version: "${{ steps.ver.outputs.version }}",
+            tag: "${{ steps.ver.outputs.tag }}",
+            commitCount: ${{ steps.ver.outputs.commit_count }},
+            sha: "$(git rev-parse --short=7 HEAD)",
+            buildDate: "${{ steps.ver.outputs.date }}",
+            commitMsg: "${{ steps.ver.outputs.msg }}"
+          };
+          EOF
+          echo "--- app-version.js content:"
+          cat www/js/app-version.js
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -197,8 +233,34 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease
 
-      - name: Upload APK
+      - name: Rename APK with version
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk \
+             "QuanLyTien-${{ steps.ver.outputs.tag }}.apk"
+
+      - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
           name: QuanLyTien-release-apk
-          path: android/app/build/outputs/apk/release/app-release.apk
+          path: QuanLyTien-${{ steps.ver.outputs.tag }}.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          body: |
+            **Build:** `${{ steps.ver.outputs.version }}`
+            **Commit:** ${{ steps.ver.outputs.msg }}
+            **Date:** ${{ steps.ver.outputs.date }}
+
+            ### Cài đặt
+            1. Tải file `.apk` bên dưới
+            2. Mở file → Android sẽ hỏi Install → bấm Install
+            3. App tự cài đè lên bản cũ — dữ liệu giữ nguyên
+
+            ### Cài tự động qua app
+            App đã cài sẽ hiện banner "🆕 Có phiên bản mới" trên Trang chủ — tap để cập nhật.
+          files: QuanLyTien-${{ steps.ver.outputs.tag }}.apk
+          draft: false
+          prerelease: false
