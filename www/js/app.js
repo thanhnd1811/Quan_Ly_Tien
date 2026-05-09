@@ -6416,8 +6416,137 @@ const App = {
 
     } catch (e) {
       if (typing) typing.style.display = 'none';
-      history.push({ role: 'assistant', content: '❌ Lỗi: ' + (e.message || 'Không gọi được AI. Thử lại?') });
+
+      // ===== FALLBACK: Local parser khi AI fail (quota / network / timeout) =====
+      // Nếu user input có vẻ là tx command (số tiền + maybe save keyword) →
+      // dùng parseVoiceTransaction (offline, không cần AI) để tạo GD.
+      // Áp dụng cho cả: hết quota tất cả models (e.allExhausted), network error,
+      // timeout, hoặc bất kỳ lỗi nào khác → cố cứu user thay vì để stuck.
+      const tryOfflineFallback = await this._aiChatTryOfflineSave(text);
+      if (tryOfflineFallback.handled) {
+        // Local parser đã xử lý xong (lưu hoặc báo thiếu field) — thoát
+        return;
+      }
+
+      // Không phải tx command (Q&A) → show error
+      const isQuotaErr = e.allExhausted || /quota|exceeded|exhausted/i.test(e.message || '');
+      const errMsg = isQuotaErr
+        ? '⚠️ AI đã hết quota miễn phí hôm nay (đã thử cả 3 model). Bạn vẫn có thể tạo giao dịch bằng cách: tap nút ➕ giữa thanh dưới → mic → nói câu lệnh. Hoặc đợi đến mai (00:00 reset).'
+        : '❌ Lỗi: ' + (e.message || 'Không gọi được AI. Thử lại?');
+      history.push({ role: 'assistant', content: errMsg });
       this._renderAiChatMessages();
+    }
+  },
+
+  // Fallback offline: parse text bằng local NLP (không cần AI), tạo tx + save.
+  // Trả về { handled: bool } — true nếu đã xử lý (success hoặc validated-fail
+  // có message rõ ràng), false nếu input không phải tx command (để caller
+  // show error AI).
+  async _aiChatTryOfflineSave(text) {
+    if (!text || typeof this.parseVoiceTransaction !== 'function') {
+      return { handled: false };
+    }
+    let parsed;
+    try {
+      parsed = this.parseVoiceTransaction(text);
+    } catch (_) {
+      return { handled: false };
+    }
+    // Heuristic: cần ít nhất số tiền để xem là tx command
+    if (!parsed || !parsed.amount || parsed.amount <= 0) {
+      return { handled: false };
+    }
+    // Lấy default account nếu parser không tìm ra
+    const accounts = this.state.accounts || [];
+    let accountId = parsed.accountId;
+    if (!accountId) {
+      // Fallback: ví dùng gần đây cùng type, hoặc ví đầu tiên
+      const recent = (this.state.transactions || [])
+        .filter(t => t.type === parsed.type && t.accountId).slice(-10).reverse();
+      if (recent.length) accountId = recent[0].accountId;
+      if (!accountId) {
+        const firstPay = accounts.find(a => (a.accountType || 'payment') === 'payment');
+        accountId = firstPay?.id || accounts[0]?.id;
+      }
+    }
+    // Validate đầy đủ field cần thiết
+    const missing = [];
+    if (!accountId) missing.push('ví');
+    if (parsed.type !== 'transfer' && !parsed.categoryId) missing.push('danh mục');
+    if (parsed.type === 'transfer' && !parsed.toAccountId) missing.push('ví đích');
+
+    const history = this.state._aiChatHistory = this.state._aiChatHistory || [];
+
+    if (missing.length > 0) {
+      // Có số tiền nhưng thiếu field — báo user rõ ràng (không silent fail)
+      history.push({
+        role: 'assistant',
+        content: `⚠️ AI đang lỗi/hết quota. Mình thử parse offline được "${text}" nhưng còn thiếu: **${missing.join(', ')}**. Bạn tap ➕ → mic để tạo trong form đầy đủ hơn nhé.`
+      });
+      this._renderAiChatMessages();
+      return { handled: true };
+    }
+
+    // Build tx + save (giống _aiChatSavePendingTx)
+    const tx = {
+      type: parsed.type,
+      amount: parsed.amount,
+      date: new Date().toISOString().slice(0, 10),
+      accountId,
+      toAccountId: parsed.toAccountId || null,
+      categoryId: parsed.categoryId || null,
+      note: parsed.note || text,
+      bookId: this.state.currentBookId
+    };
+    if (Array.isArray(parsed.tags) && parsed.tags.length) tx.tags = parsed.tags;
+
+    // GPS nếu user bật (chỉ expense/income)
+    if (window.QLT_Geo && QLT_Geo.isEnabled() && parsed.type !== 'transfer') {
+      try {
+        const pos = await QLT_Geo.getCurrentPosition();
+        tx.location = { lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy };
+      } catch (_) {}
+    }
+
+    try {
+      await this.applyBalanceDelta(tx, +1);
+      const saved = await window.QLT_Store.put('transactions', tx);
+      await this.reload();
+
+      // Reverse geocode async
+      if (tx.location?.lat) {
+        QLT_Geo.reverseGeocode(tx.location.lat, tx.location.lng).then(async (geo) => {
+          if (geo && saved?.id) {
+            const fresh = await window.QLT_Store.get('transactions', saved.id);
+            if (fresh) {
+              fresh.location = fresh.location || tx.location;
+              fresh.location.address = geo.address;
+              fresh.location.fullAddress = geo.full;
+              await window.QLT_Store.put('transactions', fresh);
+              await this.reload();
+            }
+          }
+        }).catch(() => {});
+      }
+
+      const typeLabel = parsed.type === 'expense' ? 'Chi' : parsed.type === 'income' ? 'Thu' : 'Chuyển';
+      const cat = (this.state.categories || []).find(c => c.id === parsed.categoryId);
+      const acc = accounts.find(a => a.id === accountId);
+      history.push({
+        role: 'assistant',
+        content: `✅ **Đã lưu (offline parser)** — AI đang lỗi nhưng mình tự xử lý được.\n\n${typeLabel} **${fmt(parsed.amount)}đ**${cat ? ' · ' + cat.name : ''}${acc ? ' · ' + acc.name : ''}`
+      });
+      this._renderAiChatMessages();
+      QLT_UI.toast(`✅ Đã lưu offline: ${typeLabel} ${fmt(parsed.amount)}đ`, { type: 'success', duration: 2800 });
+      this.autoSync();
+      return { handled: true };
+    } catch (saveErr) {
+      history.push({
+        role: 'assistant',
+        content: `❌ AI hết quota + lỗi khi lưu offline: ${saveErr.message || saveErr}. Bạn tap ➕ → tạo thủ công nhé.`
+      });
+      this._renderAiChatMessages();
+      return { handled: true };
     }
   },
 

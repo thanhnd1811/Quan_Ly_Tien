@@ -64,6 +64,91 @@
     fallback: 'gemini-2.5-flash-lite' // dùng nếu hit quota flash
   };
 
+  // Multi-model fallback chain — khi 1 model hết quota daily, tự switch sang model
+  // có quota cao hơn. Tổng combined quota ~2750 req/day (free tier).
+  // Order: smartest first → cheapest last.
+  const CHAT_FALLBACK_CHAIN = [
+    'gemini-2.5-flash',       // 250 RPD — smart, multi-turn tool use OK
+    'gemini-2.5-flash-lite',  // 1000 RPD — nhanh + nhiều quota
+    'gemini-2.0-flash-lite'   // 1500 RPD — last resort, ít smart hơn
+  ];
+  const VISION_FALLBACK_CHAIN = [
+    'gemini-2.5-flash',       // 250 RPD — best OCR
+    'gemini-2.5-flash-lite',  // 1000 RPD — vẫn vision OK
+    'gemini-2.0-flash-lite'   // 1500 RPD — last resort
+  ];
+
+  // Quota exhaustion tracker — lưu localStorage để biết model nào đã hết quota
+  // hôm nay → skip không gọi nữa, đỡ tốn 1 request lỗi.
+  const QUOTA_KEY = 'qlt_ai_quota_exhausted';
+  function _todayKey() { return new Date().toISOString().slice(0, 10); }
+  function _getExhausted() {
+    try {
+      const raw = localStorage.getItem(QUOTA_KEY);
+      if (!raw) return {};
+      const data = JSON.parse(raw);
+      // Auto-reset nếu khác ngày
+      if (data._date !== _todayKey()) return {};
+      return data;
+    } catch (_) { return {}; }
+  }
+  function _markExhausted(model) {
+    const data = _getExhausted();
+    data._date = _todayKey();
+    data[model] = true;
+    try { localStorage.setItem(QUOTA_KEY, JSON.stringify(data)); } catch (_) {}
+    console.warn('[AI] Model exhausted today:', model);
+  }
+  function _isExhausted(model) {
+    return !!_getExhausted()[model];
+  }
+
+  // Heuristic: error message từ Gemini là quota exhaustion (vs rate limit tạm)?
+  // - 429 + message chứa "quota" / "RESOURCE_EXHAUSTED" / "daily" → exhausted (mark)
+  // - 429 không có dấu hiệu quota → có thể chỉ rate limit phút → retry
+  function _isQuotaError(errMsg) {
+    if (!errMsg) return false;
+    const m = String(errMsg).toLowerCase();
+    return m.includes('quota') || m.includes('resource_exhausted') ||
+           m.includes('daily limit') || m.includes('exceeded');
+  }
+
+  // Wrapper gọi với fallback chain — thử từng model cho đến khi success
+  // hoặc hết chain. Throw error cuối nếu tất cả fail.
+  async function geminiCallWithFallback(apiKey, chain, body, opts = {}) {
+    const errors = [];
+    let lastErr;
+    for (const model of chain) {
+      if (_isExhausted(model)) {
+        console.log('[AI] Skip', model, '(đã exhausted hôm nay)');
+        continue;
+      }
+      try {
+        const json = await geminiCall(apiKey, model, body);
+        // Success — gắn meta info để caller biết model nào dùng
+        if (json && typeof json === 'object') json._modelUsed = model;
+        return json;
+      } catch (e) {
+        lastErr = e;
+        const msg = e.message || String(e);
+        errors.push(`${model}: ${msg.slice(0, 100)}`);
+        // Quota exhausted → mark + try next
+        if (_isQuotaError(msg)) {
+          _markExhausted(model);
+          continue;
+        }
+        // Lỗi không phải quota (auth/network/...) → throw ngay, không thử model khác
+        // (vì các model khác cũng cùng key + cùng network)
+        throw e;
+      }
+    }
+    // Hết chain mà chưa thành công → throw error tổng hợp
+    const err = new Error('Tất cả AI models đã hết quota hôm nay. ' + errors.join(' | '));
+    err.allExhausted = true;
+    err.lastError = lastErr;
+    throw err;
+  }
+
   const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta';
   const TIMEOUT_MS = 60000; // 60s — Vision có thể chậm với ảnh lớn
 
@@ -239,8 +324,16 @@
         body.tools = [{ function_declarations: tools }];
       }
 
-      const json = await geminiCall(key, MODELS.chat, body);
-      return parseGeminiResponse(json);
+      // Multi-model fallback: 2.5-flash → 2.5-flash-lite → 2.0-flash-lite
+      // Tổng quota free ~2750 req/day. Caller có thể inspect json._modelUsed.
+      const json = await geminiCallWithFallback(key, CHAT_FALLBACK_CHAIN, body);
+      const parsed = parseGeminiResponse(json);
+      if (json._modelUsed && json._modelUsed !== CHAT_FALLBACK_CHAIN[0]) {
+        // Log fallback model — debug only, không show user
+        console.log('[AI chat] Used fallback model:', json._modelUsed);
+        parsed._modelUsed = json._modelUsed;
+      }
+      return parsed;
     },
 
     // --- Analyze image (cho OCR bill) ---
@@ -276,7 +369,8 @@
         body.systemInstruction = { parts: [{ text: systemInstruction }] };
       }
 
-      const json = await geminiCall(key, MODELS.vision, body);
+      // Vision với fallback chain
+      const json = await geminiCallWithFallback(key, VISION_FALLBACK_CHAIN, body);
       return parseGeminiResponse(json);
     },
 
@@ -354,7 +448,8 @@ QUY TẮC TÍNH AMOUNT (rất quan trọng):
         }
       };
 
-      const json = await geminiCall(key, MODELS.vision, body);
+      // Receipt OCR — vision fallback chain
+      const json = await geminiCallWithFallback(key, VISION_FALLBACK_CHAIN, body);
       const parsed = parseGeminiResponse(json);
 
       // JSON Schema mode → text guaranteed JSON
