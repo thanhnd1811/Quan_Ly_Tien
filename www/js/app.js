@@ -2247,14 +2247,17 @@ const App = {
     for (const a of this.state.accounts) accChange[a.id] = 0;
     for (const t of this.state.transactions) {
       if (!t.date.startsWith(ym)) continue;
-      // Tổng Thu/Chi tháng: BỎ giao dịch _adjustment (Điều chỉnh số dư)
-      // — đó không phải thu nhập / chi tiêu thật, chỉ là fix sai lệch số dư.
-      // accChange (thay đổi số dư từng ví) VẪN tính _adjustment vì nó là sự thay đổi thực tế.
+      // BỎ giao dịch _adjustment (Điều chỉnh số dư) khỏi CẢ tổng Thu/Chi
+      // VÀ accChange (thay đổi từng ví trong tháng).
+      // Lý do: user dùng nút "⚖️ Điều chỉnh" để fix sai lệch / set initial,
+      // không phải cash flow thật. Nếu cộng vào sẽ inflate cả Thu nhập tháng
+      // VÀ chỉ báo "↑ N đ" trên ví → gây nhầm lẫn.
+      if (t._adjustment) continue;
       if (t.type === 'income') {
-        if (!t._adjustment) inc += t.amount;
+        inc += t.amount;
         accChange[t.accountId] = (accChange[t.accountId] || 0) + t.amount;
       } else if (t.type === 'expense') {
-        if (!t._adjustment) exp += t.amount;
+        exp += t.amount;
         accChange[t.accountId] = (accChange[t.accountId] || 0) - t.amount;
       } else if (t.type === 'transfer') {
         accChange[t.accountId] = (accChange[t.accountId] || 0) - t.amount;
