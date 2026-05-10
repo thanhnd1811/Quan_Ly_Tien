@@ -3700,14 +3700,17 @@ const App = {
     const txItems = txs.map(t => {
       const cat = (this.state.categories || []).find(c => c.id === t.categoryId);
       const acc = (this.state.accounts || []).find(a => a.id === t.accountId);
+      // Icon: dùng svgIcon helper — handle cả emoji ("emoji:👨‍⚕️") + SVG name ("food")
+      // Fallback "other" SVG nếu không có icon hoặc category null
+      const iconHtml = cat?.icon ? window.svgIcon(cat.icon) : window.svgIcon('other');
       return `
         <div class="heatmap-tx-item" data-tx-id="${t.id}" style="display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--border);cursor:pointer">
-          <div style="font-size:20px">${cat?.icon || '💰'}</div>
+          <div class="tx-icon" style="background:${cat?.color || '#888'}1a;color:${cat?.color || '#888'};width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0">${iconHtml}</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(cat?.name || 'Không có DM')}</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:2px">${this.escapeHtml(t.note || '—')} · ${this.escapeHtml(acc?.name || '?')}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(t.note || '—')} · ${this.escapeHtml(acc?.name || '?')}</div>
           </div>
-          <div style="font-size:14px;font-weight:700;color:var(--danger)">-${fmt(t.amount)} đ</div>
+          <div style="font-size:14px;font-weight:700;color:var(--danger);flex-shrink:0">-${fmt(t.amount)} đ</div>
         </div>
       `;
     }).join('');
