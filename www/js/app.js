@@ -2736,6 +2736,8 @@ const App = {
     this.renderHomeUpdateBanner();
     // Balance mismatch banner — hiện cảnh báo nếu có lệch số dư NH vs app
     this.renderHomeBalanceMismatch();
+    // Quick Add Favorites — chips tạo GD nhanh
+    this.renderHomeFavorites();
     // Subscription detection banner — chỉ hiện nếu user chưa snooze (7 ngày)
     {
       const snoozeUntil = parseInt(localStorage.getItem('qlt_subs_banner_snooze') || '0', 10);
@@ -7744,6 +7746,377 @@ const App = {
   },
 
   // ============================================================
+  // QUICK ADD FAVORITES — chip tạo GD nhanh trên Trang chủ
+  // ============================================================
+  // Storage: localStorage['qlt_favorites'] = [{ id, type, amount,
+  //   categoryId, accountId, note, customLabel?, createdAt }]
+  // Tap chip → save tx ngay với date=today + time=now → toast confirm.
+
+  getFavorites() {
+    try {
+      const raw = localStorage.getItem('qlt_favorites');
+      return raw ? JSON.parse(raw) : [];
+    } catch (_) { return []; }
+  },
+
+  saveFavorites(list) {
+    try {
+      localStorage.setItem('qlt_favorites', JSON.stringify(list || []));
+    } catch (e) { console.warn('saveFavorites lỗi:', e); }
+  },
+
+  // Tự gen ID cho favorite mới
+  _newFavoriteId() {
+    return 'fav_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  },
+
+  // Render section chips trên home
+  renderHomeFavorites() {
+    const wrap = document.getElementById('homeFavorites');
+    if (!wrap) return;
+    const favs = this.getFavorites();
+
+    if (favs.length === 0) {
+      // Empty state — gợi ý
+      wrap.innerHTML = `
+        <div class="fav-section">
+          <div class="fav-head">
+            <div class="fav-title">⚡ Tạo GD nhanh</div>
+          </div>
+          <div class="fav-empty">
+            Pin các GD hay làm (cà phê, bữa trưa, xăng…) → tap 1 cú lưu.<br>
+            <span class="fav-empty-cta" data-act="suggest">💡 Đề xuất từ GD hay làm</span>
+            ·
+            <span class="fav-empty-cta" data-act="manage">⚙️ Tự thêm</span>
+          </div>
+        </div>
+      `;
+      wrap.querySelector('[data-act="suggest"]').onclick = () => this._suggestFavorites();
+      wrap.querySelector('[data-act="manage"]').onclick = () => this._openFavoritesModal();
+      return;
+    }
+
+    // Render chips
+    const chips = favs.map(f => {
+      const cat = (this.state.categories || []).find(c => c.id === f.categoryId);
+      const iconHtml = cat?.icon ? window.svgIcon(cat.icon) : window.svgIcon('other');
+      const color = cat?.color || '#888';
+      const label = f.customLabel || f.note || cat?.name || 'GD';
+      const sign = f.type === 'income' ? '+' : f.type === 'expense' ? '-' : '';
+      const amtCls = f.type === 'income' ? 'income' : 'expense';
+      // Compact amount: 50k, 1.5M
+      let amtLabel;
+      if (f.amount >= 1000000) amtLabel = (f.amount / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+      else if (f.amount >= 1000) amtLabel = Math.round(f.amount / 1000) + 'k';
+      else amtLabel = String(f.amount);
+      return `
+        <div class="fav-chip" data-fav="${f.id}">
+          <div class="fav-chip-icon" style="background:${color}1a;color:${color}">${iconHtml}</div>
+          <div class="fav-chip-text">
+            <div class="fav-chip-name">${this.escapeHtml(label)}</div>
+            <div class="fav-chip-amt ${amtCls}">${sign}${amtLabel}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    wrap.innerHTML = `
+      <div class="fav-section">
+        <div class="fav-head">
+          <div class="fav-title">⚡ Tạo GD nhanh</div>
+          <button class="fav-manage" data-act="manage">Quản lý</button>
+        </div>
+        <div class="fav-list">
+          ${chips}
+          <div class="fav-chip fav-chip-add" data-act="add">+ Thêm</div>
+        </div>
+      </div>
+    `;
+
+    // Bind chip tap
+    wrap.querySelectorAll('.fav-chip[data-fav]').forEach(el => {
+      let pressTimer = null;
+      el.onclick = () => {
+        if (pressTimer) return; // ignore tap nếu vừa long-press
+        haptic('light');
+        this._quickSaveFavorite(el.dataset.fav);
+      };
+      // Long press → show options (edit/delete)
+      const startPress = () => {
+        pressTimer = setTimeout(() => {
+          haptic('medium');
+          this._showFavoriteOptions(el.dataset.fav);
+          pressTimer = 'fired';
+        }, 500);
+      };
+      const cancelPress = () => {
+        if (pressTimer && pressTimer !== 'fired') clearTimeout(pressTimer);
+        setTimeout(() => { pressTimer = null; }, 100);
+      };
+      el.addEventListener('touchstart', startPress, { passive: true });
+      el.addEventListener('touchend', cancelPress);
+      el.addEventListener('touchmove', cancelPress);
+      el.addEventListener('mousedown', startPress);
+      el.addEventListener('mouseup', cancelPress);
+      el.addEventListener('mouseleave', cancelPress);
+    });
+    wrap.querySelector('[data-act="add"]')?.addEventListener('click', () => this._openFavoritesModal());
+    wrap.querySelector('[data-act="manage"]')?.addEventListener('click', () => this._openFavoritesModal());
+  },
+
+  // Quick save: tap chip → tạo tx ngay với data từ favorite
+  async _quickSaveFavorite(favId) {
+    const fav = this.getFavorites().find(f => f.id === favId);
+    if (!fav) {
+      QLT_UI.toast('Không tìm thấy favorite', { type: 'error' });
+      return;
+    }
+
+    // Validate
+    if (!fav.amount || fav.amount <= 0) {
+      QLT_UI.toast('Số tiền không hợp lệ — sửa lại favorite', { type: 'error' });
+      return;
+    }
+    if (!fav.accountId) {
+      QLT_UI.toast('Thiếu ví — sửa lại favorite', { type: 'error' });
+      return;
+    }
+    if (fav.type !== 'transfer' && !fav.categoryId) {
+      QLT_UI.toast('Thiếu danh mục — sửa lại favorite', { type: 'error' });
+      return;
+    }
+
+    // Build tx
+    const _now = new Date();
+    const tx = {
+      type: fav.type,
+      amount: fav.amount,
+      date: _now.toISOString().slice(0, 10),
+      time: String(_now.getHours()).padStart(2, '0') + ':' + String(_now.getMinutes()).padStart(2, '0'),
+      accountId: fav.accountId,
+      toAccountId: fav.toAccountId || null,
+      categoryId: fav.categoryId || null,
+      note: fav.note || '',
+      bookId: this.state.currentBookId,
+      _fromFavorite: true,
+      _favoriteId: fav.id
+    };
+
+    // GPS nếu enabled
+    if (window.QLT_Geo && QLT_Geo.isEnabled() && fav.type !== 'transfer') {
+      try {
+        const pos = await QLT_Geo.getCurrentPosition();
+        tx.location = { lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy };
+      } catch (_) {}
+    }
+
+    try {
+      await this.applyBalanceDelta(tx, +1);
+      const saved = await window.QLT_Store.put('transactions', tx);
+      await this.reload();
+      this.renderHome(); // refresh balance + recent
+
+      const cat = (this.state.categories || []).find(c => c.id === fav.categoryId);
+      const sign = fav.type === 'income' ? '+' : '-';
+      QLT_UI.toast(
+        `✅ Đã lưu: ${sign}${fmt(fav.amount)}đ ${cat?.name || ''}`,
+        { type: 'success', duration: 2500 }
+      );
+
+      // Reverse geocode async
+      if (tx.location?.lat && saved?.id) {
+        QLT_Geo.reverseGeocode(tx.location.lat, tx.location.lng).then(async (geo) => {
+          if (geo) {
+            const fresh = await window.QLT_Store.get('transactions', saved.id);
+            if (fresh) {
+              fresh.location = fresh.location || tx.location;
+              fresh.location.address = geo.address;
+              fresh.location.fullAddress = geo.full;
+              await window.QLT_Store.put('transactions', fresh);
+            }
+          }
+        }).catch(() => {});
+      }
+      this.autoSync();
+    } catch (e) {
+      QLT_UI.toast('Lỗi lưu: ' + (e.message || e), { type: 'error' });
+    }
+  },
+
+  // Long-press menu: edit/delete
+  async _showFavoriteOptions(favId) {
+    const fav = this.getFavorites().find(f => f.id === favId);
+    if (!fav) return;
+    const cat = (this.state.categories || []).find(c => c.id === fav.categoryId);
+    const choice = await new Promise(resolve => {
+      const html = `
+        <div style="padding:10px 0">
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Favorite: ${this.escapeHtml(fav.customLabel || fav.note || cat?.name || 'GD')} (${fmt(fav.amount)}đ)</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <button class="btn btn-secondary btn-block" data-c="edit">✏️ Sửa</button>
+            <button class="btn btn-secondary btn-block" data-c="remove" style="color:var(--danger)">🗑️ Xoá khỏi danh sách</button>
+          </div>
+        </div>
+      `;
+      QLT_UI.alert(html, { title: '⚡ GD nhanh', html: true });
+      setTimeout(() => {
+        document.querySelectorAll('[data-c]').forEach(b => {
+          b.onclick = () => {
+            const alertModal = document.querySelector('.modal.open');
+            if (alertModal) alertModal.classList.remove('open');
+            resolve(b.dataset.c);
+          };
+        });
+      }, 100);
+    });
+    if (choice === 'remove') {
+      this._removeFavorite(favId);
+    } else if (choice === 'edit') {
+      this._editFavorite(favId);
+    }
+  },
+
+  _removeFavorite(favId) {
+    const list = this.getFavorites().filter(f => f.id !== favId);
+    this.saveFavorites(list);
+    this.renderHomeFavorites();
+    QLT_UI.toast('Đã xoá khỏi GD nhanh', { type: 'info' });
+  },
+
+  // Sửa favorite — mở modal recurring giống nhưng simpler? Cho đơn giản,
+  // open tx form mode "edit favorite" với data hiện tại.
+  // Implement đơn giản: prompt user chỉnh customLabel + amount qua confirm dialogs.
+  _editFavorite(favId) {
+    const fav = this.getFavorites().find(f => f.id === favId);
+    if (!fav) return;
+    // Đơn giản: cho user re-pin với amount mới qua tx form
+    QLT_UI.alert('Để sửa, xoá favorite này → tạo lại với data mới (qua tx form → tap "📌 Pin").', { title: 'Sửa favorite' });
+  },
+
+  // Suggest favorites từ tx history (top 5 most-frequent)
+  async _suggestFavorites() {
+    const txs = (this.state.transactions || []).filter(t =>
+      this.isRealExpense(t) && t.amount > 0 && t.categoryId
+    );
+
+    // Last 60 days
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 60);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    const recent = txs.filter(t => t.date >= cutoffStr);
+
+    // Group by (categoryId, rounded amount)
+    const groups = {};
+    for (const t of recent) {
+      const round = t.amount >= 100000 ? 5000 : 1000;
+      const roundedAmt = Math.round(t.amount / round) * round;
+      const key = `${t.categoryId}_${roundedAmt}`;
+      if (!groups[key]) groups[key] = { txs: [], categoryId: t.categoryId, amount: roundedAmt };
+      groups[key].txs.push(t);
+    }
+
+    // Sort by count, take top 5 (skip những cái đã có favorite)
+    const existing = this.getFavorites();
+    const existingKeys = new Set(existing.map(f =>
+      `${f.categoryId}_${Math.round(f.amount / (f.amount >= 100000 ? 5000 : 1000)) * (f.amount >= 100000 ? 5000 : 1000)}`
+    ));
+
+    const candidates = Object.values(groups)
+      .filter(g => g.txs.length >= 2 && !existingKeys.has(`${g.categoryId}_${g.amount}`))
+      .sort((a, b) => b.txs.length - a.txs.length)
+      .slice(0, 5);
+
+    if (candidates.length === 0) {
+      QLT_UI.toast('Không có gợi ý mới — bạn đã pin hết hoặc chưa đủ data', { type: 'info', duration: 3000 });
+      return;
+    }
+
+    // Auto-add candidates as favorites
+    const newFavs = candidates.map(g => {
+      const sample = g.txs[0];
+      // Avg amount instead of rounded
+      const avgAmount = Math.round(g.txs.reduce((s, t) => s + t.amount, 0) / g.txs.length);
+      const noteFreq = {};
+      for (const t of g.txs) {
+        const n = (t.note || '').trim();
+        if (n) noteFreq[n] = (noteFreq[n] || 0) + 1;
+      }
+      const commonNote = Object.entries(noteFreq).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+      return {
+        id: this._newFavoriteId(),
+        type: 'expense',
+        amount: avgAmount,
+        categoryId: sample.categoryId,
+        accountId: sample.accountId,
+        note: commonNote,
+        createdAt: Date.now(),
+        _autoSuggested: true
+      };
+    });
+
+    const merged = [...existing, ...newFavs];
+    this.saveFavorites(merged);
+    this.renderHomeFavorites();
+    QLT_UI.toast(`✨ Đã thêm ${newFavs.length} GD nhanh từ pattern phổ biến`, {
+      type: 'success', duration: 3000
+    });
+  },
+
+  // Open modal manage — chỉnh sửa list favorites
+  _openFavoritesModal() {
+    const modal = document.getElementById('favoritesModal');
+    if (!modal) return;
+    const listEl = document.getElementById('favoritesModalList');
+    const favs = this.getFavorites();
+
+    if (favs.length === 0) {
+      listEl.innerHTML = `
+        <div style="padding:30px 20px;text-align:center;color:var(--text3);font-size:13px;line-height:1.6">
+          📋 Chưa có favorite nào.<br>
+          Tap "💡 Đề xuất" để app tự tìm pattern phổ biến,<br>
+          hoặc trong form sửa GD bất kỳ → tap "📌 Pin làm GD nhanh".
+        </div>
+      `;
+    } else {
+      listEl.innerHTML = favs.map((f, idx) => {
+        const cat = (this.state.categories || []).find(c => c.id === f.categoryId);
+        const acc = (this.state.accounts || []).find(a => a.id === f.accountId);
+        const iconHtml = cat?.icon ? window.svgIcon(cat.icon) : window.svgIcon('other');
+        const color = cat?.color || '#888';
+        const sign = f.type === 'income' ? '+' : '-';
+        const colorAmt = f.type === 'income' ? 'var(--pos)' : 'var(--danger)';
+        return `
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)">
+            <div class="fav-chip-icon" style="background:${color}1a;color:${color};width:36px;height:36px;font-size:16px">${iconHtml}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(f.customLabel || f.note || cat?.name || 'GD')}</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">${this.escapeHtml(cat?.name || '?')} · ${this.escapeHtml(acc?.name || '?')}</div>
+            </div>
+            <div style="font-size:14px;font-weight:700;color:${colorAmt};flex-shrink:0">${sign}${fmt(f.amount)}đ</div>
+            <button data-rm="${f.id}" style="background:transparent;border:none;color:var(--danger);font-size:18px;cursor:pointer;padding:4px 8px">🗑️</button>
+          </div>
+        `;
+      }).join('');
+
+      listEl.querySelectorAll('[data-rm]').forEach(btn => {
+        btn.onclick = async () => {
+          if (await QLT_UI.confirm('Xoá favorite này?', { okLabel: 'Xoá', danger: true })) {
+            this._removeFavorite(btn.dataset.rm);
+            this._openFavoritesModal(); // re-render
+          }
+        };
+      });
+    }
+
+    document.getElementById('favSuggestBtn').onclick = async () => {
+      modal.classList.remove('open');
+      await this._suggestFavorites();
+    };
+
+    modal.classList.add('open');
+  },
+
+  // ============================================================
   // NET WORTH HISTORY — tổng tài sản theo tháng (12 tháng gần nhất)
   // ============================================================
   // Tính balance của từng ví AT END OF MONTH bằng cách walk back txs:
@@ -10210,6 +10583,44 @@ const App = {
     $('#txNote').value = tx.note || '';
     $('#txDelete').style.display = isNew ? 'none' : 'block';
     $('#txTitle').textContent = isNew ? 'Thêm giao dịch' : 'Sửa giao dịch';
+
+    // Pin button — chỉ hiện cho tx existed (đã có amount + category đầy đủ)
+    const pinBtn = $('#txPinFavorite');
+    if (pinBtn) {
+      const canPin = !isNew && tx.amount > 0 && tx.accountId
+        && (tx.type === 'transfer' || tx.categoryId);
+      pinBtn.style.display = canPin ? 'inline-flex' : 'none';
+      // Check nếu tx đã được pin (có favorite match)
+      const existingFavs = this.getFavorites();
+      const alreadyPinned = existingFavs.some(f =>
+        f.type === tx.type && f.amount === tx.amount &&
+        f.categoryId === tx.categoryId && f.accountId === tx.accountId
+      );
+      pinBtn.textContent = alreadyPinned ? '✓ Đã pin' : '📌';
+      pinBtn.title = alreadyPinned ? 'Đã có trong GD nhanh' : 'Pin làm GD nhanh trên Trang chủ';
+      pinBtn.disabled = alreadyPinned;
+      pinBtn.onclick = () => {
+        if (alreadyPinned) return;
+        const newFav = {
+          id: this._newFavoriteId(),
+          type: tx.type,
+          amount: tx.amount,
+          categoryId: tx.categoryId,
+          accountId: tx.accountId,
+          toAccountId: tx.toAccountId || null,
+          note: tx.note || '',
+          createdAt: Date.now()
+        };
+        const list = this.getFavorites();
+        list.push(newFav);
+        this.saveFavorites(list);
+        pinBtn.textContent = '✓ Đã pin';
+        pinBtn.disabled = true;
+        QLT_UI.toast('📌 Đã pin — tap chip ở Trang chủ để tạo nhanh lần sau', {
+          type: 'success', duration: 2800
+        });
+      };
+    }
 
     // Audit: nếu tx được auto-tạo từ SMS/notification → hiện nguồn để user verify
     const auditEl = $('#txSourceAudit');

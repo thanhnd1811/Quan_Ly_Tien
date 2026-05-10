@@ -546,6 +546,27 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .cashflow-cell.mixed{background:linear-gradient(135deg,rgba(34,197,94,.1) 50%,rgba(220,38,38,.1) 50%)}
 .cashflow-cell.warning::after{content:'⚠️';position:absolute;top:1px;right:1px;font-size:10px}
 .cashflow-cell.critical::after{content:'🚨';position:absolute;top:1px;right:1px;font-size:10px}
+
+/* ===== Quick Add Favorites ===== */
+.fav-section{margin:10px 16px 14px;padding:12px;background:var(--surface);border-radius:12px;box-shadow:var(--sh)}
+.fav-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.fav-title{font-size:12px;font-weight:700;color:var(--text);letter-spacing:.3px;text-transform:uppercase}
+.fav-manage{font-size:11px;color:var(--accent);background:transparent;border:none;cursor:pointer;font-weight:600;padding:4px 6px}
+.fav-list{display:flex;gap:8px;overflow-x:auto;padding:2px 0 4px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+.fav-list::-webkit-scrollbar{height:4px}
+.fav-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.fav-chip{flex-shrink:0;display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:8px 14px;cursor:pointer;transition:transform .1s, background .15s;-webkit-tap-highlight-color:transparent;user-select:none}
+.fav-chip:active{transform:scale(.95);background:var(--accent-soft)}
+.fav-chip-icon{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.fav-chip-text{display:flex;flex-direction:column;gap:1px;font-size:12px}
+.fav-chip-name{font-weight:600;color:var(--text);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fav-chip-amt{font-size:11px;font-weight:700;line-height:1}
+.fav-chip-amt.expense{color:var(--danger)}
+.fav-chip-amt.income{color:var(--pos)}
+.fav-chip-add{background:transparent;border:1px dashed var(--border);color:var(--text3);font-size:12px;padding:8px 14px}
+.fav-chip-add:active{background:var(--surface2)}
+.fav-empty{padding:14px 12px;font-size:12px;color:var(--text3);text-align:center;line-height:1.6}
+.fav-empty-cta{display:inline-block;margin-top:6px;color:var(--accent);font-weight:600;cursor:pointer}
 /* Budgets (Ngân sách) */
 .budget-summary{padding:14px 16px;background:var(--book-accent);color:#fff}
 .budget-summary-month{font-size:12px;opacity:.85;margin-bottom:8px}
@@ -1413,6 +1434,8 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
     <div id="homeBalanceMismatchBanner" style="display:none"></div>
     <!-- Banner phát hiện đăng ký định kỳ — chỉ hiện khi có pattern mới -->
     <div id="homeSubscriptionsBanner" style="display:none"></div>
+    <!-- Quick Add Favorites — chips tạo GD nhanh -->
+    <div id="homeFavorites"></div>
 
     <div data-home-widget="wallets">
       <div class="section">
@@ -1683,6 +1706,24 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
     <div class="modal-footer">
       <button class="btn btn-secondary" data-close>Huỷ</button>
       <button class="btn btn-primary" id="goalSave">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Quick Add Favorites — manage list -->
+<div id="favoritesModal" class="modal" style="z-index:310">
+  <div class="modal-card" style="max-height:85vh;display:flex;flex-direction:column">
+    <div class="modal-head">
+      <button data-close data-icon="close"></button>
+      <h3>⚡ Quản lý GD nhanh</h3>
+    </div>
+    <div style="padding:12px 16px;background:linear-gradient(135deg,rgba(99,102,241,.06),transparent);border-bottom:1px solid var(--border);font-size:12px;color:var(--text2);line-height:1.6">
+      Pin các giao dịch hay làm để tạo nhanh trên Trang chủ. Tap chip → 1 cú lưu.
+    </div>
+    <div id="favoritesModalList" style="flex:1;overflow-y:auto;min-height:0"></div>
+    <div class="modal-footer" style="flex-direction:column;gap:8px">
+      <button class="btn btn-primary btn-block" id="favSuggestBtn">💡 Đề xuất từ GD hay làm</button>
+      <button class="btn btn-ghost btn-block" data-close>Đóng</button>
     </div>
   </div>
 </div>
@@ -3485,6 +3526,7 @@ html[data-theme="dark"] .tx-loc-badge{background:#1a3a5c;color:#7eb6e8}
     </div>
     <div class="modal-footer">
       <button id="txDelete" class="btn btn-danger" style="display:none">Xoá</button>
+      <button id="txPinFavorite" class="btn btn-secondary" type="button" title="Pin làm GD nhanh trên Trang chủ" style="display:none">📌</button>
       <button id="txSave" class="btn btn-primary">Lưu</button>
     </div>
   </div>
