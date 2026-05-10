@@ -1843,6 +1843,8 @@ const App = {
 
     // Invalidate subscription detection cache (data có thể đã đổi)
     delete this.state._subsDetectionCache;
+    // Invalidate cashflow projection cache
+    delete this.state._cashflowCache;
 
     // Re-schedule daily summary notif (debounced 1s) — đảm bảo notif 20h
     // luôn dùng data MỚI NHẤT, không phải snapshot khi app khởi động.
@@ -3607,7 +3609,216 @@ const App = {
       this._renderChartByType('income', from, to, period, '#chartTop5Inc', '#chartDonutInc', '#chartLegendInc');
     } else if (this.state.chartTab === 'overview') {
       this._renderChartOverview(from, to, period);
+      // Cashflow projection 30 ngày tới — chỉ render trên tab CHUNG
+      this.renderCashflowCalendar();
     }
+  },
+
+  // ============ CASHFLOW CALENDAR (30 ngày tới) ============
+  // Render lịch dự báo dòng tiền 30 ngày tới — màu cell theo income/expense.
+  // Tap cell → modal show events ngày đó + balance per ví.
+  renderCashflowCalendar() {
+    const wrap = document.getElementById('chartCashflow');
+    if (!wrap) return;
+
+    const projection = this._buildCashflowProjection(30);
+    const { events, balanceByDay, warnings, allDates } = projection;
+
+    // Tổng hợp: aggregate events theo ngày → in/out/net
+    const dayTotals = {};
+    for (const ev of events) {
+      let inAmt = 0, outAmt = 0;
+      for (const item of ev.items) {
+        if (item.type === 'income') inAmt += item.amount;
+        else if (item.type === 'expense') outAmt += item.amount;
+        // transfer ko đổi total
+      }
+      dayTotals[ev.date] = { in: inAmt, out: outAmt, items: ev.items };
+    }
+
+    // Header summary
+    const totalIn = Object.values(dayTotals).reduce((s, d) => s + d.in, 0);
+    const totalOut = Object.values(dayTotals).reduce((s, d) => s + d.out, 0);
+    const eventDays = Object.keys(dayTotals).length;
+    const todayStr = today();
+
+    // Warnings UI
+    let warningsHtml = '';
+    if (warnings.length > 0) {
+      const items = warnings.slice(0, 5).map(w => {
+        const dStr = (() => {
+          const d = new Date(w.date + 'T00:00:00');
+          return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+        })();
+        const icon = w.severity === 'critical' ? '🚨' : '⚠️';
+        return `<div class="cashflow-warning-item">${icon} <strong>${dStr}</strong> ${this.escapeHtml(w.accountName)}: ${this.escapeHtml(w.message)}</div>`;
+      }).join('');
+      warningsHtml = `
+        <div class="cashflow-warnings">
+          <div class="cashflow-warnings-title">⚠️ Cảnh báo dòng tiền</div>
+          ${items}
+        </div>
+      `;
+    } else if (eventDays > 0) {
+      warningsHtml = `
+        <div class="cashflow-warnings ok">
+          <div class="cashflow-warnings-title">✅ Dòng tiền lành mạnh</div>
+          <div class="cashflow-warning-item">Không có ví nào dự báo âm trong 30 ngày tới.</div>
+        </div>
+      `;
+    }
+
+    // Grid cells: padding đầu (theo weekday của today) + 30 ngày
+    const todayDate = new Date(todayStr + 'T00:00:00');
+    let firstWeekday = todayDate.getDay() - 1;
+    if (firstWeekday < 0) firstWeekday = 6;
+
+    let cellsHtml = '';
+    for (let i = 0; i < firstWeekday; i++) {
+      cellsHtml += `<div class="cashflow-cell empty"></div>`;
+    }
+    for (const date of allDates) {
+      const day = parseInt(date.slice(8, 10), 10);
+      const total = dayTotals[date] || { in: 0, out: 0 };
+      const hasIn = total.in > 0;
+      const hasOut = total.out > 0;
+      let classNames = 'cashflow-cell';
+      if (date === todayStr) classNames += ' today';
+      if (hasIn && hasOut) classNames += ' mixed';
+      else if (hasIn) classNames += ' income';
+      else if (hasOut) classNames += ' expense';
+
+      // Add warning marker
+      const dayWarnings = warnings.filter(w => w.date === date);
+      if (dayWarnings.some(w => w.severity === 'critical')) classNames += ' critical';
+      else if (dayWarnings.length > 0) classNames += ' warning';
+
+      // Compact amount label
+      const net = total.in - total.out;
+      let amtLabel = '';
+      if (net !== 0) {
+        const abs = Math.abs(net);
+        const sign = net > 0 ? '+' : '-';
+        if (abs >= 1000000) amtLabel = sign + (abs / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+        else if (abs >= 1000) amtLabel = sign + Math.round(abs / 1000) + 'k';
+        else amtLabel = sign + abs;
+      }
+
+      cellsHtml += `
+        <div class="${classNames}" data-date="${date}" title="${date}: ${total.in > 0 ? '+' + fmt(total.in) : ''}${total.out > 0 ? ' -' + fmt(total.out) : ''}">
+          <div class="cashflow-cell-day">${day}</div>
+          ${amtLabel ? `<div class="cashflow-cell-amount">${amtLabel}</div>` : ''}
+        </div>
+      `;
+    }
+
+    wrap.innerHTML = `
+      <div class="cashflow-wrap">
+        <div class="cashflow-head">
+          <div class="cashflow-title">📅 Dự báo dòng tiền 30 ngày</div>
+        </div>
+        <div class="cashflow-summary">
+          ${eventDays > 0
+            ? `Sắp có <strong>${eventDays} ngày có GD</strong> · Thu <strong style="color:var(--pos)">+${fmt(totalIn)}đ</strong> · Chi <strong style="color:var(--danger)">-${fmt(totalOut)}đ</strong>`
+            : 'Chưa có giao dịch định kỳ hoặc nhắc nhở nào trong 30 ngày tới.'}
+        </div>
+        ${warningsHtml}
+        <div class="cashflow-grid">
+          <div class="heatmap-day-label">T2</div>
+          <div class="heatmap-day-label">T3</div>
+          <div class="heatmap-day-label">T4</div>
+          <div class="heatmap-day-label">T5</div>
+          <div class="heatmap-day-label">T6</div>
+          <div class="heatmap-day-label">T7</div>
+          <div class="heatmap-day-label">CN</div>
+          ${cellsHtml}
+        </div>
+        <div style="font-size:10px;color:var(--text3);text-align:center;margin-top:8px;line-height:1.5">
+          🟢 Thu nhập · 🔴 Chi phí · 🟠 Cả 2 · ⚠️ Sắp âm · 🚨 Sẽ âm<br>
+          Tap ngày để xem chi tiết
+        </div>
+      </div>
+    `;
+
+    // Bind tap → modal detail
+    wrap.querySelectorAll('.cashflow-cell:not(.empty)').forEach(cell => {
+      cell.onclick = () => this._openCashflowDayModal(cell.dataset.date);
+    });
+  },
+
+  _openCashflowDayModal(dateStr) {
+    if (!dateStr) return;
+    const projection = this._buildCashflowProjection(30);
+    const ev = projection.events.find(e => e.date === dateStr);
+    const items = ev?.items || [];
+
+    // Format date "Thứ 6, 15/05/2026"
+    const d = new Date(dateStr + 'T00:00:00');
+    const weekdays = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+    const dateLabel = `${weekdays[d.getDay()]}, ${dateStr.slice(8, 10)}/${dateStr.slice(5, 7)}/${dateStr.slice(0, 4)}`;
+
+    let totalIn = 0, totalOut = 0;
+    for (const it of items) {
+      if (it.type === 'income') totalIn += it.amount;
+      else if (it.type === 'expense') totalOut += it.amount;
+    }
+    const net = totalIn - totalOut;
+
+    // Build per-account balance projection cho ngày này
+    const balLines = [];
+    const accounts = (this.state.accounts || []).filter(a => this.isPayment(a));
+    for (const acc of accounts) {
+      const projBal = projection.balanceByDay[acc.id]?.[dateStr];
+      if (projBal == null) continue;
+      const color = projBal < 0 ? 'var(--danger)' : projBal < 100000 ? '#f59e0b' : 'var(--text)';
+      balLines.push(`<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px"><span>${this.escapeHtml(acc.name)}</span><strong style="color:${color}">${fmt(projBal)}đ</strong></div>`);
+    }
+
+    const itemsHtml = items.length > 0 ? items.map(it => {
+      const acc = (this.state.accounts || []).find(a => a.id === it.accountId);
+      const sign = it.type === 'income' ? '+' : '-';
+      const color = it.type === 'income' ? 'var(--pos)' : 'var(--danger)';
+      const sourceLabel = it.source === 'recurring' ? '🔄 Định kỳ' : it.source === 'reminder' ? '🔔 Nhắc nhở' : '';
+      return `
+        <div style="padding:10px 14px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:4px">
+            <div style="font-size:13px;font-weight:600">${this.escapeHtml(it.name)}</div>
+            <div style="font-size:13px;font-weight:700;color:${color}">${sign}${fmt(it.amount)}đ</div>
+          </div>
+          <div style="font-size:11px;color:var(--text3)">${this.escapeHtml(sourceLabel)}${acc ? ' · ' + this.escapeHtml(acc.name) : ''}${it.categoryName ? ' · ' + this.escapeHtml(it.categoryName) : ''}</div>
+        </div>
+      `;
+    }).join('') : `
+      <div style="padding:30px 20px;text-align:center;color:var(--text3);font-size:13px">
+        Không có GD nào dự báo cho ngày này
+      </div>
+    `;
+
+    const modal = document.getElementById('cashflowDayModal');
+    if (!modal) return;
+    document.getElementById('cashflowDayTitle').textContent = `📅 ${dateLabel}`;
+    document.getElementById('cashflowDaySummary').innerHTML = `
+      ${items.length > 0 ? `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div>
+            <div style="font-size:11px;color:var(--text3)">${items.length} sự kiện</div>
+            <div style="font-size:14px;color:var(--text)">
+              <span style="color:var(--pos)">+${fmt(totalIn)}đ</span> ·
+              <span style="color:var(--danger)">-${fmt(totalOut)}đ</span>
+            </div>
+          </div>
+          <div style="font-size:18px;font-weight:700;color:${net >= 0 ? 'var(--pos)' : 'var(--danger)'}">${net >= 0 ? '+' : ''}${fmt(net)}đ</div>
+        </div>
+      ` : ''}
+      ${balLines.length > 0 ? `
+        <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Số dư dự báo cuối ngày:</div>
+          ${balLines.join('')}
+        </div>
+      ` : ''}
+    `;
+    document.getElementById('cashflowDayList').innerHTML = itemsHtml;
+    modal.classList.add('open');
   },
 
   // ============ SPENDING HEATMAP CALENDAR ============
@@ -7437,6 +7648,160 @@ const App = {
     const force = !!opts.force;
     const r = await window.QLT_Update.check(force);
     return r;
+  },
+
+  // ============================================================
+  // CASHFLOW PROJECTION — dự báo dòng tiền N ngày tới
+  // ============================================================
+  // Quét recurring rules + reminders → tính các kỳ thu/chi sắp xảy ra
+  // → project balance từng ví theo ngày → detect ngày balance âm/thấp.
+  //
+  // Returns: { events, balanceByDay, warnings }
+  //   events: [{ date, items: [{type, amount, accountId, source, name, note}] }]
+  //   balanceByDay: { accountId: { 'YYYY-MM-DD': projectedBalance } }
+  //   warnings: [{ date, accountId, accountName, balance, severity }]
+  _buildCashflowProjection(days = 30) {
+    const cacheKey = '_cashflowCache';
+    const cacheVer = (this.state.transactions?.length || 0) + '_' + days;
+    const cached = this.state[cacheKey];
+    if (cached && cached.ver === cacheVer && (Date.now() - cached.ts) < 60 * 1000) {
+      return cached.data;
+    }
+
+    const todayStr = today();
+    const endDate = new Date(todayStr + 'T00:00:00');
+    endDate.setDate(endDate.getDate() + days);
+    const endStr = endDate.toISOString().slice(0, 10);
+
+    // 1. Build events từ recurring rules
+    const events = {}; // { 'YYYY-MM-DD': [items] }
+    const addEvent = (date, item) => {
+      if (!events[date]) events[date] = [];
+      events[date].push(item);
+    };
+
+    for (const rule of (this.state.recurringRules || [])) {
+      if (!rule.active) continue;
+      // Cursor bắt đầu từ today (forward projection)
+      let cursor = new Date(todayStr + 'T00:00:00');
+      cursor.setDate(cursor.getDate() - 1); // bắt đầu trước 1 ngày để recurringNextDate trả về today nếu match
+      let cursorStr = cursor.toISOString().slice(0, 10);
+
+      // Loop tối đa 60 lần để tránh infinite, project N ngày
+      for (let i = 0; i < 60; i++) {
+        const nextStr = this.recurringNextDate(rule, cursorStr);
+        if (!nextStr || nextStr > endStr) break;
+        if (rule.endDate && nextStr > rule.endDate) break;
+        // Skip nếu nextStr <= today (đã được runRecurringRules xử lý)
+        if (nextStr < todayStr) {
+          const d = new Date(nextStr + 'T00:00:00');
+          d.setDate(d.getDate() + 1);
+          cursorStr = d.toISOString().slice(0, 10);
+          continue;
+        }
+
+        const cat = (this.state.categories || []).find(c => c.id === rule.categoryId);
+        addEvent(nextStr, {
+          type: rule.type,
+          amount: rule.amount,
+          accountId: rule.accountId,
+          toAccountId: rule.toAccountId,
+          categoryId: rule.categoryId,
+          categoryName: cat?.name || '',
+          name: rule.name || cat?.name || 'GD định kỳ',
+          source: 'recurring',
+          ruleId: rule.id
+        });
+
+        const d = new Date(nextStr + 'T00:00:00');
+        d.setDate(d.getDate() + 1);
+        cursorStr = d.toISOString().slice(0, 10);
+      }
+    }
+
+    // 2. Reminders với dueDate trong window
+    for (const rem of (this.state.reminders || [])) {
+      if (rem.done) continue;
+      if (!rem.dueDate) continue;
+      if (rem.dueDate < todayStr || rem.dueDate > endStr) continue;
+      addEvent(rem.dueDate, {
+        type: rem.amount > 0 ? 'expense' : 'income', // reminder thường là phải trả
+        amount: Math.abs(rem.amount || 0),
+        accountId: rem.accountId,
+        name: rem.title || 'Nhắc nhở',
+        source: 'reminder',
+        reminderId: rem.id
+      });
+    }
+
+    // 3. Build balanceByDay projection
+    // Bắt đầu từ balance hiện tại của từng ví, apply events theo thứ tự ngày
+    const balanceByDay = {};
+    const accounts = (this.state.accounts || []).filter(a => this.isPayment(a));
+    for (const acc of accounts) {
+      balanceByDay[acc.id] = {};
+    }
+
+    // Generate list ngày từ today → endDate
+    const allDates = [];
+    let cur = new Date(todayStr + 'T00:00:00');
+    const endD = new Date(endStr + 'T00:00:00');
+    while (cur <= endD) {
+      allDates.push(cur.toISOString().slice(0, 10));
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    // Cumulative balance per account
+    for (const acc of accounts) {
+      let bal = acc.balance || 0;
+      for (const date of allDates) {
+        const evs = events[date] || [];
+        for (const e of evs) {
+          if (e.type === 'transfer') {
+            if (e.accountId === acc.id) bal -= e.amount;
+            if (e.toAccountId === acc.id) bal += e.amount;
+          } else if (e.accountId === acc.id) {
+            if (e.type === 'income') bal += e.amount;
+            else if (e.type === 'expense') bal -= e.amount;
+          }
+        }
+        balanceByDay[acc.id][date] = bal;
+      }
+    }
+
+    // 4. Detect warnings — ngày balance âm hoặc thấp (< 100k threshold)
+    const warnings = [];
+    const LOW_THRESHOLD = 100000;
+    for (const acc of accounts) {
+      let warnedNeg = false, warnedLow = false;
+      for (const date of allDates) {
+        const bal = balanceByDay[acc.id][date];
+        if (bal < 0 && !warnedNeg) {
+          warnings.push({
+            date, accountId: acc.id, accountName: acc.name,
+            balance: bal, severity: 'critical',
+            message: `Sẽ ÂM ${fmt(Math.abs(bal))}đ`
+          });
+          warnedNeg = true;
+        } else if (bal >= 0 && bal < LOW_THRESHOLD && !warnedLow && !warnedNeg) {
+          warnings.push({
+            date, accountId: acc.id, accountName: acc.name,
+            balance: bal, severity: 'warning',
+            message: `Sẽ chỉ còn ${fmt(bal)}đ (dưới 100k)`
+          });
+          warnedLow = true;
+        }
+      }
+    }
+
+    // Build events array sorted by date
+    const eventsArray = Object.entries(events)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, items]) => ({ date, items }));
+
+    const data = { events: eventsArray, balanceByDay, warnings, allDates };
+    this.state[cacheKey] = { ts: Date.now(), ver: cacheVer, data };
+    return data;
   },
 
   // ============================================================
