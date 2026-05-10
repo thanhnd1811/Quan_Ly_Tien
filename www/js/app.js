@@ -7841,9 +7841,11 @@ const App = {
     if (result.savedCount > 0) {
       await this.reload();
       if (!silent) {
-        QLT_UI.toast(`✅ Đã tự ghi ${result.savedCount} GD từ thông báo NH`, {
-          type: 'success', duration: 3500
-        });
+        // Toast lâu hơn (5s) + hint user check lại nếu nghi sai
+        const msg = result.savedCount === 1
+          ? `✅ Đã tự ghi 1 GD từ thông báo NH — kiểm tra ở Trang chủ nếu nghi sai`
+          : `✅ Đã tự ghi ${result.savedCount} GD từ thông báo NH — kiểm tra Trang chủ`;
+        QLT_UI.toast(msg, { type: 'success', duration: 5000 });
       }
     }
 
@@ -8163,11 +8165,42 @@ const App = {
       note: (parsedSms.note || `SMS ${window.QLT_SmsBankParser.bankName(parsedSms.bank)}`).slice(0, 200),
       bookId: this.state.currentBookId,
       _smsHash: parsedSms.hash,
-      _smsBank: parsedSms.bank
+      _smsBank: parsedSms.bank,
+      // Lưu raw body của notif/SMS để user audit nếu nghi ngờ parser sai
+      _smsRaw: (parsedSms.body || '').slice(0, 500),
+      _autoCreated: true,
+      _createdAt: Date.now()
     };
 
+    // GPS location — giống AI tx flow. Chỉ attach cho expense/income (ko transfer).
+    // Lưu ý: thời điểm bank gửi notif KHÔNG phải lúc tx thật xảy ra (vd online
+    // payment, lương về). User chấp nhận location approximate.
+    if (window.QLT_Geo && QLT_Geo.isEnabled() && parsedSms.type !== 'transfer') {
+      try {
+        const pos = await QLT_Geo.getCurrentPosition();
+        tx.location = { lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy };
+      } catch (e) {
+        console.warn('[SMS-tx] location fetch failed:', e?.message);
+      }
+    }
+
     await this.applyBalanceDelta(tx, +1);
-    await window.QLT_Store.put('transactions', tx);
+    const saved = await window.QLT_Store.put('transactions', tx);
+
+    // Reverse geocode async sau save — không block UX
+    if (tx.location?.lat && saved?.id) {
+      window.QLT_Geo.reverseGeocode(tx.location.lat, tx.location.lng).then(async (geo) => {
+        if (geo) {
+          const fresh = await window.QLT_Store.get('transactions', saved.id);
+          if (fresh) {
+            fresh.location = fresh.location || tx.location;
+            fresh.location.address = geo.address;
+            fresh.location.fullAddress = geo.full;
+            await window.QLT_Store.put('transactions', fresh);
+          }
+        }
+      }).catch(() => {});
+    }
 
     // Mark hash processed
     const processed = JSON.parse(localStorage.getItem('qlt_sms_processed') || '{}');
@@ -8949,6 +8982,21 @@ const App = {
     $('#txNote').value = tx.note || '';
     $('#txDelete').style.display = isNew ? 'none' : 'block';
     $('#txTitle').textContent = isNew ? 'Thêm giao dịch' : 'Sửa giao dịch';
+
+    // Audit: nếu tx được auto-tạo từ SMS/notification → hiện nguồn để user verify
+    const auditEl = $('#txSourceAudit');
+    if (auditEl) {
+      if (!isNew && tx._smsRaw) {
+        const Parser = window.QLT_SmsBankParser;
+        const bankName = tx._smsBank ? Parser?.bankName(tx._smsBank) : 'Ngân hàng';
+        const sourceType = tx._autoCreated ? 'Tự ghi từ thông báo' : 'Tạo từ SMS';
+        $('#txSourceLabel').textContent = `${sourceType} ${bankName}`;
+        $('#txSourceRaw').textContent = tx._smsRaw;
+        auditEl.style.display = 'block';
+      } else {
+        auditEl.style.display = 'none';
+      }
+    }
 
     // Note typing → auto-detect cat (debounced 400ms)
     // Chỉ trigger khi: tx mới (chưa có cat) HOẶC cat hiện tại do auto-detect (user chưa lock manual)

@@ -3388,6 +3388,14 @@ html[data-theme="dark"] .tx-loc-badge{background:#1a3a5c;color:#7eb6e8}
         <label class="fl">Minh chứng (ảnh hoá đơn / chuyển khoản)</label>
         <div id="txPhotoWrap"></div>
       </div>
+      <!-- Audit: hiện nguồn nếu GD tạo từ SMS/notification (cho user verify parser đúng/sai) -->
+      <div id="txSourceAudit" class="fg" style="display:none">
+        <div style="background:rgba(99,102,241,.08);padding:10px 12px;border-radius:8px;border-left:3px solid #6366f1">
+          <div style="font-size:12px;font-weight:600;color:#6366f1;margin-bottom:4px">📨 Nguồn: <span id="txSourceLabel"></span></div>
+          <div style="font-size:11px;color:var(--text2);line-height:1.5;white-space:pre-wrap;font-family:monospace;background:var(--surface2);padding:8px;border-radius:6px;margin-top:6px;max-height:120px;overflow-y:auto" id="txSourceRaw"></div>
+          <div style="font-size:10px;color:var(--text3);margin-top:6px">💡 Nếu app parse sai từ thông báo này, gửi screenshot cho dev để fix regex.</div>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button id="txDelete" class="btn btn-danger" style="display:none">Xoá</button>
