@@ -14642,13 +14642,8 @@ const App = {
 
   async doExport() {
     const data = await window.QLT_Store.exportAll();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `quanlytien-${today()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const json = JSON.stringify(data, null, 2);
+    await this._download(json, `quanlytien-${today()}.json`, 'application/json;charset=utf-8');
   },
 
   doImport() {
@@ -16203,15 +16198,25 @@ const App = {
     QLT_UI.toast('📄 Đang tạo PDF... (vài giây)', { duration: 8000 });
 
     try {
-      await window.html2pdf().set({
+      const isNative = !!window.Capacitor?.isNativePlatform?.();
+      const pdfWorker = window.html2pdf().set({
         margin: [10, 10, 12, 10],
         filename,
         image: { type: 'jpeg', quality: 0.85 },
         html2canvas: { scale: 1.3, useCORS: true, logging: false, letterRendering: true },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
         pagebreak: { mode: ['css', 'legacy'] }
-      }).from(container).save();
-      QLT_UI.toast('✓ Đã tải PDF: ' + filename, { type: 'success', duration: 4000 });
+      }).from(container);
+
+      if (isNative) {
+        // Native: lấy blob → write Filesystem (download attribute ko work trên Android)
+        const blob = await pdfWorker.outputPdf('blob');
+        await this._download(blob, filename, 'application/pdf');
+      } else {
+        // Web: dùng save() built-in (download attribute work trên browser)
+        await pdfWorker.save();
+        QLT_UI.toast('✓ Đã tải PDF: ' + filename, { type: 'success', duration: 4000 });
+      }
     } catch (e) {
       console.error('PDF gen lỗi:', e);
       QLT_UI.alert('Lỗi tạo PDF: ' + (e?.message || e) + '\n\nBấm "HTML" để tải file thay thế.', { title: 'Lỗi PDF' });
@@ -16536,12 +16541,78 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
     return String(s || 'so').replace(/[^\w\sÀ-ỹ-]/gi, '').replace(/\s+/g, '-').toLowerCase();
   },
 
-  _download(content, filename, mime) {
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // Download file — handle cả web (blob+anchor) và Capacitor native (Filesystem)
+  // BUG cũ: <a download> không trigger native download trên Android WebView
+  // → File không tải được, user thấy "ko có gì xảy ra".
+  // Fix: native → write file vào Documents/QuanLyTien/ + toast.
+  async _download(content, filename, mime) {
+    const isNative = !!window.Capacitor?.isNativePlatform?.();
+    if (!isNative) {
+      // Web: blob + anchor click (works on browsers)
+      try {
+        const blob = new Blob([content], { type: mime });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        QLT_UI.toast('✅ Đã tải: ' + filename, { type: 'success', duration: 3000 });
+      } catch (e) {
+        QLT_UI.toast('Lỗi tải: ' + (e.message || e), { type: 'error' });
+      }
+      return;
+    }
+
+    // Native (Android/iOS): write file to public Documents folder
+    const FS = window.Capacitor?.Plugins?.Filesystem;
+    if (!FS) {
+      QLT_UI.toast('Lỗi: Filesystem plugin không khả dụng', { type: 'error' });
+      return;
+    }
+
+    try {
+      // Detect content type:
+      // - String → write với encoding utf8
+      // - Blob/Uint8Array → convert sang base64
+      let writeData = content;
+      let encoding = 'utf8';
+      if (content instanceof Blob) {
+        writeData = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1]); // strip data:...;base64,
+          reader.onerror = reject;
+          reader.readAsDataURL(content);
+        });
+        encoding = undefined; // base64 mode
+      } else if (content instanceof Uint8Array) {
+        let binary = '';
+        for (let i = 0; i < content.length; i++) binary += String.fromCharCode(content[i]);
+        writeData = btoa(binary);
+        encoding = undefined;
+      }
+
+      const writeOpts = {
+        path: 'QuanLyTien/' + filename,
+        data: writeData,
+        directory: 'DOCUMENTS',
+        recursive: true
+      };
+      if (encoding) writeOpts.encoding = encoding;
+
+      const result = await FS.writeFile(writeOpts);
+      const displayPath = (result?.uri || '').replace(/^file:\/\//, '')
+        || ('Documents/QuanLyTien/' + filename);
+
+      QLT_UI.alert(
+        `✅ <strong>Đã lưu file</strong>\n\n` +
+        `📁 Tên: <code>${this.escapeHtml(filename)}</code>\n\n` +
+        `📍 Vị trí: <code>Documents/QuanLyTien/</code>\n\n` +
+        `Mở app <strong>"Tệp"</strong> (Files / File Manager) → Documents → QuanLyTien để xem hoặc chia sẻ.`,
+        { title: 'Đã lưu', html: true }
+      );
+    } catch (e) {
+      console.error('[_download] native write fail:', e);
+      QLT_UI.alert('Lỗi lưu file: ' + (e.message || e), { title: 'Lỗi' });
+    }
   },
 
   async deleteBook() {
