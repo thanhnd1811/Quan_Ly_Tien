@@ -1650,6 +1650,23 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
   </div>
 </div>
 
+<!-- Modal: SMS ngân hàng — list pending tx từ SMS scan -->
+<div id="smsQueueModal" class="modal" style="z-index:310">
+  <div class="modal-card" style="max-height:95vh;display:flex;flex-direction:column">
+    <div class="modal-head">
+      <button data-close data-icon="close"></button>
+      <h3 id="smsQueueTitle">📨 SMS ngân hàng</h3>
+    </div>
+    <div class="modal-body" style="flex:1;overflow-y:auto;padding:0">
+      <div id="smsQueueList"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close>Đóng</button>
+      <button class="btn btn-primary" id="smsQueueSaveAll">💾 Lưu tất cả còn lại</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Hồ sơ cá nhân — chỉ lưu local, không cần đăng nhập -->
 <div id="profileModal" class="modal" style="z-index:310">
   <div class="modal-card">
@@ -2579,6 +2596,36 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
         <div style="padding:10px 14px;font-size:11px;color:var(--text3);line-height:1.6;background:var(--bg2);border-top:1px solid var(--border)">
           🔒 <strong>Bảo mật:</strong> API key lưu LOCAL trên thiết bị bạn (Android: mã hoá KeyStore).
           Không gửi server bên thứ 3, không sync qua Drive.
+        </div>
+      </div>
+    </div>
+
+    <!-- 2b. SMS ngân hàng — đọc tin nhắn ngân hàng tự động tạo GD -->
+    <div class="settings-group" data-collapsible id="setSecSms">
+      <div class="settings-group-head">
+        <div class="settings-group-icon">📨</div>
+        <div class="settings-group-title">SMS ngân hàng</div>
+        <div class="settings-group-chev">▸</div>
+      </div>
+      <div class="settings-group-content">
+        <div style="padding:12px 14px 8px;font-size:12px;color:var(--text2);line-height:1.6">
+          Đọc tin nhắn từ ngân hàng (VCB, Tech, MB, ACB, BIDV...) → app tự đề xuất giao dịch, bạn chỉ cần xác nhận. Tiết kiệm 80% effort ghi tay.
+        </div>
+        <div class="settings-group-body">
+          <div class="setting-row">
+            <span class="setting-label">Trạng thái quyền đọc SMS</span>
+            <span class="setting-value" id="setSmsStatus">Chưa cấp</span>
+          </div>
+        </div>
+        <div class="settings-group-actions">
+          <button id="setSmsScan" class="btn btn-primary btn-block">📨 Quét SMS ngân hàng (90 ngày)</button>
+          <button id="setSmsClear" class="btn btn-secondary btn-block" style="display:none">🗑️ Xoá lịch sử quét</button>
+        </div>
+        <div style="padding:8px 14px;font-size:11px;color:var(--text3);line-height:1.6">
+          🔒 SMS chỉ đọc trên máy bạn — KHÔNG gửi server. Bạn có thể tắt quyền bất kỳ lúc nào trong Cài đặt → Apps → Quản Lý Tiền → Permissions.
+        </div>
+        <div style="padding:8px 14px;font-size:11px;color:var(--text3);line-height:1.6">
+          🏦 Hỗ trợ: Vietcombank, Techcombank, MBBank, ACB, BIDV (parse tốt) · VPBank, Agribank, TPBank, Sacombank... (best-effort)
         </div>
       </div>
     </div>
@@ -3785,6 +3832,7 @@ html[data-theme="dark"] .tx-loc-badge{background:#1a3a5c;color:#7eb6e8}
 <script src="js/ai-app-knowledge.js"></script>
 <script src="js/ai-chat.js"></script>
 <script src="js/app-update.js"></script>
+<script src="js/sms-bank-parser.js"></script>
 <script src="js/storage.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/sync.js"></script>

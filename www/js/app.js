@@ -6343,6 +6343,9 @@ const App = {
     // Render row "Hồ sơ cá nhân" (avatar + tên hiện tại)
     this.renderProfileSettingsRow();
 
+    // Render section SMS Banking (status + button bind)
+    this.renderSmsSettings().catch((e) => console.warn('renderSmsSettings:', e));
+
     $('#setUser').textContent = window.QLT_Auth.user ? window.QLT_Auth.user.email : 'Chưa đăng nhập';
     const last = await window.QLT_Store.getMeta('lastSync');
     $('#setLastSync').textContent = last ? new Date(last).toLocaleString('vi-VN') : 'Chưa đồng bộ';
@@ -7556,6 +7559,333 @@ const App = {
     if (installBtn && r?.hasUpdate) {
       installBtn.onclick = () => this._openUpdateUrl(r.apkUrl, r.releaseUrl);
     }
+  },
+
+  // ============================================================
+  // SMS BANKING PARSER — đọc SMS NH tự đề xuất giao dịch
+  // ============================================================
+  async renderSmsSettings() {
+    const SR = window.Capacitor?.Plugins?.SmsReader;
+    const statusEl = $('#setSmsStatus');
+    const scanBtn = $('#setSmsScan');
+    const clearBtn = $('#setSmsClear');
+    if (!statusEl || !scanBtn) return;
+
+    if (!SR) {
+      statusEl.textContent = 'Web — không hỗ trợ';
+      scanBtn.disabled = true;
+      scanBtn.textContent = '⚠️ Cần build APK Android';
+      return;
+    }
+
+    // Check permission state
+    try {
+      const r = await SR.checkPermission();
+      statusEl.textContent = r.granted ? '✅ Đã cấp' : '❌ Chưa cấp';
+      statusEl.style.color = r.granted ? 'var(--pos)' : 'var(--text3)';
+    } catch (_) {}
+
+    // Show clear button nếu có history
+    const history = JSON.parse(localStorage.getItem('qlt_sms_processed') || '{}');
+    const historyCount = Object.keys(history).length;
+    clearBtn.style.display = historyCount > 0 ? 'block' : 'none';
+    if (historyCount > 0) {
+      clearBtn.textContent = `🗑️ Xoá lịch sử quét (${historyCount} SMS)`;
+    }
+
+    scanBtn.onclick = async () => {
+      try {
+        // Request permission nếu chưa có
+        const perm = await SR.requestPermission();
+        if (!perm.granted) {
+          QLT_UI.alert(
+            'App cần quyền đọc SMS để parse tin nhắn ngân hàng.\n\n'
+            + 'Vào Cài đặt → Apps → Quản Lý Tiền → Permissions → SMS → bật.\n\n'
+            + 'SMS chỉ đọc trên máy bạn, KHÔNG gửi server.',
+            { title: 'Cần quyền đọc SMS' }
+          );
+          return;
+        }
+
+        // Refresh status
+        statusEl.textContent = '✅ Đã cấp';
+        statusEl.style.color = 'var(--pos)';
+
+        // Quét SMS 90 ngày qua
+        scanBtn.disabled = true;
+        scanBtn.textContent = '⏳ Đang quét SMS...';
+
+        const since = Date.now() - 90 * 24 * 3600 * 1000;
+        const result = await SR.readInbox({ since, limit: 1000 });
+        const messages = result.messages || [];
+
+        // Parse từng SMS qua QLT_SmsBankParser
+        const Parser = window.QLT_SmsBankParser;
+        if (!Parser) {
+          QLT_UI.toast('Lỗi: Parser chưa load', { type: 'error' });
+          scanBtn.disabled = false;
+          scanBtn.textContent = '📨 Quét SMS ngân hàng (90 ngày)';
+          return;
+        }
+
+        const pending = [];
+        const processedHashes = JSON.parse(localStorage.getItem('qlt_sms_processed') || '{}');
+        for (const sms of messages) {
+          const parsed = Parser.parseSms(sms);
+          if (!parsed) continue;
+          // Skip SMS đã xử lý trước đây (anti-duplicate)
+          if (processedHashes[parsed.hash]) continue;
+          // Skip nếu đã có tx tương ứng (cùng amount + cùng ngày SMS, ±5 phút)
+          const smsTime = sms.date;
+          const dup = (this.state.transactions || []).find(t => {
+            if (t.amount !== parsed.amount) return false;
+            if (t.type !== parsed.type) return false;
+            // So date string YYYY-MM-DD
+            const tDate = t.date;
+            const smsDateStr = new Date(smsTime).toISOString().slice(0, 10);
+            return tDate === smsDateStr;
+          });
+          if (dup) {
+            // Đã có tx → mark hash để khỏi check lần sau
+            processedHashes[parsed.hash] = { skipped: true, ts: Date.now() };
+            continue;
+          }
+          pending.push(parsed);
+        }
+        localStorage.setItem('qlt_sms_processed', JSON.stringify(processedHashes));
+
+        scanBtn.disabled = false;
+        scanBtn.textContent = '📨 Quét SMS ngân hàng (90 ngày)';
+
+        if (pending.length === 0) {
+          QLT_UI.toast(`Đã quét ${messages.length} SMS — không có GD mới`, { type: 'info', duration: 3000 });
+          this.renderSmsSettings();
+          return;
+        }
+
+        // Mở modal queue
+        this._openSmsQueueModal(pending);
+      } catch (e) {
+        scanBtn.disabled = false;
+        scanBtn.textContent = '📨 Quét SMS ngân hàng (90 ngày)';
+        QLT_UI.alert('Lỗi quét SMS: ' + (e.message || e), { title: 'Lỗi' });
+      }
+    };
+
+    clearBtn.onclick = async () => {
+      const ok = await QLT_UI.confirm('Xoá toàn bộ lịch sử SMS đã quét? Lần sau quét sẽ thấy lại các SMS này.', { okLabel: 'Xoá', danger: true });
+      if (!ok) return;
+      localStorage.removeItem('qlt_sms_processed');
+      this.renderSmsSettings();
+      QLT_UI.toast('Đã xoá lịch sử SMS', { type: 'success' });
+    };
+  },
+
+  _openSmsQueueModal(pending) {
+    const modal = $('#smsQueueModal');
+    const listEl = $('#smsQueueList');
+    const titleEl = $('#smsQueueTitle');
+    if (!modal || !listEl) return;
+
+    // State trong modal — track tx nào đã save/skip
+    this.state._smsQueue = pending.map((p, idx) => ({ ...p, idx, status: 'pending' }));
+    titleEl.textContent = `📨 ${pending.length} GD từ SMS — Tap để xác nhận`;
+
+    this._renderSmsQueueList();
+    modal.classList.add('open');
+
+    // Save all remaining
+    $('#smsQueueSaveAll').onclick = async () => {
+      const remaining = this.state._smsQueue.filter(p => p.status === 'pending');
+      if (remaining.length === 0) {
+        QLT_UI.toast('Không có GD nào để lưu', { type: 'info' });
+        return;
+      }
+      const ok = await QLT_UI.confirm(
+        `Lưu ${remaining.length} giao dịch còn lại với ví/danh mục đề xuất?\n\nBạn vẫn có thể chỉnh sửa từng GD sau trong tab Giao dịch.`,
+        { okLabel: 'Lưu hết' }
+      );
+      if (!ok) return;
+      let saved = 0;
+      for (const p of remaining) {
+        try {
+          await this._saveSmsAsTx(p);
+          p.status = 'saved';
+          saved++;
+        } catch (e) {
+          console.warn('[SMS] save fail:', e);
+          p.status = 'error';
+        }
+      }
+      this._renderSmsQueueList();
+      QLT_UI.toast(`✅ Đã lưu ${saved}/${remaining.length} GD`, { type: 'success', duration: 2500 });
+      if (saved > 0) await this.reload();
+    };
+  },
+
+  _renderSmsQueueList() {
+    const listEl = $('#smsQueueList');
+    if (!listEl) return;
+    const items = this.state._smsQueue || [];
+    const Parser = window.QLT_SmsBankParser;
+    const accounts = this.state.accounts || [];
+
+    if (items.length === 0) {
+      listEl.innerHTML = '<div style="text-align:center;color:var(--text3);padding:40px">Không có gì</div>';
+      return;
+    }
+
+    listEl.innerHTML = items.map((p, i) => {
+      const bankName = Parser.bankName(p.bank);
+      const dateStr = new Date(p.date).toLocaleString('vi-VN', {
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+      });
+      const typeLabel = p.type === 'income' ? '🟢 Thu' : '🔴 Chi';
+      const sign = p.type === 'income' ? '+' : '-';
+
+      // Suggest ví: account có name match bank, hoặc suffix khớp
+      let suggestedAcc = null;
+      if (p.accountSuffix) {
+        suggestedAcc = accounts.find(a => (a.accountNumber || '').endsWith(p.accountSuffix));
+      }
+      if (!suggestedAcc) {
+        const bankRegex = new RegExp(p.bank, 'i');
+        suggestedAcc = accounts.find(a => bankRegex.test(a.name) || bankRegex.test(a.bank || ''));
+      }
+
+      let statusBadge = '';
+      if (p.status === 'saved') statusBadge = '<span style="color:var(--pos);font-size:11px;font-weight:600">✅ Đã lưu</span>';
+      else if (p.status === 'skipped') statusBadge = '<span style="color:var(--text3);font-size:11px">⏭️ Đã bỏ qua</span>';
+      else if (p.status === 'error') statusBadge = '<span style="color:var(--danger);font-size:11px">❌ Lỗi</span>';
+
+      const opacity = p.status !== 'pending' ? 0.5 : 1;
+      const bg = p.type === 'income' ? 'rgba(34,197,94,.05)' : 'rgba(220,38,38,.05)';
+
+      return `
+        <div class="sms-queue-item" data-idx="${i}"
+             style="padding:12px 14px;border-bottom:1px solid var(--border);background:${bg};opacity:${opacity}">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+            <div style="font-size:11px;color:var(--text3);font-weight:600">${this.escapeHtml(bankName)}${p.accountSuffix ? ' · ...' + p.accountSuffix : ''} · ${dateStr}</div>
+            ${statusBadge}
+          </div>
+          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">
+            <span style="font-size:13px">${typeLabel}</span>
+            <span style="font-size:18px;font-weight:700;color:${p.type === 'income' ? 'var(--pos)' : 'var(--danger)'}">${sign}${fmt(p.amount)} đ</span>
+          </div>
+          ${p.note ? `<div style="font-size:12px;color:var(--text2);margin-bottom:6px;font-style:italic">"${this.escapeHtml(p.note.slice(0, 100))}"</div>` : ''}
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px">
+            ${suggestedAcc ? `→ Ví đề xuất: <strong>${this.escapeHtml(suggestedAcc.name)}</strong>` : '⚠️ Chưa match ví — cần chọn thủ công'}
+          </div>
+          ${p.status === 'pending' ? `
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-primary" data-act="save" data-idx="${i}" style="flex:1;font-size:12px;padding:7px">💾 Lưu</button>
+              <button class="btn btn-secondary" data-act="edit" data-idx="${i}" style="flex:1;font-size:12px;padding:7px">✏️ Sửa</button>
+              <button class="btn btn-secondary" data-act="skip" data-idx="${i}" style="flex:0 0 auto;font-size:12px;padding:7px 10px">Bỏ qua</button>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+
+    // Bind action buttons
+    listEl.querySelectorAll('[data-act]').forEach(btn => {
+      btn.onclick = async () => {
+        const idx = parseInt(btn.dataset.idx, 10);
+        const p = this.state._smsQueue[idx];
+        if (!p) return;
+
+        if (btn.dataset.act === 'save') {
+          try {
+            await this._saveSmsAsTx(p);
+            p.status = 'saved';
+            QLT_UI.toast(`✅ Đã lưu: ${p.type === 'income' ? 'Thu' : 'Chi'} ${fmt(p.amount)} đ`, { type: 'success', duration: 1500 });
+            await this.reload();
+            this._renderSmsQueueList();
+          } catch (e) {
+            QLT_UI.toast('Lỗi lưu: ' + (e.message || e), { type: 'error' });
+          }
+        } else if (btn.dataset.act === 'skip') {
+          // Mark hash để khỏi suggest lại
+          const processed = JSON.parse(localStorage.getItem('qlt_sms_processed') || '{}');
+          processed[p.hash] = { skipped: true, ts: Date.now() };
+          localStorage.setItem('qlt_sms_processed', JSON.stringify(processed));
+          p.status = 'skipped';
+          this._renderSmsQueueList();
+        } else if (btn.dataset.act === 'edit') {
+          // Mở form GD pre-fill từ SMS
+          this._openTxFormFromSms(p);
+        }
+      };
+    });
+  },
+
+  // Save 1 parsed SMS thành transaction
+  async _saveSmsAsTx(parsedSms) {
+    const accounts = this.state.accounts || [];
+
+    // Find ví: ưu tiên account number suffix, fallback bank name match
+    let acc = null;
+    if (parsedSms.accountSuffix) {
+      acc = accounts.find(a => (a.accountNumber || '').endsWith(parsedSms.accountSuffix));
+    }
+    if (!acc) {
+      const bankRegex = new RegExp(parsedSms.bank, 'i');
+      acc = accounts.find(a => bankRegex.test(a.name) || bankRegex.test(a.bank || ''));
+    }
+    if (!acc) {
+      // Last fallback: ví đầu tiên có type 'payment'
+      acc = accounts.find(a => (a.accountType || 'payment') === 'payment') || accounts[0];
+    }
+    if (!acc) throw new Error('Không tìm thấy ví — tạo ví trước');
+
+    // Detect category từ note (qua matcher)
+    let categoryId = null;
+    if (parsedSms.note && window.QLT_CategoryMatcher) {
+      const cats = (this.state.categories || []).filter(c => c.type === parsedSms.type && !c.archived);
+      const r = window.QLT_CategoryMatcher.match(parsedSms.note, cats, { type: parsedSms.type });
+      if (r.categoryId) categoryId = r.categoryId;
+    }
+
+    const tx = {
+      type: parsedSms.type,
+      amount: parsedSms.amount,
+      date: new Date(parsedSms.date).toISOString().slice(0, 10),
+      accountId: acc.id,
+      categoryId,
+      note: (parsedSms.note || `SMS ${window.QLT_SmsBankParser.bankName(parsedSms.bank)}`).slice(0, 200),
+      bookId: this.state.currentBookId,
+      _smsHash: parsedSms.hash,
+      _smsBank: parsedSms.bank
+    };
+
+    await this.applyBalanceDelta(tx, +1);
+    await window.QLT_Store.put('transactions', tx);
+
+    // Mark hash processed
+    const processed = JSON.parse(localStorage.getItem('qlt_sms_processed') || '{}');
+    processed[parsedSms.hash] = { savedAt: Date.now(), amount: parsedSms.amount };
+    localStorage.setItem('qlt_sms_processed', JSON.stringify(processed));
+
+    return tx;
+  },
+
+  // Mở form GD đầy đủ pre-fill từ SMS để user edit
+  _openTxFormFromSms(parsedSms) {
+    // Đóng modal queue + delay mở tx form
+    $('#smsQueueModal').classList.remove('open');
+    setTimeout(() => {
+      this.openTxModal(null, parsedSms.type);
+      // Pre-fill sau khi modal mở
+      setTimeout(() => {
+        const amtEl = $('#txAmount');
+        const noteEl = $('#txNote');
+        const dateEl = $('#txDate');
+        if (amtEl) amtEl.value = Number(parsedSms.amount).toLocaleString('vi-VN');
+        if (noteEl) noteEl.value = parsedSms.note || '';
+        if (dateEl) dateEl.value = new Date(parsedSms.date).toISOString().slice(0, 10);
+        QLT_UI.toast('Đã pre-fill từ SMS — chỉnh + Lưu', { type: 'info', duration: 2500 });
+      }, 300);
+    }, 250);
   },
 
   // ============================================================

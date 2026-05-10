@@ -112,7 +112,10 @@ jobs:
           cp android-update/res/xml/file_paths.xml android/app/src/main/res/xml/
           cp android-update/java/ApkInstallerPlugin.java android/app/src/main/java/com/thanh/quanlytien/
 
-          echo "--- Widget + Tile + Installer files đã được copy:"
+          # SMS Reader plugin (parse tin nhắn ngân hàng)
+          cp android-sms/java/SmsReaderPlugin.java android/app/src/main/java/com/thanh/quanlytien/
+
+          echo "--- Widget + Tile + Installer + SmsReader files đã được copy:"
           ls -la android/app/src/main/res/xml/ai_chat_widget_info.xml
           ls -la android/app/src/main/res/layout/ai_chat_widget.xml
           ls -la android/app/src/main/res/drawable/ai_widget_bg.xml
@@ -229,6 +232,19 @@ jobs:
                   print('::error::FAILED to add REQUEST_INSTALL_PACKAGES')
                   sys.exit(1)
 
+          # 1f) READ_SMS permission — đọc tin nhắn ngân hàng (SMS Banking Parser)
+          # User phải explicit grant runtime — Android bảo vệ chặt SMS permission.
+          # App chỉ đọc local, không gửi SMS đi đâu.
+          if 'READ_SMS' not in m:
+              perm = '    <uses-permission android:name="android.permission.READ_SMS" />\n'
+              new_m, n = re.subn(r'(\s*<application\b)', '\n' + perm + r'\1', m, count=1)
+              if n > 0:
+                  m = new_m
+                  print('OK: READ_SMS permission added (SMS Banking Parser)')
+              else:
+                  print('::error::FAILED to add READ_SMS')
+                  sys.exit(1)
+
           # FIX QUAN TRỌNG: regex dùng \b (word boundary) chứ KHÔNG phải literal space
           # Capacitor sinh manifest <application\n    android:...> — sau <application là \n
           # Regex '(\s*<application )' với space cứng sẽ KHÔNG match → permissions miss
@@ -274,7 +290,7 @@ jobs:
 
           # Verify cuối: nếu thiếu permission nào → fail build ngay
           required = ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'RECORD_AUDIO',
-                      'USE_BIOMETRIC', 'REQUEST_INSTALL_PACKAGES']
+                      'USE_BIOMETRIC', 'REQUEST_INSTALL_PACKAGES', 'READ_SMS']
           missing = [p for p in required if p not in m]
           print('--- Permissions trong AndroidManifest:')
           for line in m.split('\n'):
