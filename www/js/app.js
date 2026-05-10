@@ -3528,11 +3528,217 @@ const App = {
 
     if (this.state.chartTab === 'expense') {
       this._renderChartByType('expense', from, to, period, '#chartTop5', '#chartDonut', '#chartLegend');
+      // Heatmap calendar — chỉ render trên tab CHI PHÍ
+      this.renderSpendingHeatmap();
     } else if (this.state.chartTab === 'income') {
       this._renderChartByType('income', from, to, period, '#chartTop5Inc', '#chartDonutInc', '#chartLegendInc');
     } else if (this.state.chartTab === 'overview') {
       this._renderChartOverview(from, to, period);
     }
+  },
+
+  // ============ SPENDING HEATMAP CALENDAR ============
+  // Lịch tô màu theo mức chi mỗi ngày trong tháng — visual pattern recognition.
+  // 6 bucket màu (lv0..lv5) tính theo quantile của chi các ngày trong tháng.
+  renderSpendingHeatmap() {
+    const wrap = document.getElementById('chartHeatmap');
+    if (!wrap) return;
+
+    // State month của heatmap (riêng với chart period — heatmap luôn full tháng)
+    if (!this.state._heatmapMonth) {
+      this.state._heatmapMonth = today().slice(0, 7); // YYYY-MM
+    }
+    const ym = this.state._heatmapMonth;
+    const [year, month] = ym.split('-').map(Number); // month 1-12
+    const firstDay = new Date(year, month - 1, 1);
+    const totalDays = new Date(year, month, 0).getDate();
+    // JS getDay: 0=CN, 1=T2, ..., 6=T7. Lịch của ta T2 đầu tuần → shift -1, CN = 6
+    let firstWeekday = firstDay.getDay() - 1;
+    if (firstWeekday < 0) firstWeekday = 6;
+
+    // Aggregate chi từng ngày
+    const dayTotals = {}; // 'YYYY-MM-DD' → sum
+    const dayCounts = {};
+    let monthTotal = 0;
+    for (const t of this.state.transactions) {
+      if (!this.isRealExpense(t) || !t.date.startsWith(ym)) continue;
+      dayTotals[t.date] = (dayTotals[t.date] || 0) + t.amount;
+      dayCounts[t.date] = (dayCounts[t.date] || 0) + 1;
+      monthTotal += t.amount;
+    }
+
+    // Tính 5 ngưỡng quantile từ days có chi > 0 (bỏ ngày 0 đ → tránh skew)
+    const nonZeroVals = Object.values(dayTotals).filter(v => v > 0).sort((a, b) => a - b);
+    const quantile = (arr, p) => arr[Math.min(arr.length - 1, Math.floor(arr.length * p))];
+    let q1 = 0, q2 = 0, q3 = 0, q4 = 0;
+    if (nonZeroVals.length >= 1) {
+      q1 = quantile(nonZeroVals, 0.20);  // < q1 = lv1 (vàng nhạt)
+      q2 = quantile(nonZeroVals, 0.45);  // < q2 = lv2 (vàng đậm)
+      q3 = quantile(nonZeroVals, 0.70);  // < q3 = lv3 (cam)
+      q4 = quantile(nonZeroVals, 0.90);  // < q4 = lv4 (đỏ), >= q4 = lv5 (đỏ đậm)
+    }
+    const bucket = (v) => {
+      if (v <= 0) return 0;
+      if (v < q1) return 1;
+      if (v < q2) return 2;
+      if (v < q3) return 3;
+      if (v < q4) return 4;
+      return 5;
+    };
+
+    // Render
+    const todayStr = today();
+    const monthLabel = `Tháng ${month}/${year}`;
+    const isCurrentMonth = ym === todayStr.slice(0, 7);
+
+    // Grid cells: padding đầu (firstWeekday ô empty) + totalDays cells
+    let cellsHtml = '';
+    for (let i = 0; i < firstWeekday; i++) {
+      cellsHtml += `<div class="heatmap-cell empty"></div>`;
+    }
+    for (let d = 1; d <= totalDays; d++) {
+      const dateStr = `${ym}-${String(d).padStart(2, '0')}`;
+      const total = dayTotals[dateStr] || 0;
+      const count = dayCounts[dateStr] || 0;
+      const lv = bucket(total);
+      const isToday = dateStr === todayStr;
+      // Hiển thị số tiền compact: 1.2tr / 250k / 50k
+      let amtLabel = '';
+      if (total > 0) {
+        if (total >= 1000000) amtLabel = (total / 1000000).toFixed(1).replace(/\.0$/, '') + 'tr';
+        else if (total >= 1000) amtLabel = Math.round(total / 1000) + 'k';
+        else amtLabel = total + '';
+      }
+      cellsHtml += `
+        <div class="heatmap-cell lv${lv} ${isToday ? 'today' : ''}"
+             data-date="${dateStr}"
+             title="${dateStr}: ${count} GD, ${fmt(total)} đ">
+          <div class="heatmap-cell-day">${d}</div>
+          ${amtLabel ? `<div class="heatmap-cell-amt">${amtLabel}</div>` : ''}
+        </div>
+      `;
+    }
+
+    // Days with spending counter
+    const daysWithSpending = Object.values(dayTotals).filter(v => v > 0).length;
+    const avgPerActiveDay = daysWithSpending > 0 ? monthTotal / daysWithSpending : 0;
+
+    wrap.innerHTML = `
+      <div class="heatmap-wrap">
+        <div class="heatmap-head">
+          <div class="heatmap-title">📅 Lịch chi tiêu</div>
+          <div class="heatmap-month-nav">
+            <button class="heatmap-month-btn" data-nav="prev" title="Tháng trước">‹</button>
+            <div class="heatmap-month-label">${monthLabel}</div>
+            <button class="heatmap-month-btn" data-nav="next" title="Tháng sau" ${isCurrentMonth ? 'disabled style="opacity:.4;cursor:not-allowed"' : ''}>›</button>
+          </div>
+        </div>
+        <div class="heatmap-summary">
+          ${daysWithSpending > 0
+            ? `Tổng <strong>${fmt(monthTotal)} đ</strong> · ${daysWithSpending}/${totalDays} ngày có chi · TB <strong>${fmt(Math.round(avgPerActiveDay))} đ/ngày</strong>`
+            : 'Chưa có giao dịch chi nào trong tháng'}
+        </div>
+        <div class="heatmap-grid">
+          <div class="heatmap-day-label">T2</div>
+          <div class="heatmap-day-label">T3</div>
+          <div class="heatmap-day-label">T4</div>
+          <div class="heatmap-day-label">T5</div>
+          <div class="heatmap-day-label">T6</div>
+          <div class="heatmap-day-label">T7</div>
+          <div class="heatmap-day-label">CN</div>
+          ${cellsHtml}
+        </div>
+        <div class="heatmap-legend">
+          <span>Ít</span>
+          <span class="heatmap-legend-cell lv0" style="background:var(--surface2)"></span>
+          <span class="heatmap-legend-cell lv1" style="background:#fef3c7"></span>
+          <span class="heatmap-legend-cell lv2" style="background:#fde68a"></span>
+          <span class="heatmap-legend-cell lv3" style="background:#fb923c"></span>
+          <span class="heatmap-legend-cell lv4" style="background:#dc2626"></span>
+          <span class="heatmap-legend-cell lv5" style="background:#7f1d1d"></span>
+          <span>Nhiều</span>
+        </div>
+      </div>
+    `;
+
+    // Bind nav buttons
+    wrap.querySelector('[data-nav="prev"]').onclick = () => {
+      const d = new Date(year, month - 2, 1);
+      this.state._heatmapMonth = d.toISOString().slice(0, 7);
+      this.renderSpendingHeatmap();
+    };
+    const nextBtn = wrap.querySelector('[data-nav="next"]');
+    if (!isCurrentMonth) {
+      nextBtn.onclick = () => {
+        const d = new Date(year, month, 1);
+        const nextYm = d.toISOString().slice(0, 7);
+        if (nextYm > todayStr.slice(0, 7)) return; // không cho qua tháng tương lai
+        this.state._heatmapMonth = nextYm;
+        this.renderSpendingHeatmap();
+      };
+    }
+
+    // Bind tap day → modal list GD
+    wrap.querySelectorAll('.heatmap-cell:not(.empty)').forEach(cell => {
+      cell.onclick = () => this._openHeatmapDayDetail(cell.dataset.date);
+    });
+  },
+
+  // Modal list GD ngày được tap trong heatmap
+  _openHeatmapDayDetail(dateStr) {
+    if (!dateStr) return;
+    const txs = this.state.transactions
+      .filter(t => t.date === dateStr && this.isRealExpense(t))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const total = txs.reduce((s, t) => s + t.amount, 0);
+
+    // Format date đẹp: "Thứ 6, 10/05/2026"
+    const d = new Date(dateStr + 'T00:00:00');
+    const weekdays = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+    const dateLabel = `${weekdays[d.getDay()]}, ${dateStr.slice(8, 10)}/${dateStr.slice(5, 7)}/${dateStr.slice(0, 4)}`;
+
+    const txItems = txs.map(t => {
+      const cat = (this.state.categories || []).find(c => c.id === t.categoryId);
+      const acc = (this.state.accounts || []).find(a => a.id === t.accountId);
+      return `
+        <div class="heatmap-tx-item" data-tx-id="${t.id}" style="display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--border);cursor:pointer">
+          <div style="font-size:20px">${cat?.icon || '💰'}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(cat?.name || 'Không có DM')}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px">${this.escapeHtml(t.note || '—')} · ${this.escapeHtml(acc?.name || '?')}</div>
+          </div>
+          <div style="font-size:14px;font-weight:700;color:var(--danger)">-${fmt(t.amount)} đ</div>
+        </div>
+      `;
+    }).join('');
+
+    QLT_UI.alert(`
+      <div style="margin-bottom:12px">
+        <div style="font-size:12px;color:var(--text3)">${dateLabel}</div>
+        <div style="font-size:20px;font-weight:700;color:var(--danger);margin-top:4px">-${fmt(total)} đ</div>
+        <div style="font-size:11px;color:var(--text3)">${txs.length} giao dịch</div>
+      </div>
+      <div style="max-height:50vh;overflow-y:auto;margin:0 -16px">
+        ${txItems || '<div style="text-align:center;color:var(--text3);padding:30px">Không có giao dịch chi</div>'}
+      </div>
+    `, { title: '📅 Chi tiết ngày', html: true }).then(() => {
+      // Bind sau khi modal mở (vì innerHTML render trong alert)
+      // Note: QLT_UI.alert không trả handle DOM trực tiếp → bind via delegation
+    });
+
+    // Delegation: bind click trên document để đón tap GD trong modal
+    setTimeout(() => {
+      document.querySelectorAll('.heatmap-tx-item').forEach(el => {
+        el.onclick = () => {
+          const txId = el.dataset.txId;
+          // Đóng alert (tìm nút data-close)
+          const alertModal = document.querySelector('.modal.open');
+          if (alertModal) alertModal.classList.remove('open');
+          // Mở form sửa GD
+          if (txId) this.openTxModal(txId);
+        };
+      });
+    }, 100);
   },
 
   // Render chart cho 1 type cụ thể (expense / income) — top5 + donut + legend
