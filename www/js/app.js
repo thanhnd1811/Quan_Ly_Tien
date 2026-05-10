@@ -1785,6 +1785,10 @@ const App = {
               if (r.savedCount > 0 && this.state.currentTab === 'home') {
                 this.renderHome();
               }
+              // Re-check balance mismatch banner sau khi process
+              if (this.state.currentTab === 'home') {
+                this.renderHomeBalanceMismatch();
+              }
             }).catch(() => {});
           });
         }
@@ -2723,6 +2727,8 @@ const App = {
 
     // Update banner — async, không block render
     this.renderHomeUpdateBanner();
+    // Balance mismatch banner — hiện cảnh báo nếu có lệch số dư NH vs app
+    this.renderHomeBalanceMismatch();
     // AI chat FAB — chỉ hiện khi đã setup API key
     this.renderAiChatFab();
 
@@ -7415,6 +7421,183 @@ const App = {
     return r;
   },
 
+  // ============================================================
+  // BALANCE RECONCILIATION — so sánh số dư NH vs app
+  // ============================================================
+  // Khi notif NH gửi có balance, _saveSmsAsTx so sánh với app balance.
+  // Nếu lệch ≥ 1k → save vào qlt_balance_mismatches → banner hiện trên home.
+  renderHomeBalanceMismatch() {
+    const wrap = $('#homeBalanceMismatchBanner');
+    if (!wrap) return;
+    const mismatches = JSON.parse(localStorage.getItem('qlt_balance_mismatches') || '[]');
+    // Lọc unread (chưa dismiss) — chỉ hiện banner nếu có ít nhất 1 cái chưa dismiss
+    const active = mismatches.filter(m => !m.dismissed);
+    if (active.length === 0) {
+      wrap.style.display = 'none';
+      return;
+    }
+    // Banner: hiện count + 1 case mới nhất
+    const latest = active[0];
+    const diff = latest.diff;
+    const sign = diff > 0 ? '+' : '-';
+    wrap.innerHTML = `
+      <div style="margin:14px 16px;padding:14px;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:12px;border-left:4px solid #f59e0b;cursor:pointer" id="balanceMismatchCard">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div style="font-size:13px;font-weight:700;color:#78350f">⚠️ Lệch số dư ngân hàng${active.length > 1 ? ` (${active.length} ví)` : ''}</div>
+          <button data-act="dismiss-all" style="background:transparent;border:none;color:#78350f;font-size:18px;cursor:pointer;padding:0 4px">✕</button>
+        </div>
+        <div style="font-size:12px;color:#78350f;line-height:1.5">
+          <strong>${this.escapeHtml(latest.accountName || '?')}</strong>: app báo <strong>${fmt(latest.appBalance)}đ</strong>, NH báo <strong>${fmt(latest.bankBalance)}đ</strong>
+          <br>→ Lệch <strong>${sign}${fmt(Math.abs(diff))}đ</strong>. Tap để xem chi tiết + xử lý.
+        </div>
+      </div>
+    `;
+    wrap.style.display = 'block';
+    // Tap card → mở modal
+    wrap.querySelector('#balanceMismatchCard').onclick = (e) => {
+      if (e.target.closest('[data-act="dismiss-all"]')) return; // ignore X button
+      this._openBalanceMismatchModal();
+    };
+    wrap.querySelector('[data-act="dismiss-all"]').onclick = (e) => {
+      e.stopPropagation();
+      // Mark all dismissed
+      const all = JSON.parse(localStorage.getItem('qlt_balance_mismatches') || '[]');
+      for (const m of all) m.dismissed = true;
+      localStorage.setItem('qlt_balance_mismatches', JSON.stringify(all));
+      this.renderHomeBalanceMismatch();
+      QLT_UI.toast('Đã ẩn cảnh báo lệch số dư', { type: 'info' });
+    };
+  },
+
+  _openBalanceMismatchModal() {
+    const all = JSON.parse(localStorage.getItem('qlt_balance_mismatches') || '[]');
+    const active = all.filter(m => !m.dismissed);
+    if (active.length === 0) return;
+
+    const list = active.map(m => {
+      const sign = m.diff > 0 ? '+' : '-';
+      const diffColor = m.diff > 0 ? 'var(--danger)' : 'var(--pos)';
+      const dateStr = new Date(m.ts).toLocaleString('vi-VN', {
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+      });
+      const reason = m.diff > 0
+        ? `App có nhiều hơn → có thể có khoản chi app ghi sai/dư hoặc khoản thu app chưa biết`
+        : `App ít hơn → có thể có khoản thu app ghi sai/thiếu hoặc khoản chi app ghi 2 lần`;
+      return `
+        <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:14px;font-weight:700">${this.escapeHtml(m.accountName || '?')}</div>
+            <div style="font-size:11px;color:var(--text3)">${dateStr}</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+            <div style="background:var(--surface2);padding:8px;border-radius:6px">
+              <div style="font-size:10px;color:var(--text3)">App ghi</div>
+              <div style="font-size:13px;font-weight:600">${fmt(m.appBalance)}đ</div>
+            </div>
+            <div style="background:var(--surface2);padding:8px;border-radius:6px">
+              <div style="font-size:10px;color:var(--text3)">NH thực tế</div>
+              <div style="font-size:13px;font-weight:600">${fmt(m.bankBalance)}đ</div>
+            </div>
+          </div>
+          <div style="font-size:13px;font-weight:700;color:${diffColor};margin-bottom:6px">
+            Lệch: ${sign}${fmt(Math.abs(m.diff))}đ
+          </div>
+          <div style="font-size:11px;color:var(--text2);line-height:1.5;margin-bottom:10px">${reason}</div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-primary" data-act="adjust" data-mm="${m.id}" style="flex:1;font-size:12px;padding:7px">⚖️ Tự điều chỉnh khớp NH</button>
+            <button class="btn btn-secondary" data-act="dismiss" data-mm="${m.id}" style="flex:1;font-size:12px;padding:7px">Bỏ qua</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    QLT_UI.alert(`
+      <div style="margin:0 -16px">
+        <div style="padding:12px 16px;background:linear-gradient(135deg,#fef3c7,#fde68a);border-bottom:1px solid var(--border)">
+          <div style="font-size:13px;color:#78350f;line-height:1.5">
+            App phát hiện <strong>${active.length} ví</strong> có số dư khác với NH. Có thể do:<br>
+            • GD nào đó ghi sai số tiền (mở GD đó tap section "📨 Nguồn" để xem notif gốc)<br>
+            • GD app chưa kịp ghi (chuyển khoản qua app khác, rút tiền mặt...)<br>
+            • Phí ngân hàng chưa được ghi
+          </div>
+        </div>
+        <div style="max-height:60vh;overflow-y:auto">${list}</div>
+      </div>
+    `, { title: '⚖️ Lệch số dư', html: true });
+
+    // Bind sau khi alert render (delegation qua setTimeout)
+    setTimeout(() => {
+      document.querySelectorAll('[data-act="adjust"]').forEach(btn => {
+        btn.onclick = async () => this._adjustBalance(btn.dataset.mm);
+      });
+      document.querySelectorAll('[data-act="dismiss"]').forEach(btn => {
+        btn.onclick = () => this._dismissMismatch(btn.dataset.mm);
+      });
+    }, 100);
+  },
+
+  async _adjustBalance(mismatchId) {
+    const all = JSON.parse(localStorage.getItem('qlt_balance_mismatches') || '[]');
+    const m = all.find(x => x.id === mismatchId);
+    if (!m) return;
+    if (!await QLT_UI.confirm(
+      `Tạo GD điều chỉnh ${m.diff > 0 ? '-' : '+'}${fmt(Math.abs(m.diff))}đ cho ví ${m.accountName} để khớp số dư NH?`,
+      { okLabel: 'Điều chỉnh' }
+    )) return;
+
+    // Tạo tx adjustment (loại expense/income tuỳ chiều) với category đặc biệt _adjustment
+    const _now = new Date();
+    const tx = {
+      type: m.diff > 0 ? 'expense' : 'income',
+      amount: Math.abs(m.diff),
+      date: _now.toISOString().slice(0, 10),
+      time: String(_now.getHours()).padStart(2, '0') + ':' + String(_now.getMinutes()).padStart(2, '0'),
+      accountId: m.accountId,
+      categoryId: null,
+      note: `Điều chỉnh khớp số dư NH (${this.escapeHtml(m.accountName || '')})`,
+      bookId: this.state.currentBookId,
+      _adjustment: true, // flag để loại khỏi báo cáo chi/thu thật
+      _adjustmentReason: 'bank_reconcile'
+    };
+    try {
+      await this.applyBalanceDelta(tx, +1);
+      await window.QLT_Store.put('transactions', tx);
+      await this.reload();
+      // Mark mismatch as resolved
+      m.dismissed = true;
+      m.adjusted = true;
+      localStorage.setItem('qlt_balance_mismatches', JSON.stringify(all));
+      // Đóng alert
+      const alertModal = document.querySelector('.modal.open');
+      if (alertModal) alertModal.classList.remove('open');
+      this.renderHomeBalanceMismatch();
+      QLT_UI.toast(`✅ Đã điều chỉnh — ví ${m.accountName} giờ khớp NH`, { type: 'success', duration: 3000 });
+      this.autoSync();
+    } catch (e) {
+      QLT_UI.toast('Lỗi điều chỉnh: ' + (e.message || e), { type: 'error' });
+    }
+  },
+
+  _dismissMismatch(mismatchId) {
+    const all = JSON.parse(localStorage.getItem('qlt_balance_mismatches') || '[]');
+    const m = all.find(x => x.id === mismatchId);
+    if (!m) return;
+    m.dismissed = true;
+    localStorage.setItem('qlt_balance_mismatches', JSON.stringify(all));
+    this.renderHomeBalanceMismatch();
+    // Re-render alert nếu còn active mismatches
+    const stillActive = all.filter(x => !x.dismissed);
+    const alertModal = document.querySelector('.modal.open');
+    if (stillActive.length === 0 && alertModal) {
+      alertModal.classList.remove('open');
+    } else {
+      // Re-render modal với danh sách mới
+      if (alertModal) alertModal.classList.remove('open');
+      setTimeout(() => this._openBalanceMismatchModal(), 200);
+    }
+    QLT_UI.toast('Đã bỏ qua cảnh báo', { type: 'info' });
+  },
+
   async renderHomeUpdateBanner() {
     const wrap = $('#homeUpdateBanner');
     if (!wrap) return;
@@ -8244,6 +8427,43 @@ const App = {
           }
         }
       }).catch(() => {});
+    }
+
+    // RECONCILIATION: so sánh số dư thực tế NH vs số dư app sau khi save tx.
+    // NH gửi notif với "SDC: 1,234,000 VND" = số dư SAU khi tx vừa thực hiện.
+    // App sau khi applyBalanceDelta + put → acc.balance = số dư expected.
+    // Nếu lệch ≥ 1.000đ → có thể có GD app bỏ sót / tx khác / parser sai amount.
+    if (parsedSms.balance != null && parsedSms.balance > 0) {
+      try {
+        // Lấy account fresh sau khi delta
+        const freshAcc = await window.QLT_Store.get('accounts', acc.id);
+        const appBalance = freshAcc?.balance || 0;
+        const bankBalance = parsedSms.balance;
+        const diff = appBalance - bankBalance; // dương = app dư hơn, âm = app thiếu hơn
+        if (Math.abs(diff) >= 1000) {
+          // Lưu mismatch vào localStorage để show banner / settings
+          const mismatches = JSON.parse(localStorage.getItem('qlt_balance_mismatches') || '[]');
+          mismatches.unshift({
+            id: 'mm_' + Date.now(),
+            ts: Date.now(),
+            accountId: acc.id,
+            accountName: acc.name,
+            bankBalance,
+            appBalance,
+            diff,
+            txId: saved?.id,
+            bank: parsedSms.bank,
+            txAmount: parsedSms.amount,
+            txType: parsedSms.type
+          });
+          // Giữ tối đa 50 records
+          const trimmed = mismatches.slice(0, 50);
+          localStorage.setItem('qlt_balance_mismatches', JSON.stringify(trimmed));
+          console.warn('[Reconcile] Mismatch:', acc.name, 'app=', appBalance, 'bank=', bankBalance, 'diff=', diff);
+        }
+      } catch (e) {
+        console.warn('[Reconcile] check fail:', e);
+      }
     }
 
     // Mark hash processed
