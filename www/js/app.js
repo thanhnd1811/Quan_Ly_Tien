@@ -1238,6 +1238,27 @@ const App = {
     } catch (_) {}
     // Apply color theme variant
     this.applyColorTheme();
+    // Cập nhật icon nút quick toggle trên home topbar
+    // ☀️ khi đang dark (tap để chuyển sang light) — 🌙 khi đang light
+    try {
+      const btn = document.getElementById('homeThemeToggle');
+      if (btn) {
+        btn.textContent = isDark ? '☀️' : '🌙';
+        btn.title = isDark ? 'Chuyển sang chế độ sáng' : 'Chuyển sang chế độ tối';
+      }
+    } catch (_) {}
+  },
+
+  // Quick toggle từ home topbar — flip light↔dark không qua Cài đặt
+  // Tap 1 lần = chuyển ngay, animation status bar + áp lên DOM mượt.
+  toggleThemeQuick() {
+    const mode = this.getThemePref();
+    let curIsDark;
+    if (mode === 'dark') curIsDark = true;
+    else if (mode === 'light') curIsDark = false;
+    else curIsDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches || false;
+    // Đặt explicit (KHÔNG còn auto) — user đã chủ động chọn
+    this.setThemePref(curIsDark ? 'light' : 'dark');
   },
 
   // Theme variants: forest (default) / ocean / sunset / royal
@@ -1631,6 +1652,16 @@ const App = {
     const accEye = $('#accEyeBtn');
     if (accEye) accEye.onclick = (e) => { e.stopPropagation(); this.toggleHideAmounts(); };
     this._refreshEyeIcons();
+
+    // Quick theme toggle trên home topbar — tap để flip light↔dark
+    const themeBtn = $('#homeThemeToggle');
+    if (themeBtn) {
+      themeBtn.onclick = (e) => {
+        e.stopPropagation();
+        haptic('light');
+        this.toggleThemeQuick();
+      };
+    }
 
     // Drawer
     $('#menuBtn').onclick = () => {
@@ -5813,35 +5844,9 @@ const App = {
     // Hiển thị widget Trang chủ
     this.renderHomeWidgetSettings();
 
-    // Theme toggle (Dark mode + Auto)
-    const cur = this.getThemePref();
-    const dark = $('#setDarkMode');
-    const auto = $('#setAutoTheme');
-    if (dark && auto) {
-      dark.checked = cur === 'dark';
-      auto.checked = cur === 'auto';
-      // Khi auto bật: dark hiệu lực = OS preference; UI checkbox dark hiển thị state hiện tại
-      const refreshDarkUI = () => {
-        const m = this.getThemePref();
-        if (m === 'auto') {
-          dark.disabled = true;
-          dark.checked = window.matchMedia?.('(prefers-color-scheme: dark)').matches || false;
-        } else {
-          dark.disabled = false;
-          dark.checked = m === 'dark';
-        }
-      };
-      refreshDarkUI();
-      dark.onchange = (e) => {
-        this.setThemePref(e.target.checked ? 'dark' : 'light');
-        auto.checked = false;
-      };
-      auto.onchange = (e) => {
-        if (e.target.checked) this.setThemePref('auto');
-        else this.setThemePref(window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-        refreshDarkUI();
-      };
-    }
+    // Theme toggle (Dark/Light) — đã chuyển ra home topbar (#homeThemeToggle)
+    // Settings chỉ còn theme picker (Forest/Ocean/Sunset/Royal) + hint nhắc user
+    // tap nút trên header để đổi sáng/tối.
   },
 
   // ============================================================

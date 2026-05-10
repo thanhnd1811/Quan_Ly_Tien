@@ -1308,6 +1308,8 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
         Quản Lý Tiền
         <div id="topbarBookLabel" style="font-size:11px;font-weight:400;opacity:.85;margin-top:2px"></div>
       </div>
+      <!-- Quick theme toggle: tap để flip light↔dark, không cần vào Cài đặt -->
+      <div class="tb-icon" id="homeThemeToggle" title="Đổi sáng/tối" style="font-size:20px">🌙</div>
     </div>
   </div>
   <div class="scroll-body">
@@ -2474,21 +2476,8 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
       </div>
       <div class="settings-group-content">
         <div class="theme-picker" id="themePicker"></div>
-        <div class="settings-group-body">
-          <div class="setting-row">
-            <span class="setting-label">Chế độ tối (Dark mode)</span>
-            <label class="qlt-switch">
-              <input type="checkbox" id="setDarkMode">
-              <span class="qlt-switch-slider"></span>
-            </label>
-          </div>
-          <div class="setting-row">
-            <span class="setting-label">Theo hệ thống (Auto)</span>
-            <label class="qlt-switch">
-              <input type="checkbox" id="setAutoTheme">
-              <span class="qlt-switch-slider"></span>
-            </label>
-          </div>
+        <div class="settings-hint" style="font-size:12px;color:var(--text3);margin:8px 14px 4px">
+          💡 Đổi sáng/tối: tap nút 🌙/☀️ trên thanh đầu Trang chủ
         </div>
         <div class="settings-subhead">🏠 Hiển thị trên Trang chủ</div>
         <div class="settings-group-body" id="setHomeWidgets"></div>
