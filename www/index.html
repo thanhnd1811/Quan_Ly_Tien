@@ -86,7 +86,7 @@ input,select,textarea,button{font-family:'DM Sans',sans-serif}
 img{max-width:100%}
 button{border:none;background:none;cursor:pointer;color:inherit}
 
-.screen{display:none;flex-direction:column;min-height:100vh}
+.screen{display:none;flex-direction:column;min-height:100vh;position:relative}
 .screen.active{display:flex;animation:screenIn .32s cubic-bezier(.16,.84,.44,1)}
 
 /* Splash screen — hiện khi app khởi động */
@@ -105,10 +105,11 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 
 .scroll-body{flex:1;overflow-y:auto;padding-bottom:96px;position:relative;-webkit-overflow-scrolling:touch}
 
-/* Pull-to-refresh indicator */
-.ptr-indicator{position:absolute;top:0;left:50%;transform:translateX(-50%) translateY(-60px);background:var(--surface);border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.15);z-index:5;transition:transform .25s cubic-bezier(.2,.8,.3,1);pointer-events:none}
-.ptr-indicator.pulling{transform:translateX(-50%) translateY(var(--pull-y, 0px))}
-.ptr-indicator.refreshing{transform:translateX(-50%) translateY(20px)}
+/* Pull-to-refresh indicator — position fixed ngay dưới topbar (top:90px),
+   không scroll cùng nội dung, không đè vào balance-hero. */
+.ptr-indicator{position:fixed;top:90px;left:50%;transform:translateX(-50%) translateY(-90px);background:var(--surface);border-radius:50%;width:42px;height:42px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 16px rgba(0,0,0,.2);z-index:55;transition:transform .25s cubic-bezier(.16,.84,.44,1), opacity .2s ease;pointer-events:none;opacity:0}
+.ptr-indicator.pulling{transform:translateX(-50%) translateY(var(--pull-y, 0px));opacity:1}
+.ptr-indicator.refreshing{transform:translateX(-50%) translateY(0);opacity:1}
 .ptr-indicator-icon{font-size:20px;display:inline-block;transition:transform .2s ease}
 .ptr-indicator.pulling .ptr-indicator-icon{transform:rotate(var(--pull-rotate, 0deg))}
 .ptr-indicator.refreshing .ptr-indicator-icon{animation:ptrSpin .8s linear infinite}
@@ -1432,10 +1433,12 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
       <div class="tb-icon" id="homeThemeToggle" title="Đổi sáng/tối" style="font-size:20px">🌙</div>
     </div>
   </div>
+  <!-- PTR indicator: NGOÀI scroll-body để không đè vào balance-hero.
+       Position fixed relative to screen-home top (sau topbar). -->
+  <div class="ptr-indicator" id="homePtrIndicator">
+    <span class="ptr-indicator-icon">🔄</span>
+  </div>
   <div class="scroll-body" data-ptr="home">
-    <div class="ptr-indicator" id="homePtrIndicator">
-      <span class="ptr-indicator-icon">🔄</span>
-    </div>
     <div class="balance-hero">
       <div class="balance-label">Tổng số dư (tiền dùng được) <button id="homeEyeBtn" class="balance-eye" title="Ẩn / hiện số tiền">👁</button></div>
       <div class="balance-amount" id="homeBalance">0 đ</div>

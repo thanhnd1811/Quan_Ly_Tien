@@ -8047,7 +8047,8 @@ const App = {
       activated = true;
       // Pull distance dùng (delta - ACTIVATION) để start từ 0 sau khi qua threshold
       pullDistance = Math.min(MAX_PULL, (delta - ACTIVATION) * 0.6);
-      const yOffset = pullDistance - 60;
+      // CSS hidden=translateY(-90px), shown=translateY(0). Map pullDistance 0..MAX → -90..50
+      const yOffset = pullDistance - 90;
       const rotate = (pullDistance / THRESHOLD) * 360;
       indicator.style.setProperty('--pull-y', yOffset + 'px');
       indicator.style.setProperty('--pull-rotate', rotate + 'deg');
