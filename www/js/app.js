@@ -7161,38 +7161,150 @@ const App = {
     };
   },
 
-  _openUpdateUrl(apkUrl, releaseUrl) {
-    // Ưu tiên APK URL (browser_download_url) — trỏ thẳng tới file .apk
-    // → Browser hệ thống tự trigger Download Manager (không cần user pick file)
-    //
-    // Vì sao KHÔNG dùng Capacitor Browser plugin (Custom Tabs):
-    // - Custom Tabs chỉ render trang web, không download binary file
-    // - APK URL → Custom Tabs sẽ redirect về release page → user thấy 3 file
-    //   (APK + Source zip + Source tarball của GitHub auto-attach) → confuse
-    //
-    // Cách đúng: dùng window.open(url, '_system') hoặc trực tiếp window.location
-    // → Capacitor route ra default browser → tự download .apk
-    const url = apkUrl || releaseUrl;
-    if (!url) return;
+  // ============ IN-APP UPDATE INSTALLER ============
+  // Download APK ngầm trong app + trigger system installer trực tiếp.
+  // User chỉ tap 1 nút → progress bar → dialog "Cài đặt?" hiện → tap → done.
+  //
+  // Yêu cầu (đã setup qua workflow):
+  // - Capacitor Filesystem plugin (download file)
+  // - Custom plugin ApkInstaller (Java) — launch installer qua FileProvider
+  // - REQUEST_INSTALL_PACKAGES permission
+  // - FileProvider config trong AndroidManifest
+  async _downloadAndInstallApk(apkUrl, sizeBytes, onComplete) {
+    const FS = window.Capacitor?.Plugins?.Filesystem;
+    const Installer = window.Capacitor?.Plugins?.ApkInstaller;
 
-    // Method 1: window.open with '_system' target (Cordova/Capacitor convention)
+    // Fallback nếu không có plugin (web hoặc APK cũ chưa có ApkInstaller)
+    if (!FS || !Installer) {
+      console.warn('[Update] Filesystem/ApkInstaller plugin missing, fallback to browser');
+      this._openUpdateUrlBrowser(apkUrl);
+      if (onComplete) onComplete({ fallback: true });
+      return;
+    }
+
+    // Hiển thị modal progress
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;
+      display:flex;align-items:center;justify-content:center;padding:20px;
+    `;
+    overlay.innerHTML = `
+      <div style="background:var(--surface);border-radius:16px;padding:24px;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+        <div style="font-size:18px;font-weight:700;margin-bottom:8px;color:var(--text)">⏳ Đang tải bản cập nhật</div>
+        <div id="updProgressLabel" style="font-size:13px;color:var(--text2);margin-bottom:14px">Đang kết nối GitHub...</div>
+        <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-bottom:14px">
+          <div id="updProgressBar" style="height:100%;background:linear-gradient(90deg,var(--accent),#52b788);width:0%;transition:width .3s ease"></div>
+        </div>
+        <div id="updProgressBytes" style="font-size:11px;color:var(--text3);margin-bottom:16px">—</div>
+        <button id="updCancelBtn" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">Huỷ</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const labelEl = overlay.querySelector('#updProgressLabel');
+    const barEl = overlay.querySelector('#updProgressBar');
+    const bytesEl = overlay.querySelector('#updProgressBytes');
+    const cancelBtn = overlay.querySelector('#updCancelBtn');
+    let cancelled = false;
+    cancelBtn.onclick = () => {
+      cancelled = true;
+      overlay.remove();
+      QLT_UI.toast('Đã huỷ tải bản cập nhật', { type: 'info' });
+    };
+
+    try {
+      // Listen progress events từ Filesystem plugin
+      let progressHandle;
+      try {
+        progressHandle = await FS.addListener('progress', (ev) => {
+          const total = ev.contentLength || sizeBytes || 0;
+          const got = ev.bytes || 0;
+          if (total > 0) {
+            const pct = Math.min(100, Math.round(got / total * 100));
+            barEl.style.width = pct + '%';
+            labelEl.textContent = `Đang tải ${pct}%`;
+            bytesEl.textContent = `${(got / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MB`;
+          } else {
+            bytesEl.textContent = `${(got / 1024 / 1024).toFixed(1)} MB`;
+          }
+        });
+      } catch (e) { console.warn('[Update] addListener fail:', e); }
+
+      // Tên file unique theo timestamp (tránh xung đột nếu user thử lại)
+      const fileName = `qlt-update-${Date.now()}.apk`;
+
+      // Download vào Cache directory (sẽ tự dọn khi OS cần)
+      labelEl.textContent = 'Bắt đầu tải...';
+      const result = await FS.downloadFile({
+        url: apkUrl,
+        path: fileName,
+        directory: 'CACHE',
+        recursive: true,
+        progress: true
+      });
+
+      if (progressHandle?.remove) progressHandle.remove();
+
+      if (cancelled) {
+        // User đã huỷ → xoá file đã tải
+        try { await FS.deleteFile({ path: fileName, directory: 'CACHE' }); } catch (_) {}
+        return;
+      }
+
+      // Lấy đường dẫn tuyệt đối
+      const stat = await FS.stat({ path: fileName, directory: 'CACHE' });
+      const fullPath = (stat.uri || result.path || '').replace(/^file:\/\//, '');
+      console.log('[Update] APK saved to:', fullPath, 'size:', stat.size);
+
+      labelEl.textContent = '✅ Tải xong! Mở installer...';
+      barEl.style.width = '100%';
+
+      // Trigger Android system installer (qua plugin ApkInstaller)
+      await Installer.installApk({ path: fullPath });
+
+      // Đóng overlay sau khi installer mở (Android dialog "Cài đặt?" đã pop up)
+      setTimeout(() => overlay.remove(), 500);
+      if (onComplete) onComplete({ ok: true });
+    } catch (e) {
+      console.error('[Update] Download/install fail:', e);
+      overlay.remove();
+      QLT_UI.alert(
+        `Lỗi cập nhật: ${e.message || 'không rõ'}.\n\nThử lại bằng cách tải thủ công?`,
+        { title: 'Cập nhật thất bại' }
+      ).then(() => {
+        // Fallback: mở browser để user tự tải
+        this._openUpdateUrlBrowser(apkUrl);
+      });
+      if (onComplete) onComplete({ error: e });
+    }
+  },
+
+  // Fallback browser download (giữ lại cho web hoặc khi plugin lỗi)
+  _openUpdateUrlBrowser(url) {
+    if (!url) return;
     try {
       const w = window.open(url, '_system');
-      if (w) return; // mở thành công
+      if (w) return;
     } catch (_) {}
-
-    // Method 2: navigate top → trigger system handler
-    try {
-      window.location.href = url;
-      return;
-    } catch (_) {}
-
-    // Fallback: Capacitor Browser plugin (last resort)
+    try { window.location.href = url; return; } catch (_) {}
     if (window.Capacitor?.Plugins?.Browser) {
       window.Capacitor.Plugins.Browser.open({ url });
     } else {
       window.open(url, '_blank');
     }
+  },
+
+  // Wrapper cũ — giữ để các call site cũ vẫn work, route sang flow mới
+  _openUpdateUrl(apkUrl, releaseUrl) {
+    const url = apkUrl || releaseUrl;
+    if (!url) return;
+    // Nếu là APK URL + có Capacitor plugin → dùng in-app download
+    if (apkUrl && window.Capacitor?.Plugins?.ApkInstaller) {
+      this._downloadAndInstallApk(apkUrl, null);
+      return;
+    }
+    // Fallback browser cho mọi case khác
+    this._openUpdateUrlBrowser(url);
   },
 
   async renderUpdateInfo() {

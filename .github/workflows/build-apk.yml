@@ -108,7 +108,11 @@ jobs:
           cp android-widget/res/drawable/ic_ai_tile.xml android/app/src/main/res/drawable/
           cp android-widget/java/AiChatTileService.java android/app/src/main/java/com/thanh/quanlytien/
 
-          echo "--- Widget + Tile files đã được copy:"
+          # APK Installer plugin (in-app update)
+          cp android-update/res/xml/file_paths.xml android/app/src/main/res/xml/
+          cp android-update/java/ApkInstallerPlugin.java android/app/src/main/java/com/thanh/quanlytien/
+
+          echo "--- Widget + Tile + Installer files đã được copy:"
           ls -la android/app/src/main/res/xml/ai_chat_widget_info.xml
           ls -la android/app/src/main/res/layout/ai_chat_widget.xml
           ls -la android/app/src/main/res/drawable/ai_widget_bg.xml
@@ -190,6 +194,41 @@ jobs:
                   print('::error::FAILED to register AiChatTileService — không tìm thấy </application>')
                   sys.exit(1)
 
+          # 1d) FileProvider cho APK installer (in-app update flow)
+          # Cho phép share file APK qua content:// URI tới system installer.
+          # Authority: ${applicationId}.fileprovider — phải khớp với code Java.
+          if 'androidx.core.content.FileProvider' not in m:
+              fp_tag = (
+                  '        <provider\n'
+                  '            android:name="androidx.core.content.FileProvider"\n'
+                  '            android:authorities="${applicationId}.fileprovider"\n'
+                  '            android:exported="false"\n'
+                  '            android:grantUriPermissions="true">\n'
+                  '            <meta-data\n'
+                  '                android:name="android.support.FILE_PROVIDER_PATHS"\n'
+                  '                android:resource="@xml/file_paths" />\n'
+                  '        </provider>\n'
+              )
+              new_m, n = re.subn(r'(\s*</application>)', '\n' + fp_tag + r'\1', m, count=1)
+              if n > 0:
+                  m = new_m
+                  print('OK: FileProvider registered (cho in-app APK installer)')
+              else:
+                  print('::error::FAILED to register FileProvider')
+                  sys.exit(1)
+
+          # 1e) REQUEST_INSTALL_PACKAGES permission — Android 8+ yêu cầu để
+          # launch APK installer programmatically.
+          if 'REQUEST_INSTALL_PACKAGES' not in m:
+              perm = '    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />\n'
+              new_m, n = re.subn(r'(\s*<application\b)', '\n' + perm + r'\1', m, count=1)
+              if n > 0:
+                  m = new_m
+                  print('OK: REQUEST_INSTALL_PACKAGES permission added')
+              else:
+                  print('::error::FAILED to add REQUEST_INSTALL_PACKAGES')
+                  sys.exit(1)
+
           # FIX QUAN TRỌNG: regex dùng \b (word boundary) chứ KHÔNG phải literal space
           # Capacitor sinh manifest <application\n    android:...> — sau <application là \n
           # Regex '(\s*<application )' với space cứng sẽ KHÔNG match → permissions miss
@@ -234,7 +273,8 @@ jobs:
                   f.write(m)
 
           # Verify cuối: nếu thiếu permission nào → fail build ngay
-          required = ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'RECORD_AUDIO', 'USE_BIOMETRIC']
+          required = ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'RECORD_AUDIO',
+                      'USE_BIOMETRIC', 'REQUEST_INSTALL_PACKAGES']
           missing = [p for p in required if p not in m]
           print('--- Permissions trong AndroidManifest:')
           for line in m.split('\n'):
@@ -243,7 +283,11 @@ jobs:
           if missing:
               print('::error::Manifest thiếu permissions: ' + ', '.join(missing))
               sys.exit(1)
-          print('✓ Tất cả permissions đã có trong AndroidManifest')
+          # Verify FileProvider
+          if 'androidx.core.content.FileProvider' not in m:
+              print('::error::Manifest thiếu FileProvider — APK installer sẽ fail')
+              sys.exit(1)
+          print('✓ Tất cả permissions + FileProvider đã có trong AndroidManifest')
           PY
 
       - name: Decode release keystore

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider paths cho APK installer.
+  Cho phép chia sẻ file từ các thư mục bên dưới qua content:// URI.
+  Authority: ${applicationId}.fileprovider (com.thanh.quanlytien.fileprovider)
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- /data/data/com.thanh.quanlytien/cache (internal cache) -->
+    <cache-path name="cache" path="." />
+    <!-- /data/data/com.thanh.quanlytien/files -->
+    <files-path name="files" path="." />
+    <!-- External cache (sdcard/Android/data/.../cache) -->
+    <external-cache-path name="external_cache" path="." />
+    <!-- External files -->
+    <external-files-path name="external_files" path="." />
+</paths>
