@@ -7992,58 +7992,87 @@ const App = {
   // ============================================================
   // PULL-TO-REFRESH — vuốt xuống ở Trang chủ để reload + sync
   // ============================================================
-  // Pure JS, không dùng lib. Bind touchstart/move/end trên scroll-body.
+  // FIX: tăng activation threshold để không trigger khi user scroll bình thường.
+  // - 40px đầu tiên = "scroll territory" → không block scroll, không show indicator
+  // - Sau 40px → "pull territory" → bắt đầu block scroll + animate indicator
+  // - Đủ 100px trigger refresh
   _initPullToRefresh() {
     const wrap = document.querySelector('#screen-home .scroll-body[data-ptr]');
     const indicator = document.getElementById('homePtrIndicator');
     if (!wrap || !indicator || wrap._ptrBound) return;
     wrap._ptrBound = true;
 
-    const THRESHOLD = 80; // px cần kéo để trigger
-    const MAX_PULL = 120; // max pull distance
+    const ACTIVATION = 40; // px đầu tiên KHÔNG kích hoạt PTR (browser scroll bình thường)
+    const THRESHOLD = 100; // px pull (sau activation) cần kéo để trigger refresh
+    const MAX_PULL = 140;
     let startY = 0;
     let pullDistance = 0;
-    let isPulling = false;
+    let activated = false;
+    let canPull = false; // touchstart ở top, có khả năng pull
     let isRefreshing = false;
 
     wrap.addEventListener('touchstart', (e) => {
       if (isRefreshing) return;
-      // Chỉ trigger nếu scroll ở top
-      if (wrap.scrollTop > 0) return;
+      // Chỉ enable PTR nếu scroll ở top
+      if (wrap.scrollTop > 0) {
+        canPull = false;
+        return;
+      }
+      canPull = true;
+      activated = false;
       startY = e.touches[0].clientY;
-      isPulling = true;
+      pullDistance = 0;
     }, { passive: true });
 
     wrap.addEventListener('touchmove', (e) => {
-      if (!isPulling || isRefreshing) return;
+      if (!canPull || isRefreshing) return;
       const currentY = e.touches[0].clientY;
       const delta = currentY - startY;
+
       if (delta <= 0) {
-        // Vuốt lên → cancel pull
-        isPulling = false;
+        // Vuốt lên → cancel pull, để scroll-up hoạt động bình thường
+        canPull = false;
+        activated = false;
         indicator.classList.remove('pulling');
         return;
       }
-      // Resistance: pull càng xa càng chậm
-      pullDistance = Math.min(MAX_PULL, delta * 0.5);
-      const yOffset = pullDistance - 60; // start hidden at -60, show at 0
+
+      // CHƯA qua activation threshold → để browser handle scroll, KHÔNG block
+      if (delta < ACTIVATION) {
+        // (chưa preventDefault → user có thể scroll bình thường)
+        return;
+      }
+
+      // Đã qua activation → pull mode
+      activated = true;
+      // Pull distance dùng (delta - ACTIVATION) để start từ 0 sau khi qua threshold
+      pullDistance = Math.min(MAX_PULL, (delta - ACTIVATION) * 0.6);
+      const yOffset = pullDistance - 60;
       const rotate = (pullDistance / THRESHOLD) * 360;
       indicator.style.setProperty('--pull-y', yOffset + 'px');
       indicator.style.setProperty('--pull-rotate', rotate + 'deg');
       indicator.classList.add('pulling');
-      // Prevent default scroll khi pulling > 5px
-      if (pullDistance > 5 && e.cancelable) e.preventDefault();
+      if (e.cancelable) e.preventDefault();
     }, { passive: false });
 
     const endHandler = async () => {
-      if (!isPulling || isRefreshing) {
-        isPulling = false;
+      if (!canPull || isRefreshing) {
+        canPull = false;
+        activated = false;
         return;
       }
-      isPulling = false;
+      const wasActivated = activated;
+      const finalPull = pullDistance;
+      canPull = false;
+      activated = false;
+      pullDistance = 0;
 
-      if (pullDistance >= THRESHOLD) {
-        // Trigger refresh
+      if (!wasActivated) {
+        // Chưa kích hoạt PTR — user chỉ tap hoặc swipe nhẹ → không làm gì
+        return;
+      }
+
+      if (finalPull >= THRESHOLD) {
         isRefreshing = true;
         indicator.classList.remove('pulling');
         indicator.classList.add('refreshing');
@@ -8051,7 +8080,6 @@ const App = {
         try {
           await this.reload();
           if (this.state.currentTab === 'home') this.renderHome();
-          // Auto sync nếu user đã login Google
           if (window.QLT_Auth?.user) {
             try { await this.autoSync(); } catch (_) {}
           }
@@ -8059,7 +8087,6 @@ const App = {
         } catch (e) {
           QLT_UI.toast('Lỗi làm mới: ' + (e.message || e), { type: 'error' });
         }
-        // Hide indicator after refresh
         setTimeout(() => {
           indicator.classList.remove('refreshing');
           indicator.style.removeProperty('--pull-y');
@@ -8067,12 +8094,11 @@ const App = {
           isRefreshing = false;
         }, 600);
       } else {
-        // Bounce back
+        // Bounce back — kéo nhưng chưa đủ ngưỡng
         indicator.classList.remove('pulling');
         indicator.style.removeProperty('--pull-y');
         indicator.style.removeProperty('--pull-rotate');
       }
-      pullDistance = 0;
     };
 
     wrap.addEventListener('touchend', endHandler);
