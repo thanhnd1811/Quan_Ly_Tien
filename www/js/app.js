@@ -231,8 +231,14 @@ function animateNumber(el, target, opts = {}) {
   requestAnimationFrame(step);
 }
 
-// Privacy mode: ẩn số dư lớn (giống app ngân hàng)
-const isAmountHidden = () => localStorage.getItem('qlt_hide_amounts') === '1';
+// Privacy mode: MẶC ĐỊNH ẨN số dư (giống app ngân hàng) — user phải tap eye
+// để hiện. Migration: existing users với '1' = hidden vẫn hidden. Existing
+// users không có flag (đã từng show) → giờ cũng hidden default.
+// Toggle: '1' = explicit hide, '0' = explicit show (user đã tap eye).
+const isAmountHidden = () => {
+  const v = localStorage.getItem('qlt_hide_amounts');
+  return v !== '0'; // default + '1' đều ẩn; chỉ '0' (user explicit show) mới hiện
+};
 // fmtBal(amount, opts) → ra '••••• đ' nếu ẩn, ngược lại '1.234.000 đ'
 //   opts.signed = true để giữ dấu +/- khi ẩn (vd '-•••• đ' cho chi tiêu)
 const fmtBal = (amount, opts = {}) => {
@@ -2093,11 +2099,20 @@ const App = {
     setTimeout(() => this.scheduleAiPersistentNotif(), 2000);
   },
 
-  // Toggle ẩn/hiện số dư (giống banking app — eye icon)
+  // Toggle ẩn/hiện số dư (giống banking app — eye icon).
+  // 3 state localStorage 'qlt_hide_amounts':
+  //   - undefined/null = default (HIDDEN)
+  //   - '0' = explicit show (user đã tap eye để show)
+  //   - '1' = explicit hide
   toggleHideAmounts() {
     const cur = isAmountHidden();
-    if (cur) localStorage.removeItem('qlt_hide_amounts');
-    else localStorage.setItem('qlt_hide_amounts', '1');
+    if (cur) {
+      // Đang ẩn → switch sang show
+      localStorage.setItem('qlt_hide_amounts', '0');
+    } else {
+      // Đang show → switch sang hide
+      localStorage.setItem('qlt_hide_amounts', '1');
+    }
     this._refreshEyeIcons();
     // Re-render tab hiện tại để cập nhật số tiền
     if (this.state.currentTab === 'home') this.renderHome();
@@ -15050,28 +15065,66 @@ const App = {
       d.setDate(d.getDate() + diff);
       return d.toISOString().slice(0, 10);
     }
+    // Biweekly (mỗi 2 tuần) — cần startDate để tính chu kỳ
+    if (rule.frequency === 'biweekly') {
+      const start = rule.startDate
+        ? new Date(rule.startDate + 'T00:00:00')
+        : from;
+      const diffDays = Math.floor((from - start) / 86400000);
+      const remainder = ((diffDays % 14) + 14) % 14;
+      const d = new Date(from);
+      if (remainder !== 0) d.setDate(d.getDate() + (14 - remainder));
+      return d.toISOString().slice(0, 10);
+    }
     if (rule.frequency === 'monthly') {
       const dom = rule.dayOfMonth === 'last' ? null : parseInt(rule.dayOfMonth, 10);
+      // Validate dom — fallback từ startDate nếu invalid
+      const validDom = dom !== null && !isNaN(dom) && dom >= 1 && dom <= 31;
+      const fallbackDay = rule.startDate
+        ? new Date(rule.startDate + 'T00:00:00').getDate()
+        : 1;
+      const useDom = validDom ? dom : (dom === null ? null : fallbackDay);
       const tryDate = (year, month) => {
-        if (dom === null) {
-          // last day of month
-          return new Date(year, month + 1, 0);
-        }
+        if (useDom === null) return new Date(year, month + 1, 0); // last day
         const lastDay = new Date(year, month + 1, 0).getDate();
-        const day = Math.min(dom, lastDay);
+        const day = Math.min(useDom, lastDay);
         return new Date(year, month, day);
       };
       let cand = tryDate(from.getFullYear(), from.getMonth());
       if (cand < from) cand = tryDate(from.getFullYear(), from.getMonth() + 1);
       return cand.toISOString().slice(0, 10);
     }
+    // Quarterly (mỗi 3 tháng) — dùng startDate để mark anchor
+    if (rule.frequency === 'quarterly') {
+      const start = rule.startDate
+        ? new Date(rule.startDate + 'T00:00:00')
+        : from;
+      const startMonth = start.getMonth();
+      const startDay = start.getDate();
+      // Tìm tháng kế tiếp trong dãy startMonth, startMonth+3, startMonth+6, ...
+      let cand = new Date(from.getFullYear(), startMonth, startDay);
+      while (cand < from) {
+        cand.setMonth(cand.getMonth() + 3);
+      }
+      // Adjust cho ngày invalid (vd start ngày 31, tháng có 30 ngày)
+      if (cand.getDate() !== startDay) {
+        cand = new Date(cand.getFullYear(), cand.getMonth() + 1, 0); // last day of month
+      }
+      return cand.toISOString().slice(0, 10);
+    }
     if (rule.frequency === 'yearly') {
-      const start = new Date(rule.startDate + 'T00:00:00');
+      const start = rule.startDate
+        ? new Date(rule.startDate + 'T00:00:00')
+        : from;
       const cand = new Date(from.getFullYear(), start.getMonth(), start.getDate());
       if (cand < from) cand.setFullYear(from.getFullYear() + 1);
       return cand.toISOString().slice(0, 10);
     }
-    return fromDate;
+    // SAFETY: frequency không recognized → return null thay vì fromDate.
+    // Caller (runRecurringRules + cashflow projection) phải handle null → break.
+    // Trước đây trả fromDate gây runaway loop (60 events cùng ngày).
+    console.warn('[recurringNextDate] Unknown frequency:', rule.frequency, 'rule:', rule.id);
+    return null;
   },
 
   // Chạy các rule active: tạo giao dịch cho mỗi lần đáo hạn từ lastRunDate → today
@@ -15082,18 +15135,36 @@ const App = {
     for (const rule of rules) {
       if (!rule.active) continue;
       const startDate = rule.startDate || today_;
-      // Bắt đầu từ ngày sau lastRunDate (nếu có), hoặc startDate
       let cursor = rule.lastRunDate
         ? new Date(rule.lastRunDate + 'T00:00:00')
         : new Date(startDate + 'T00:00:00');
       if (rule.lastRunDate) cursor.setDate(cursor.getDate() + 1);
-      // Lặp tối đa 60 lần để tránh infinite loop
-      for (let i = 0; i < 60; i++) {
+
+      // SAFETY: dedup + cap để tránh runaway loop nếu recurringNextDate
+      // returns same date hoặc invalid (vd frequency lạ).
+      const seenDates = new Set();
+      const MAX_TX_PER_RUN = 24; // 1 rule chỉ tạo tối đa 24 tx mỗi run
+      let txAdded = 0;
+
+      for (let i = 0; i < 40; i++) {
+        if (txAdded >= MAX_TX_PER_RUN) break;
         const cursorStr = cursor.toISOString().slice(0, 10);
         const nextStr = this.recurringNextDate(rule, cursorStr);
+        // Validate nextStr — null = unknown frequency, break
+        if (!nextStr || typeof nextStr !== 'string'
+            || !/^\d{4}-\d{2}-\d{2}$/.test(nextStr)) break;
         if (nextStr > today_) break;
         if (rule.endDate && nextStr > rule.endDate) break;
-        // Tạo tx
+        // Dedup: nếu nextStr đã thấy → recurringNextDate stuck → force advance
+        if (seenDates.has(nextStr)) {
+          cursor = new Date(cursorStr + 'T00:00:00');
+          cursor.setDate(cursor.getDate() + 1);
+          const newCursor = cursor.toISOString().slice(0, 10);
+          if (newCursor === cursorStr) break; // still stuck → safety break
+          continue;
+        }
+        seenDates.add(nextStr);
+
         const tx = {
           type: rule.type,
           amount: rule.amount,
@@ -15108,8 +15179,8 @@ const App = {
         await this.applyBalanceDelta(tx, +1);
         await window.QLT_Store.put('transactions', tx);
         created++;
+        txAdded++;
         rule.lastRunDate = nextStr;
-        // Cursor → ngày sau nextStr
         cursor = new Date(nextStr + 'T00:00:00');
         cursor.setDate(cursor.getDate() + 1);
       }
