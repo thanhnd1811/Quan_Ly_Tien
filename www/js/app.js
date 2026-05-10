@@ -1701,6 +1701,13 @@ const App = {
       // Render home dưới TRƯỚC để khi unlock app sẵn sàng (lock screen z-index cao hơn)
       this.switchTab('home');
 
+      // Force check update ngay sau cold start (delay 500ms để DOM home render xong).
+      // renderHome đã gọi renderHomeUpdateBanner nhưng có thể trước khi network ready —
+      // gọi lại lần nữa để đảm bảo user thấy banner sớm nhất có thể.
+      setTimeout(() => {
+        this.renderHomeUpdateBanner().catch(() => {});
+      }, 500);
+
       // Auto backup hằng tuần lên Drive (nếu đã đăng nhập + chưa sync trong 7 ngày)
       try { await this.autoWeeklyBackup(); } catch (_) {}
 
@@ -7411,7 +7418,10 @@ const App = {
   async renderHomeUpdateBanner() {
     const wrap = $('#homeUpdateBanner');
     if (!wrap) return;
-    const r = await this.checkForUpdates();
+    // Force fetch GitHub mỗi lần render → user thấy ngay bản mới sau khi push commit.
+    // GitHub free tier 60 req/h cho 1 IP unauth → user bình thường ko gần hit.
+    // Nếu network fail → checkForUpdates trả null → banner ko hiện (graceful fail).
+    const r = await this.checkForUpdates({ force: true });
     if (!r || !r.hasUpdate || r.dismissed) {
       wrap.style.display = 'none';
       return;
