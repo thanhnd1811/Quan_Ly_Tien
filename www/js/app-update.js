@@ -13,7 +13,10 @@
   const REPO = 'thanhnd1811/Quan_Ly_Tien';
   const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`;
   const RELEASES_PAGE = `https://github.com/${REPO}/releases`;
-  const CHECK_INTERVAL_MS = 6 * 3600 * 1000; // 6 tiếng — không spam GitHub API
+  // Cache 30 phút thay vì 6h — user đẩy 1 commit nhiều lần/ngày, cache 6h
+  // có thể skip 5-6 commits liên tiếp. 30 phút balance giữa fresh data và
+  // không spam GitHub API (60 req/h limit cho IP unauth).
+  const CHECK_INTERVAL_MS = 30 * 60 * 1000;
   const CACHE_KEY = 'qlt_update_cache';
   const DISMISS_KEY = 'qlt_update_dismissed';
 

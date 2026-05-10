@@ -1742,7 +1742,7 @@ const App = {
         }
       } catch (_) {}
 
-      // Hook Capacitor App resume — khoá lại nếu hết timeout
+      // Hook Capacitor App resume — khoá lại nếu hết timeout + force check update
       try {
         const AppPlugin = window.Capacitor?.Plugins?.App;
         if (AppPlugin) {
@@ -1752,6 +1752,11 @@ const App = {
             if (window.QLT_Lock && window.QLT_Lock.shouldLockOnResume()) {
               window.QLT_Lock.showVerify(() => {});
             }
+            // Force check update mỗi khi app resume — đảm bảo user thấy bản
+            // mới ngay sau khi bạn push commit (không phải đợi cache 30 phút).
+            this.checkForUpdates({ force: true }).then(() => {
+              if (this.state.currentTab === 'home') this.renderHomeUpdateBanner();
+            }).catch(() => {});
           });
         }
       } catch (_) {}
@@ -7388,9 +7393,22 @@ const App = {
     const FS = window.Capacitor?.Plugins?.Filesystem;
     const Installer = window.Capacitor?.Plugins?.ApkInstaller;
 
+    // Debug: log trạng thái plugin để dễ trace nếu vẫn fallback browser
+    console.log('[Update] Plugin check:', {
+      hasFS: !!FS,
+      hasInstaller: !!Installer,
+      capacitor: !!window.Capacitor,
+      pluginNames: window.Capacitor?.Plugins ? Object.keys(window.Capacitor.Plugins) : 'no Capacitor'
+    });
+
     // Fallback nếu không có plugin (web hoặc APK cũ chưa có ApkInstaller)
     if (!FS || !Installer) {
-      console.warn('[Update] Filesystem/ApkInstaller plugin missing, fallback to browser');
+      const reason = !FS ? 'Filesystem plugin' : 'ApkInstaller plugin';
+      console.warn(`[Update] ${reason} missing, fallback to browser`);
+      QLT_UI.toast(
+        `⚠️ APK hiện tại chưa có ${reason} — tải qua trình duyệt như cũ. Bản tiếp theo sẽ có in-app installer.`,
+        { type: 'warn', duration: 4500 }
+      );
       this._openUpdateUrlBrowser(apkUrl);
       if (onComplete) onComplete({ fallback: true });
       return;
@@ -7542,15 +7560,23 @@ const App = {
     if (cur.commitMsg) {
       html += `<div style="color:var(--text3);font-size:11px;margin-top:2px">"${this.escapeHtml(cur.commitMsg)}"</div>`;
     }
+    // Trạng thái in-app installer plugin (debug + transparency cho user)
+    const hasInstaller = !!window.Capacitor?.Plugins?.ApkInstaller;
+    const installerStatus = hasInstaller
+      ? '<span style="color:var(--pos)">⚡ In-app installer: bật (1 click cài)</span>'
+      : '<span style="color:#f59e0b">📥 In-app installer: chưa có (cài bản mới sẽ có)</span>';
+    html += `<div style="margin-top:6px;font-size:11px">${installerStatus}</div>`;
+
     if (r?.latest) {
       if (r.hasUpdate) {
         const apkSize = r.latest.apk?.size ? ` · ${(r.latest.apk.size / 1024 / 1024).toFixed(1)} MB` : '';
         const date = r.latest.publishedAt ? new Date(r.latest.publishedAt).toLocaleDateString('vi-VN') : '';
+        const btnLabel = hasInstaller ? '⚡ Tải & cài 1 click' : '📥 Tải về & cài đặt';
         html += `
           <div style="margin-top:10px;padding:10px;background:linear-gradient(135deg,#1e40af,#3b82f6);color:#fff;border-radius:8px">
             <div style="font-weight:700;font-size:13px;margin-bottom:4px">🆕 Có bản mới: ${this.escapeHtml(r.latest.tag)}</div>
             <div style="font-size:11px;opacity:.9;margin-bottom:8px">${this.escapeHtml(r.latest.name || '')} · ${date}${apkSize}</div>
-            <button id="setUpdateInstallBtn" style="width:100%;padding:9px;background:#fff;color:#1e40af;border:none;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer">📥 Tải về & cài đặt</button>
+            <button id="setUpdateInstallBtn" style="width:100%;padding:9px;background:#fff;color:#1e40af;border:none;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer">${btnLabel}</button>
           </div>
         `;
       } else {
