@@ -3689,64 +3689,73 @@ const App = {
     });
   },
 
-  // Modal list GD ngày được tap trong heatmap
+  // Modal list GD ngày được tap trong heatmap (dùng #heatmapDayModal — layout
+  // chỉn chu, không vỡ như QLT_UI.alert html mode trước đây)
   _openHeatmapDayDetail(dateStr) {
     if (!dateStr) return;
+    const modal = document.getElementById('heatmapDayModal');
+    const summaryEl = document.getElementById('heatmapDaySummary');
+    const listEl = document.getElementById('heatmapDayList');
+    if (!modal || !summaryEl || !listEl) return;
+
     const txs = this.state.transactions
       .filter(t => t.date === dateStr && this.isRealExpense(t))
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     const total = txs.reduce((s, t) => s + t.amount, 0);
 
-    // Format date đẹp: "Thứ 6, 10/05/2026"
+    // Format date: "Thứ 6, 10/05/2026"
     const d = new Date(dateStr + 'T00:00:00');
     const weekdays = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
     const dateLabel = `${weekdays[d.getDay()]}, ${dateStr.slice(8, 10)}/${dateStr.slice(5, 7)}/${dateStr.slice(0, 4)}`;
 
-    const txItems = txs.map(t => {
-      const cat = (this.state.categories || []).find(c => c.id === t.categoryId);
-      const acc = (this.state.accounts || []).find(a => a.id === t.accountId);
-      // Icon: dùng svgIcon helper — handle cả emoji ("emoji:👨‍⚕️") + SVG name ("food")
-      // Fallback "other" SVG nếu không có icon hoặc category null
-      const iconHtml = cat?.icon ? window.svgIcon(cat.icon) : window.svgIcon('other');
-      return `
-        <div class="heatmap-tx-item" data-tx-id="${t.id}" style="display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--border);cursor:pointer">
-          <div class="tx-icon" style="background:${cat?.color || '#888'}1a;color:${cat?.color || '#888'};width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0">${iconHtml}</div>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(cat?.name || 'Không có DM')}</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(t.note || '—')} · ${this.escapeHtml(acc?.name || '?')}</div>
-          </div>
-          <div style="font-size:14px;font-weight:700;color:var(--danger);flex-shrink:0">-${fmt(t.amount)} đ</div>
+    // Summary compact ở header
+    summaryEl.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:2px">${this.escapeHtml(dateLabel)}</div>
+          <div style="font-size:11px;color:var(--text3)">${txs.length} giao dịch</div>
         </div>
-      `;
-    }).join('');
+        <div style="font-size:18px;font-weight:700;color:var(--danger);text-align:right">-${fmt(total)} đ</div>
+      </div>
+    `;
 
-    QLT_UI.alert(`
-      <div style="margin-bottom:12px">
-        <div style="font-size:12px;color:var(--text3)">${dateLabel}</div>
-        <div style="font-size:20px;font-weight:700;color:var(--danger);margin-top:4px">-${fmt(total)} đ</div>
-        <div style="font-size:11px;color:var(--text3)">${txs.length} giao dịch</div>
-      </div>
-      <div style="max-height:50vh;overflow-y:auto;margin:0 -16px">
-        ${txItems || '<div style="text-align:center;color:var(--text3);padding:30px">Không có giao dịch chi</div>'}
-      </div>
-    `, { title: '📅 Chi tiết ngày', html: true }).then(() => {
-      // Bind sau khi modal mở (vì innerHTML render trong alert)
-      // Note: QLT_UI.alert không trả handle DOM trực tiếp → bind via delegation
+    // List GD
+    if (txs.length === 0) {
+      listEl.innerHTML = '<div style="text-align:center;color:var(--text3);padding:40px 20px;font-size:13px">Không có giao dịch chi</div>';
+    } else {
+      listEl.innerHTML = txs.map(t => {
+        const cat = (this.state.categories || []).find(c => c.id === t.categoryId);
+        const acc = (this.state.accounts || []).find(a => a.id === t.accountId);
+        const iconHtml = cat?.icon ? window.svgIcon(cat.icon) : window.svgIcon('other');
+        const catColor = cat?.color || '#888';
+        return `
+          <div class="heatmap-tx-item" data-tx-id="${t.id}"
+               style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s">
+            <div style="background:${catColor}1a;color:${catColor};width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px">${iconHtml}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(cat?.name || 'Không có danh mục')}</div>
+              ${t.note ? `<div style="font-size:11px;color:var(--text2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(t.note)}</div>` : ''}
+              <div style="font-size:10px;color:var(--text3);margin-top:2px">${this.escapeHtml(acc?.name || '?')}</div>
+            </div>
+            <div style="font-size:14px;font-weight:700;color:var(--danger);flex-shrink:0;white-space:nowrap">-${fmt(t.amount)} đ</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Bind tap GD → mở form sửa
+    listEl.querySelectorAll('.heatmap-tx-item').forEach(el => {
+      el.onclick = () => {
+        const txId = el.dataset.txId;
+        modal.classList.remove('open');
+        if (txId) {
+          // Delay nhẹ để modal close animation xong
+          setTimeout(() => this.openTxModal(txId), 200);
+        }
+      };
     });
 
-    // Delegation: bind click trên document để đón tap GD trong modal
-    setTimeout(() => {
-      document.querySelectorAll('.heatmap-tx-item').forEach(el => {
-        el.onclick = () => {
-          const txId = el.dataset.txId;
-          // Đóng alert (tìm nút data-close)
-          const alertModal = document.querySelector('.modal.open');
-          if (alertModal) alertModal.classList.remove('open');
-          // Mở form sửa GD
-          if (txId) this.openTxModal(txId);
-        };
-      });
-    }, 100);
+    modal.classList.add('open');
   },
 
   // Render chart cho 1 type cụ thể (expense / income) — top5 + donut + legend

@@ -1650,6 +1650,23 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
   </div>
 </div>
 
+<!-- Modal: Heatmap day detail — list GD trong 1 ngày được tap từ heatmap calendar -->
+<div id="heatmapDayModal" class="modal" style="z-index:310">
+  <div class="modal-card" style="max-height:85vh;display:flex;flex-direction:column">
+    <div class="modal-head">
+      <button data-close data-icon="close"></button>
+      <h3 id="heatmapDayTitle">📅 Chi tiết ngày</h3>
+    </div>
+    <!-- Summary card: ngày + tổng + count -->
+    <div id="heatmapDaySummary" style="padding:14px 16px;background:linear-gradient(135deg,rgba(220,38,38,.08),transparent);border-bottom:1px solid var(--border)"></div>
+    <!-- Tx list scrollable -->
+    <div id="heatmapDayList" style="flex:1;overflow-y:auto;min-height:0"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close>Đóng</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: SMS ngân hàng — list pending tx từ SMS scan -->
 <div id="smsQueueModal" class="modal" style="z-index:310">
   <div class="modal-card" style="max-height:95vh;display:flex;flex-direction:column">
