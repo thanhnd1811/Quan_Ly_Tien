@@ -7965,29 +7965,41 @@ const App = {
   async _showNotifDebug() {
     const NR = window.Capacitor?.Plugins?.NotificationReader;
     if (!NR) return;
+    const modal = document.getElementById('notifDebugModal');
+    const summaryEl = document.getElementById('notifDebugSummary');
+    const listEl = document.getElementById('notifDebugList');
+    if (!modal || !summaryEl || !listEl) return;
+
     try {
       const r = await NR.getCachedNotifications({ onlyUnprocessed: false });
       const notifs = (r.notifications || []).slice(-20).reverse(); // 20 mới nhất
       const Parser = window.QLT_SmsBankParser;
 
       if (notifs.length === 0) {
-        QLT_UI.alert(
-          'Chưa có notif nào được app bắt.\n\n' +
-          'Có thể do:\n' +
-          '• MIUI giết service (cần battery whitelist)\n' +
-          '• Notification access chưa cấp đúng\n' +
-          '• Bank chưa gửi notif từ lúc bật\n\n' +
-          'Mở app NH → tạo 1 GD test → đợi notif → quay lại đây.',
-          { title: '🔬 Debug — không có notif' }
-        );
+        summaryEl.innerHTML = '<strong>Chưa có notif nào</strong>';
+        listEl.innerHTML = `
+          <div style="padding:30px 20px;text-align:center;color:var(--text2);line-height:1.6;font-size:13px">
+            <div style="font-size:48px;margin-bottom:14px">📭</div>
+            <div style="font-weight:600;margin-bottom:10px">App chưa bắt được notif nào</div>
+            <div style="font-size:12px;color:var(--text3);text-align:left;background:var(--surface2);padding:12px 14px;border-radius:8px;margin:0 8px">
+              Có thể do:<br>
+              • MIUI giết service (cần battery whitelist)<br>
+              • Notification access chưa cấp đúng<br>
+              • Bank chưa gửi notif từ lúc bật<br><br>
+              <strong>Test:</strong> Mở app NH → tạo 1 GD nhỏ (10k) → đợi notif → quay lại đây.
+            </div>
+          </div>
+        `;
+        modal.classList.add('open');
         return;
       }
 
-      const items = notifs.map(n => {
+      // Đếm bank vs non-bank
+      let bankCount = 0;
+      const itemsHtml = notifs.map(n => {
         const date = new Date(n.postTime).toLocaleString('vi-VN', {
           day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
         });
-        // Test parser
         const address = `${n.pkg} ${n.title || ''}`;
         let parsed = null;
         try {
@@ -7996,35 +8008,34 @@ const App = {
           });
         } catch (_) {}
 
-        const bankName = parsed ? Parser.bankName(parsed.bank) : '❌ Không phải NH';
-        const parsedInfo = parsed
-          ? `<div style="font-size:11px;color:var(--pos);margin-top:4px">
+        const bankName = parsed ? Parser.bankName(parsed.bank) : '❌ Không nhận diện';
+        if (parsed) bankCount++;
+
+        const parsedBox = parsed
+          ? `<div style="font-size:11px;color:var(--pos);margin-top:6px;font-weight:600">
                ✅ Parse OK: ${parsed.type === 'income' ? '+' : '-'}${fmt(parsed.amount)}đ${parsed.balance ? ' · SDC ' + fmt(parsed.balance) + 'đ' : ''}
              </div>`
-          : `<div style="font-size:11px;color:var(--text3);margin-top:4px">⚠️ Không parse được (regex chưa match format này)</div>`;
+          : `<div style="font-size:11px;color:var(--text3);margin-top:6px">⚠️ Không parse được (regex chưa match format này)</div>`;
+
+        const bgColor = parsed ? 'rgba(34,197,94,.04)' : 'rgba(245,158,11,.04)';
+        const borderColor = parsed ? 'var(--pos)' : '#f59e0b';
 
         return `
-          <div style="padding:12px 14px;border-bottom:1px solid var(--border);background:${parsed ? 'rgba(34,197,94,.04)' : 'rgba(245,158,11,.04)'}">
+          <div style="padding:12px 14px;border-bottom:1px solid var(--border);background:${bgColor};border-left:3px solid ${borderColor}">
             <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:4px">
-              <div style="font-size:12px;font-weight:600;color:var(--text)">${this.escapeHtml(bankName)}</div>
-              <div style="font-size:10px;color:var(--text3)">${date}</div>
+              <div style="font-size:13px;font-weight:600;color:var(--text)">${this.escapeHtml(n.title || bankName)}</div>
+              <div style="font-size:10px;color:var(--text3);flex-shrink:0">${date}</div>
             </div>
-            <div style="font-size:10px;color:var(--text3);font-family:monospace;margin-bottom:4px">📦 ${this.escapeHtml(n.pkg)}${n.processed ? ' · ✓ đã xử lý' : ''}</div>
-            <div style="font-size:11px;color:var(--text2);line-height:1.4;background:var(--surface2);padding:6px 8px;border-radius:4px;font-family:monospace;white-space:pre-wrap">${this.escapeHtml((n.body || '').slice(0, 200))}</div>
-            ${parsedInfo}
+            <div style="font-size:10px;color:var(--text3);font-family:monospace;margin-bottom:6px">📦 ${this.escapeHtml(n.pkg)}${n.processed ? ' · ✓ đã xử lý' : ''} · 🏦 ${this.escapeHtml(bankName)}</div>
+            <div style="font-size:11px;color:var(--text2);line-height:1.5;background:var(--surface2);padding:8px 10px;border-radius:6px;font-family:monospace;white-space:pre-wrap;word-break:break-word">${this.escapeHtml((n.body || '').slice(0, 250))}</div>
+            ${parsedBox}
           </div>
         `;
       }).join('');
 
-      QLT_UI.alert(`
-        <div style="margin:0 -16px">
-          <div style="padding:10px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);line-height:1.5">
-            App đã bắt được <strong>${notifs.length}</strong> notif. Mỗi item show:
-            🏦 NH detect được, 📦 package name, body, ✅/⚠️ kết quả parse.
-          </div>
-          <div style="max-height:65vh;overflow-y:auto">${items}</div>
-        </div>
-      `, { title: '🔬 Debug — Notif gần nhất', html: true });
+      summaryEl.innerHTML = `App đã bắt được <strong>${notifs.length}</strong> notif (${bankCount} là NH, ${notifs.length - bankCount} không phải).<br>Mỗi item: 🏦 NH detect, 📦 package, body, ✅/⚠️ parse.`;
+      listEl.innerHTML = itemsHtml;
+      modal.classList.add('open');
     } catch (e) {
       QLT_UI.alert('Lỗi load: ' + (e.message || e), { title: 'Lỗi' });
     }

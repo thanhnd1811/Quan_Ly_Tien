@@ -1652,6 +1652,21 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
   </div>
 </div>
 
+<!-- Modal: Notification reader debug — list 20 notif gần nhất bắt được -->
+<div id="notifDebugModal" class="modal" style="z-index:310">
+  <div class="modal-card" style="max-height:90vh;display:flex;flex-direction:column">
+    <div class="modal-head">
+      <button data-close data-icon="close"></button>
+      <h3>🔬 Debug — Notif gần nhất</h3>
+    </div>
+    <div id="notifDebugSummary" style="padding:10px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);line-height:1.5"></div>
+    <div id="notifDebugList" style="flex:1;overflow-y:auto;min-height:0"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close>Đóng</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Heatmap day detail — list GD trong 1 ngày được tap từ heatmap calendar -->
 <div id="heatmapDayModal" class="modal" style="z-index:310">
   <div class="modal-card" style="max-height:85vh;display:flex;flex-direction:column">
