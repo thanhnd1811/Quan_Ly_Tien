@@ -1756,6 +1756,48 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
   </div>
 </div>
 
+<!-- Modal: Confirm tạo GD nhanh — show data + cho user chỉnh trước khi lưu -->
+<div id="favConfirmModal" class="modal" style="z-index:310">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close data-icon="close"></button>
+      <h3 id="favConfirmTitle">⚡ Tạo GD nhanh</h3>
+    </div>
+    <div class="modal-body">
+      <!-- Summary card với icon + tên + amount lớn -->
+      <div id="favConfirmSummary" style="background:linear-gradient(135deg,rgba(99,102,241,.1),rgba(168,85,247,.06));padding:14px;border-radius:12px;margin-bottom:14px"></div>
+
+      <div class="fg">
+        <label class="fl">Số tiền (có thể sửa)</label>
+        <input id="favConfirmAmount" class="fi qlt-amount" type="text" inputmode="none" readonly>
+      </div>
+
+      <div class="fg">
+        <label class="fl">⚙️ Phương thức / Ví <span style="color:var(--danger)">*</span></label>
+        <select id="favConfirmAccount" class="fi"></select>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">Đổi ví nếu lần này thanh toán khác (vd thường VCB, hôm nay tiền mặt).</div>
+      </div>
+
+      <div class="fg">
+        <label class="fl">Ngày & giờ</label>
+        <div style="display:flex;gap:8px">
+          <input id="favConfirmDate" class="fi" type="date" style="flex:2">
+          <input id="favConfirmTime" class="fi" type="time" style="flex:1">
+        </div>
+      </div>
+
+      <div class="fg">
+        <label class="fl">Ghi chú</label>
+        <input id="favConfirmNote" class="fi" type="text" placeholder="Tuỳ chọn">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close>Huỷ</button>
+      <button class="btn btn-primary" id="favConfirmSave">💾 Lưu giao dịch</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Quick Add Favorites — manage list -->
 <div id="favoritesModal" class="modal" style="z-index:310">
   <div class="modal-card" style="max-height:85vh;display:flex;flex-direction:column">

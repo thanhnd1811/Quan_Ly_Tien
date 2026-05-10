@@ -8672,7 +8672,7 @@ const App = {
           return;
         }
         haptic('light');
-        this._quickSaveFavorite(el.dataset.fav);
+        this._showFavoriteConfirm(el.dataset.fav);
       };
 
       const startPress = () => {
@@ -8702,7 +8702,156 @@ const App = {
     wrap.querySelector('[data-act="manage"]')?.addEventListener('click', () => this._openFavoritesModal());
   },
 
-  // Quick save: tap chip → tạo tx ngay với data từ favorite
+  // Tap chip → mở modal preview, user verify amount/account/date trước khi lưu.
+  // Đặc biệt: cho phép đổi ví (phương thức thanh toán) — vì cùng GD nhưng
+  // mỗi lần có thể thanh toán bằng ví khác (vd thường VCB, hôm nay tiền mặt).
+  _showFavoriteConfirm(favId) {
+    const fav = this.getFavorites().find(f => f.id === favId);
+    if (!fav) {
+      QLT_UI.toast('Không tìm thấy favorite', { type: 'error' });
+      return;
+    }
+    const modal = document.getElementById('favConfirmModal');
+    if (!modal) {
+      QLT_UI.toast('Modal chưa load', { type: 'error' });
+      return;
+    }
+
+    // Pre-fill summary card
+    const cat = (this.state.categories || []).find(c => c.id === fav.categoryId);
+    const iconHtml = cat?.icon ? window.svgIcon(cat.icon) : window.svgIcon('other');
+    const color = cat?.color || '#888';
+    const sign = fav.type === 'income' ? '+' : '-';
+    const colorAmt = fav.type === 'income' ? 'var(--pos)' : 'var(--danger)';
+
+    document.getElementById('favConfirmSummary').innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="background:${color}1a;color:${color};width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">${iconHtml}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:700;color:var(--text)">${this.escapeHtml(fav.customLabel || fav.note || cat?.name || 'GD')}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${this.escapeHtml(cat?.name || 'Không có DM')}</div>
+        </div>
+        <div style="font-size:18px;font-weight:700;color:${colorAmt};flex-shrink:0">${sign}${fmt(fav.amount)} đ</div>
+      </div>
+    `;
+
+    // Pre-fill fields (user có thể chỉnh)
+    document.getElementById('favConfirmAmount').value = Number(fav.amount).toLocaleString('vi-VN');
+
+    // Account selector — list tất cả ví payment
+    const accSel = document.getElementById('favConfirmAccount');
+    const accounts = (this.state.accounts || []).filter(a => this.isPayment(a) && !a.archived);
+    accSel.innerHTML = accounts.map(a =>
+      `<option value="${a.id}">${this.escapeHtml(a.name)} (${fmt(a.balance || 0)} đ)</option>`
+    ).join('');
+    if (fav.accountId) accSel.value = fav.accountId;
+
+    // Date + time = now
+    const _now = new Date();
+    document.getElementById('favConfirmDate').value = _now.toISOString().slice(0, 10);
+    document.getElementById('favConfirmTime').value =
+      String(_now.getHours()).padStart(2, '0') + ':' + String(_now.getMinutes()).padStart(2, '0');
+
+    document.getElementById('favConfirmNote').value = fav.note || '';
+
+    // Bind save (mỗi lần re-bind để tránh stale closure)
+    const saveBtn = document.getElementById('favConfirmSave');
+    saveBtn.onclick = async () => {
+      const amount = readAmount(document.getElementById('favConfirmAmount'));
+      const accountId = accSel.value;
+      const date = document.getElementById('favConfirmDate').value || today();
+      const timeVal = document.getElementById('favConfirmTime').value;
+      const note = document.getElementById('favConfirmNote').value.trim();
+
+      if (!amount || amount <= 0) {
+        QLT_UI.toast('Số tiền không hợp lệ', { type: 'error' });
+        return;
+      }
+      if (!accountId) {
+        QLT_UI.toast('Chọn ví', { type: 'error' });
+        return;
+      }
+
+      // Disable button to prevent double-click
+      saveBtn.disabled = true;
+      saveBtn.textContent = '⏳ Đang lưu...';
+
+      try {
+        await this._saveFavoriteTx(fav, { amount, accountId, date, time: timeVal, note });
+        modal.classList.remove('open');
+      } catch (e) {
+        QLT_UI.toast('Lỗi lưu: ' + (e.message || e), { type: 'error' });
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = '💾 Lưu giao dịch';
+      }
+    };
+
+    modal.classList.add('open');
+
+    // Bind calc keypad cho amount field (giống tx form)
+    setTimeout(() => {
+      attachAmountFormatting(document.getElementById('favConfirmAmount'));
+    }, 50);
+  },
+
+  // Save tx từ favorite + override values
+  async _saveFavoriteTx(fav, overrides = {}) {
+    const tx = {
+      type: fav.type,
+      amount: overrides.amount || fav.amount,
+      date: overrides.date || today(),
+      time: overrides.time || (() => {
+        const _now = new Date();
+        return String(_now.getHours()).padStart(2, '0') + ':' + String(_now.getMinutes()).padStart(2, '0');
+      })(),
+      accountId: overrides.accountId || fav.accountId,
+      toAccountId: fav.toAccountId || null,
+      categoryId: fav.categoryId || null,
+      note: overrides.note != null ? overrides.note : (fav.note || ''),
+      bookId: this.state.currentBookId,
+      _fromFavorite: true,
+      _favoriteId: fav.id
+    };
+
+    if (window.QLT_Geo && QLT_Geo.isEnabled() && fav.type !== 'transfer') {
+      try {
+        const pos = await QLT_Geo.getCurrentPosition();
+        tx.location = { lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy };
+      } catch (_) {}
+    }
+
+    await this.applyBalanceDelta(tx, +1);
+    const saved = await window.QLT_Store.put('transactions', tx);
+    await this.reload();
+    this.renderHome();
+
+    const cat = (this.state.categories || []).find(c => c.id === fav.categoryId);
+    const sign = fav.type === 'income' ? '+' : '-';
+    QLT_UI.toast(
+      `✅ Đã lưu: ${sign}${fmt(tx.amount)}đ ${cat?.name || ''}`,
+      { type: 'success', duration: 2500 }
+    );
+
+    // Reverse geocode async
+    if (tx.location?.lat && saved?.id) {
+      QLT_Geo.reverseGeocode(tx.location.lat, tx.location.lng).then(async (geo) => {
+        if (geo) {
+          const fresh = await window.QLT_Store.get('transactions', saved.id);
+          if (fresh) {
+            fresh.location = fresh.location || tx.location;
+            fresh.location.address = geo.address;
+            fresh.location.fullAddress = geo.full;
+            await window.QLT_Store.put('transactions', fresh);
+          }
+        }
+      }).catch(() => {});
+    }
+    this.autoSync();
+    return tx;
+  },
+
+  // Quick save (deprecated — giữ để compat, redirect sang confirm flow)
   async _quickSaveFavorite(favId) {
     const fav = this.getFavorites().find(f => f.id === favId);
     if (!fav) {
