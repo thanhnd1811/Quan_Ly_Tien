@@ -680,12 +680,16 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .legend-val{font-size:13px;font-weight:700}
 
 /* Modal — premium bottom sheet với drag handle */
-.modal{position:fixed;inset:0;background:rgba(0,0,0,0.55);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);z-index:300;display:none;align-items:flex-end;justify-content:center}
+/* Modal: opacity/visibility thay vì display:none/flex để có CLOSE animation
+   smooth thay vì biến mất đột ngột. backdrop-filter mạnh hơn (4px) cho cảm
+   giác glass-blur native iOS hơn. */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:300;display:flex;align-items:flex-end;justify-content:center;opacity:0;visibility:hidden;transition:opacity .22s ease, visibility .22s}
+.modal.open{opacity:1;visibility:visible}
 /* Modal lồng nhau (mở từ modal khác) cần z-index cao hơn để hiện đè lên */
 #bookEditModal{z-index:310}
 #addManyModal{z-index:320}
-.modal.open{display:flex;animation:fadeIn .18s ease}
-.modal-card{background:var(--bg);width:100%;max-width:480px;max-height:92vh;border-radius:24px 24px 0 0;display:flex;flex-direction:column;animation:slideUp .32s cubic-bezier(.2,.8,.3,1);box-shadow:var(--sh5);position:relative}
+.modal-card{background:var(--bg);width:100%;max-width:480px;max-height:92vh;border-radius:24px 24px 0 0;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .32s cubic-bezier(.2,.8,.3,1);box-shadow:var(--sh5);position:relative}
+.modal.open .modal-card{transform:translateY(0)}
 .modal-card::before{content:'';position:absolute;top:8px;left:50%;transform:translateX(-50%);width:40px;height:4px;background:var(--border);border-radius:2px;opacity:.6}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .modal-head{padding:22px 16px 14px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);background:var(--surface);border-radius:24px 24px 0 0}
