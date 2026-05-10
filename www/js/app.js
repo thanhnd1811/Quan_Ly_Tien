@@ -4914,7 +4914,7 @@ const App = {
     }).join('');
   },
 
-  // Vẽ chart cho fluctuation: 2-series overlay (current full + comparison previous)
+  // Vẽ chart cho fluctuation: 2-series overlay với Y-axis + value labels + tooltip
   _drawFlucChart(canvas, data, f) {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -4924,97 +4924,216 @@ const App = {
     canvas.width = W * dpr;
     canvas.height = H * dpr;
     ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, W, H);
 
     const cs = getComputedStyle(document.documentElement);
     const text2Color = (cs.getPropertyValue('--text2') || '#666').trim();
     const text3Color = (cs.getPropertyValue('--text3') || '#aaa').trim();
     const borderColor = (cs.getPropertyValue('--border') || '#e4ebe0').trim();
 
-    if (!data.length) return;
+    // Format compact: 1.5M, 250k, 50
+    const fmtCompact = (v) => {
+      const abs = Math.abs(v);
+      let label;
+      if (abs >= 1000000) label = (v / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+      else if (abs >= 1000) label = Math.round(v / 1000) + 'k';
+      else label = Math.round(v) + '';
+      return label;
+    };
 
-    const padTop = 18, padBottom = 36, padLeft = 12, padRight = 12;
+    if (!data.length) {
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = text3Color;
+      ctx.font = '13px DM Sans, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Chưa có dữ liệu', W / 2, H / 2);
+      return;
+    }
+
+    const padTop = 24, padBottom = 36, padLeft = 48, padRight = 14;
     const innerW = W - padLeft - padRight;
     const innerH = H - padTop - padBottom;
 
-    // Diff tab có thể có giá trị âm → tính min/max
     const allVals = [];
-    for (const d of data) { allVals.push(d.cur, d.prev); }
-    const maxAbs = Math.max(1, ...allVals.map(v => Math.abs(v)));
-    const hasNeg = allVals.some(v => v < 0);
-    const baselineY = hasNeg ? padTop + innerH / 2 : padTop + innerH;
-    const halfH = hasNeg ? innerH / 2 : innerH;
+    for (const d of data) { allVals.push(d.cur, d.prev || 0); }
+    const maxV = Math.max(0, ...allVals);
+    const minV = Math.min(0, ...allVals);
+    const range = Math.max(1, maxV - minV);
+    const yMax = maxV + range * 0.15; // pad 15% top cho value labels không cắt
+    const yMin = minV < 0 ? minV - range * 0.05 : 0;
+    const yRange = Math.max(1, yMax - yMin);
+    const yScale = (v) => padTop + (1 - (v - yMin) / yRange) * innerH;
+    const baselineY = yScale(0);
 
-    // Trục đáy (hoặc trung tâm nếu có âm)
-    ctx.strokeStyle = borderColor;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(padLeft, baselineY);
-    ctx.lineTo(padLeft + innerW, baselineY);
-    ctx.stroke();
+    // Render hàm reusable cho hover redraw
+    const groupBoxes = [];
+    const draw = (hoverIdx = -1) => {
+      ctx.clearRect(0, 0, W, H);
 
-    const groupW = innerW / data.length;
-    const showCmp = !!f.cmp;
-    const barW = showCmp ? Math.min(20, groupW * 0.32) : Math.min(28, groupW * 0.55);
-    const gap = showCmp ? 3 : 0;
-
-    data.forEach((d, i) => {
-      const groupCx = padLeft + i * groupW + groupW / 2;
-
-      // Helper: vẽ 1 bar tại x với value
-      const drawBar = (x, val, color) => {
-        if (!val) return;
-        const h = Math.abs(val) / maxAbs * halfH;
-        const y = val >= 0 ? baselineY - h : baselineY;
-        ctx.fillStyle = color;
+      // Y-axis grid + labels (5 levels)
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = 0.5;
+      ctx.fillStyle = text3Color;
+      ctx.font = '10px DM Sans, sans-serif';
+      ctx.textAlign = 'right';
+      for (let i = 0; i <= 4; i++) {
+        const v = yMin + (yRange * i / 4);
+        const y = yScale(v);
         ctx.beginPath();
-        const r = 3;
-        // Rounded rect — chỉ bo top (hoặc bottom nếu âm)
-        if (val >= 0) {
-          ctx.moveTo(x, y + h);
-          ctx.lineTo(x, y + r);
-          ctx.quadraticCurveTo(x, y, x + r, y);
-          ctx.lineTo(x + barW - r, y);
-          ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
-          ctx.lineTo(x + barW, y + h);
+        ctx.moveTo(padLeft, y);
+        ctx.lineTo(padLeft + innerW, y);
+        ctx.stroke();
+        ctx.fillText(fmtCompact(v), padLeft - 4, y + 3);
+      }
+
+      // Zero line đậm hơn nếu có âm
+      if (yMin < 0) {
+        ctx.strokeStyle = text3Color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(padLeft, baselineY);
+        ctx.lineTo(padLeft + innerW, baselineY);
+        ctx.stroke();
+      }
+
+      const groupW = innerW / data.length;
+      const showCmp = !!f.cmp;
+      const barW = showCmp ? Math.min(18, groupW * 0.32) : Math.min(26, groupW * 0.55);
+      const gap = showCmp ? 3 : 0;
+
+      groupBoxes.length = 0;
+
+      data.forEach((d, i) => {
+        const groupCx = padLeft + i * groupW + groupW / 2;
+        groupBoxes.push({
+          xMin: padLeft + i * groupW,
+          xMax: padLeft + (i + 1) * groupW,
+          data: d
+        });
+
+        const drawBar = (x, val, color, isHover) => {
+          if (!val) return;
+          const yTop = yScale(val);
+          const h = Math.abs(yTop - baselineY);
+          const y = val >= 0 ? yTop : baselineY;
+          ctx.fillStyle = color;
+          ctx.globalAlpha = isHover ? 1 : (hoverIdx >= 0 && i !== hoverIdx ? 0.55 : 1);
+          ctx.beginPath();
+          const r = 3;
+          if (val >= 0) {
+            ctx.moveTo(x, y + h);
+            ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y);
+            ctx.lineTo(x + barW - r, y);
+            ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
+            ctx.lineTo(x + barW, y + h);
+          } else {
+            ctx.moveTo(x, y);
+            ctx.lineTo(x, y + h - r);
+            ctx.quadraticCurveTo(x, y + h, x + r, y + h);
+            ctx.lineTo(x + barW - r, y + h);
+            ctx.quadraticCurveTo(x + barW, y + h, x + barW, y + h - r);
+            ctx.lineTo(x + barW, y);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.globalAlpha = 1;
+
+          // Value label trên/dưới bar (chỉ nếu bar đủ cao)
+          if (h >= 14 || isHover) {
+            ctx.fillStyle = text2Color;
+            ctx.font = isHover ? '700 10px DM Sans, sans-serif' : '600 9px DM Sans, sans-serif';
+            ctx.textAlign = 'center';
+            const labelY = val >= 0 ? y - 4 : y + h + 11;
+            ctx.fillText(fmtCompact(val), x + barW / 2, labelY);
+          }
+        };
+
+        const COLOR_CUR = '#1976d2';
+        const COLOR_PREV = '#a9c8e8';
+        const isHover = i === hoverIdx;
+
+        if (showCmp) {
+          const x1 = groupCx - barW - gap / 2;
+          const x2 = groupCx + gap / 2;
+          drawBar(x1, d.prev || 0, COLOR_PREV, isHover);
+          drawBar(x2, d.cur, COLOR_CUR, isHover);
         } else {
-          ctx.moveTo(x, y);
-          ctx.lineTo(x, y + h - r);
-          ctx.quadraticCurveTo(x, y + h, x + r, y + h);
-          ctx.lineTo(x + barW - r, y + h);
-          ctx.quadraticCurveTo(x + barW, y + h, x + barW, y + h - r);
-          ctx.lineTo(x + barW, y);
+          const x = groupCx - barW / 2;
+          drawBar(x, d.cur, COLOR_CUR, isHover);
         }
-        ctx.closePath();
-        ctx.fill();
-      };
 
-      // Color
-      const COLOR_CUR = '#1976d2';
-      const COLOR_PREV = '#a9c8e8';
+        // X-axis label
+        if (d.isCurrent) {
+          ctx.fillStyle = '#1976d2';
+          ctx.font = '700 11px DM Sans, sans-serif';
+        } else {
+          ctx.fillStyle = text2Color;
+          ctx.font = '11px DM Sans, sans-serif';
+        }
+        ctx.textAlign = 'center';
+        ctx.fillText(d.label, groupCx, H - padBottom + 14);
+      });
+    };
 
-      if (showCmp) {
-        // Cùng kỳ ở trái, kỳ này ở phải
-        const x1 = groupCx - barW - gap / 2;
-        const x2 = groupCx + gap / 2;
-        drawBar(x1, d.prev, COLOR_PREV);
-        drawBar(x2, d.cur, COLOR_CUR);
-      } else {
-        const x = groupCx - barW / 2;
-        drawBar(x, d.cur, COLOR_CUR);
+    draw();
+
+    // Hover tooltip handler
+    const fmtFull = (v) => v.toLocaleString('vi-VN');
+    const showFlucTip = (clientX, clientY) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = (clientX - rect.left) * (W / rect.width);
+      const idx = groupBoxes.findIndex(b => x >= b.xMin && x <= b.xMax);
+      if (idx < 0) {
+        draw();
+        if (window.QLT_Charts?._hideTooltip) window.QLT_Charts._hideTooltip();
+        return;
       }
+      const d = data[idx];
+      draw(idx);
 
-      // Highlight kỳ hiện tại
-      if (d.isCurrent) {
-        ctx.fillStyle = '#1976d2';
-        ctx.font = '700 11px DM Sans, sans-serif';
-      } else {
-        ctx.fillStyle = text2Color;
-        ctx.font = '11px DM Sans, sans-serif';
+      let tip = document.getElementById('qltChartTooltip');
+      if (!tip) {
+        tip = document.createElement('div');
+        tip.id = 'qltChartTooltip';
+        tip.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;background:rgba(15,30,22,0.95);color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.5;box-shadow:0 4px 12px rgba(0,0,0,.3);max-width:240px;opacity:0;transition:opacity .12s ease;transform:translate(-50%, -100%) translateY(-8px)';
+        document.body.appendChild(tip);
       }
-      ctx.textAlign = 'center';
-      ctx.fillText(d.label, groupCx, H - padBottom + 14);
-    });
+      const cmpHtml = f.cmp
+        ? `<div style="color:#a9c8e8;margin-top:2px">Cùng kỳ: ${fmtFull(d.prev || 0)} đ</div>`
+        : '';
+      const delta = (d.cur || 0) - (d.prev || 0);
+      const deltaHtml = (f.cmp && Math.abs(delta) > 0)
+        ? `<div style="margin-top:4px;font-size:11px;color:${delta > 0 ? '#9be8b8' : '#ffa3ae'}">${delta > 0 ? '↑' : '↓'} ${fmtFull(Math.abs(delta))} đ</div>`
+        : '';
+      tip.innerHTML =
+        `<div style="font-weight:700;margin-bottom:2px">${d.label}${d.isCurrent ? ' (hiện tại)' : ''}</div>` +
+        `<div>Kỳ này: ${fmtFull(d.cur)} đ</div>` +
+        cmpHtml +
+        deltaHtml;
+
+      const rect2 = canvas.getBoundingClientRect();
+      const groupCx = padLeft + idx * (innerW / data.length) + (innerW / data.length) / 2;
+      const xClient = rect2.left + groupCx * (rect2.width / W);
+      const yClient = rect2.top + padTop * (rect2.height / H);
+      tip.style.left = xClient + 'px';
+      tip.style.top = yClient + 'px';
+      tip.style.opacity = '1';
+    };
+
+    canvas.style.cursor = 'pointer';
+    canvas.onmousemove = (e) => showFlucTip(e.clientX, e.clientY);
+    canvas.onmouseleave = () => { draw(); if (window.QLT_Charts?._hideTooltip) window.QLT_Charts._hideTooltip(); };
+    canvas.ontouchstart = (e) => {
+      const t = e.touches[0];
+      if (t) showFlucTip(t.clientX, t.clientY);
+    };
+    canvas.ontouchmove = (e) => {
+      const t = e.touches[0];
+      if (t) { showFlucTip(t.clientX, t.clientY); e.preventDefault(); }
+    };
+    canvas.ontouchend = canvas.ontouchcancel = () => {
+      setTimeout(() => { draw(); if (window.QLT_Charts?._hideTooltip) window.QLT_Charts._hideTooltip(); }, 1500);
+    };
   },
 
   groupByPeriod(period) {
