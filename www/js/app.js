@@ -1845,6 +1845,8 @@ const App = {
     delete this.state._subsDetectionCache;
     // Invalidate cashflow projection cache
     delete this.state._cashflowCache;
+    // Invalidate net worth history cache
+    delete this.state._netWorthCache;
 
     // Re-schedule daily summary notif (debounced 1s) — đảm bảo notif 20h
     // luôn dùng data MỚI NHẤT, không phải snapshot khi app khởi động.
@@ -3609,9 +3611,100 @@ const App = {
       this._renderChartByType('income', from, to, period, '#chartTop5Inc', '#chartDonutInc', '#chartLegendInc');
     } else if (this.state.chartTab === 'overview') {
       this._renderChartOverview(from, to, period);
+      // Net worth tracking 12 tháng — chỉ render trên tab CHUNG
+      this.renderNetWorthChart();
       // Cashflow projection 30 ngày tới — chỉ render trên tab CHUNG
       this.renderCashflowCalendar();
     }
+  },
+
+  // ============ NET WORTH CHART (12 tháng) ============
+  renderNetWorthChart() {
+    const wrap = document.getElementById('chartNetWorth');
+    if (!wrap) return;
+
+    const history = this._computeNetWorthHistory(12);
+    if (history.length < 2) {
+      wrap.innerHTML = `
+        <div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">
+          📊 Cần ít nhất 2 tháng data để hiển thị net worth trend.
+        </div>
+      `;
+      return;
+    }
+
+    const first = history[0];
+    const last = history[history.length - 1];
+    const diff = last.netWorth - first.netWorth;
+    const diffPct = first.netWorth !== 0 ? Math.round((diff / Math.abs(first.netWorth)) * 100) : 0;
+    const trendColor = diff >= 0 ? 'var(--pos)' : 'var(--danger)';
+    const trendIcon = diff >= 0 ? '📈' : '📉';
+    const sign = diff >= 0 ? '+' : '';
+
+    wrap.innerHTML = `
+      <div style="padding:0 4px;margin-bottom:8px">
+        <div style="font-size:13px;font-weight:700;color:var(--text);letter-spacing:.3px;text-transform:uppercase">
+          ${trendIcon} Net Worth — Tổng tài sản theo tháng
+        </div>
+      </div>
+      <div style="background:var(--surface2);padding:12px 14px;border-radius:10px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div>
+            <div style="font-size:11px;color:var(--text3)">${this.escapeHtml(first.label)} · ${first.month.slice(0, 4)}</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text)">${fmt(first.netWorth)}đ</div>
+          </div>
+          <div style="font-size:18px;color:var(--text3)">→</div>
+          <div style="text-align:right">
+            <div style="font-size:11px;color:var(--text3)">Hôm nay</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text)">${fmt(last.netWorth)}đ</div>
+          </div>
+        </div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px">
+          Thay đổi: <strong style="color:${trendColor};font-size:14px">${sign}${fmt(diff)}đ${diffPct ? ` (${sign}${diffPct}%)` : ''}</strong>
+          <span style="color:var(--text3);font-size:11px">qua ${history.length - 1} tháng</span>
+        </div>
+        <div style="margin-top:6px;display:flex;gap:8px;font-size:10px;color:var(--text3)">
+          <span>💼 Ví: <strong style="color:var(--text2)">${fmt(last.paymentTotal)}đ</strong></span>
+          <span>·</span>
+          <span>💎 Tiết kiệm: <strong style="color:var(--text2)">${fmt(last.savingsTotal)}đ</strong></span>
+        </div>
+      </div>
+      <canvas id="chartNetWorthCanvas" style="width:100%;height:220px;display:block"></canvas>
+    `;
+
+    // Render line chart
+    const canvas = wrap.querySelector('#chartNetWorthCanvas');
+    if (canvas && window.QLT_Charts?.line) {
+      const data = history.map(h => ({
+        label: h.label,
+        value: h.netWorth,
+        sublabel: h.month,
+        breakdown: h
+      }));
+      window.QLT_Charts.line(canvas, data, {
+        color: '#2d6a4f',
+        fillColor: 'rgba(45,106,79,.15)',
+        formatValue: v => fmt(v) + 'đ',
+        onPointClick: (d) => this._showNetWorthPointDetail(d.breakdown)
+      });
+    }
+  },
+
+  _showNetWorthPointDetail(point) {
+    const monthLabel = (() => {
+      const d = new Date(point.date + 'T00:00:00');
+      return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    })();
+    QLT_UI.alert(`
+      <div style="padding:10px 0">
+        <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${this.escapeHtml(monthLabel)}</div>
+        <div style="font-size:24px;font-weight:700;color:var(--text);margin-bottom:14px">${fmt(point.netWorth)}đ</div>
+        <div style="background:var(--surface2);padding:10px 12px;border-radius:8px;font-size:13px;line-height:2">
+          <div style="display:flex;justify-content:space-between"><span>💼 Tổng ví thanh toán</span><strong>${fmt(point.paymentTotal)}đ</strong></div>
+          <div style="display:flex;justify-content:space-between"><span>💎 Tổng tiết kiệm</span><strong>${fmt(point.savingsTotal)}đ</strong></div>
+        </div>
+      </div>
+    `, { title: '📈 Chi tiết net worth', html: true });
   },
 
   // ============ CASHFLOW CALENDAR (30 ngày tới) ============
@@ -7648,6 +7741,73 @@ const App = {
     const force = !!opts.force;
     const r = await window.QLT_Update.check(force);
     return r;
+  },
+
+  // ============================================================
+  // NET WORTH HISTORY — tổng tài sản theo tháng (12 tháng gần nhất)
+  // ============================================================
+  // Tính balance của từng ví AT END OF MONTH bằng cách walk back txs:
+  // balance(M) = current_balance ± sum(tx_changes_after_M)
+  //
+  // Returns: [{ month: '2025-06', label: 'T6', date: 'YYYY-MM-DD',
+  //             netWorth, paymentTotal, savingsTotal }]
+  _computeNetWorthHistory(months = 12) {
+    const cacheKey = '_netWorthCache';
+    const cacheVer = (this.state.transactions?.length || 0) + '_' + months
+                  + '_' + (this.state.accounts?.length || 0);
+    const cached = this.state[cacheKey];
+    if (cached && cached.ver === cacheVer && (Date.now() - cached.ts) < 60 * 1000) {
+      return cached.data;
+    }
+
+    const accounts = (this.state.accounts || []).filter(a => !a.archived);
+    const txs = this.state.transactions || [];
+    const todayDate = new Date(today() + 'T00:00:00');
+    const result = [];
+
+    for (let i = months - 1; i >= 0; i--) {
+      // Last day of (current month - i months)
+      const d = new Date(todayDate.getFullYear(), todayDate.getMonth() - i + 1, 0);
+      // Nếu d > today → use today (current month chưa kết thúc)
+      const targetDate = d > todayDate ? todayDate : d;
+      const dateStr = targetDate.toISOString().slice(0, 10);
+
+      let paymentTotal = 0, savingsTotal = 0;
+      for (const acc of accounts) {
+        // Compute historical balance: current ± delta after dateStr
+        const current = acc.balance || 0;
+        let delta = 0;
+        for (const t of txs) {
+          if (!t.date || t.date <= dateStr) continue; // chỉ tính tx SAU dateStr
+          if (t.type === 'expense' && t.accountId === acc.id) {
+            delta -= t.amount; // tx này giảm balance → trước đó cao hơn
+          } else if (t.type === 'income' && t.accountId === acc.id) {
+            delta += t.amount;
+          } else if (t.type === 'transfer') {
+            if (t.accountId === acc.id) delta -= t.amount;
+            if (t.toAccountId === acc.id) delta += t.amount;
+          }
+        }
+        // balanceAt(target) = current - delta(target → now)
+        const histBal = current - delta;
+
+        if (this.isPayment(acc)) paymentTotal += histBal;
+        else if (this.isActiveSavings && this.isActiveSavings(acc)) savingsTotal += histBal;
+        else if ((acc.accountType || 'payment') === 'savings') savingsTotal += histBal;
+      }
+
+      result.push({
+        month: targetDate.toISOString().slice(0, 7),
+        label: `T${targetDate.getMonth() + 1}`,
+        date: dateStr,
+        netWorth: paymentTotal + savingsTotal,
+        paymentTotal,
+        savingsTotal
+      });
+    }
+
+    this.state[cacheKey] = { ts: Date.now(), ver: cacheVer, data: result };
+    return result;
   },
 
   // ============================================================

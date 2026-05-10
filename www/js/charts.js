@@ -225,5 +225,155 @@
     }
   };
 
+  // Line chart (single line with optional area fill) — dùng cho Net Worth, trends.
+  // data: [{ label, value, sublabel? }]
+  // opts: { color, fillColor, formatValue (fn), onPointClick (fn) }
+  Charts.line = function (canvas, data, opts = {}) {
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth;
+    const H = canvas.clientHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const cs = getComputedStyle(document.documentElement);
+    const textColor = (cs.getPropertyValue('--text') || '#1a1612').trim();
+    const text2Color = (cs.getPropertyValue('--text2') || '#6b6258').trim();
+    const text3Color = (cs.getPropertyValue('--text3') || '#a89e95').trim();
+    const borderColor = (cs.getPropertyValue('--border') || '#e4ddd6').trim();
+    const lineColor = opts.color || '#2d6a4f';
+    const fillColor = opts.fillColor || lineColor + '22';
+    const fmtVal = opts.formatValue || (v => v.toLocaleString('vi-VN'));
+
+    if (!data.length) {
+      ctx.fillStyle = text3Color;
+      ctx.font = '13px DM Sans, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Chưa có dữ liệu', W / 2, H / 2);
+      return;
+    }
+
+    const padTop = 28, padBottom = 32, padLeft = 50, padRight = 16;
+    const innerW = W - padLeft - padRight;
+    const innerH = H - padTop - padBottom;
+
+    const values = data.map(d => d.value);
+    const maxV = Math.max(...values, 0);
+    const minV = Math.min(...values, 0);
+    const range = Math.max(1, maxV - minV);
+    const padRange = range * 0.1; // 10% padding top/bottom
+    const yMax = maxV + padRange;
+    const yMin = minV - padRange;
+    const yRange = Math.max(1, yMax - yMin);
+
+    const stepX = data.length > 1 ? innerW / (data.length - 1) : 0;
+    const yScale = (v) => padTop + (1 - (v - yMin) / yRange) * innerH;
+
+    // Y-axis grid lines + labels (5 levels)
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 0.5;
+    ctx.fillStyle = text3Color;
+    ctx.font = '10px DM Sans, sans-serif';
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 4; i++) {
+      const v = yMin + (yRange * i / 4);
+      const y = yScale(v);
+      ctx.beginPath();
+      ctx.moveTo(padLeft, y);
+      ctx.lineTo(padLeft + innerW, y);
+      ctx.stroke();
+      // Label compact: 10M, 1M, 500k, etc
+      const absV = Math.abs(v);
+      let label;
+      if (absV >= 1000000) label = (v / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+      else if (absV >= 1000) label = Math.round(v / 1000) + 'k';
+      else label = Math.round(v) + '';
+      ctx.fillText(label, padLeft - 4, y + 3);
+    }
+
+    // Zero line (nếu range cross 0)
+    if (yMin < 0 && yMax > 0) {
+      ctx.strokeStyle = text3Color;
+      ctx.lineWidth = 1;
+      const yZero = yScale(0);
+      ctx.beginPath();
+      ctx.setLineDash([3, 3]);
+      ctx.moveTo(padLeft, yZero);
+      ctx.lineTo(padLeft + innerW, yZero);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // X-axis labels (skip if too many → show every Nth)
+    ctx.textAlign = 'center';
+    ctx.fillStyle = text3Color;
+    const labelStride = data.length > 8 ? Math.ceil(data.length / 8) : 1;
+    data.forEach((d, i) => {
+      if (i % labelStride !== 0 && i !== data.length - 1) return;
+      const x = padLeft + i * stepX;
+      ctx.fillText(d.label, x, padTop + innerH + 16);
+    });
+
+    // Area fill under line
+    ctx.beginPath();
+    ctx.fillStyle = fillColor;
+    ctx.moveTo(padLeft, padTop + innerH);
+    data.forEach((d, i) => {
+      const x = padLeft + i * stepX;
+      const y = yScale(d.value);
+      if (i === 0) ctx.lineTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.lineTo(padLeft + (data.length - 1) * stepX, padTop + innerH);
+    ctx.closePath();
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    data.forEach((d, i) => {
+      const x = padLeft + i * stepX;
+      const y = yScale(d.value);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // Points
+    data.forEach((d, i) => {
+      const x = padLeft + i * stepX;
+      const y = yScale(d.value);
+      ctx.beginPath();
+      ctx.fillStyle = '#ffffff';
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.strokeStyle = lineColor;
+      ctx.lineWidth = 2;
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+
+    // Click detection
+    if (typeof opts.onPointClick === 'function') {
+      canvas.style.cursor = 'pointer';
+      canvas.onclick = (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const px = e.clientX - rect.left;
+        const idx = Math.round((px - padLeft) / Math.max(1, stepX));
+        if (idx >= 0 && idx < data.length) {
+          opts.onPointClick(data[idx], idx);
+        }
+      };
+    } else {
+      canvas.style.cursor = '';
+      canvas.onclick = null;
+    }
+  };
+
   window.QLT_Charts = Charts;
 })();
