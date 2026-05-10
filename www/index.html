@@ -3331,8 +3331,11 @@ html[data-theme="dark"] .tx-loc-badge{background:#1a3a5c;color:#7eb6e8}
         <input id="txAmount" class="fi fi-amount qlt-amount" type="text" inputmode="none" readonly placeholder="Chạm để mở máy tính →">
       </div>
       <div class="fg">
-        <label class="fl">Ngày</label>
-        <input id="txDate" class="fi" type="date">
+        <label class="fl">Ngày & giờ</label>
+        <div style="display:flex;gap:8px">
+          <input id="txDate" class="fi" type="date" style="flex:2">
+          <input id="txTime" class="fi" type="time" style="flex:1" title="Giờ giao dịch (tuỳ chọn)">
+        </div>
       </div>
       <div class="fg">
         <label class="fl" id="txAccountLabel">Tài khoản</label>

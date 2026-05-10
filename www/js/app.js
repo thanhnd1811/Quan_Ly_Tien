@@ -2883,7 +2883,7 @@ const App = {
           </div>
           <div class="tx-info">
             <div class="tx-cat">Chuyển tiền ${photoBadge}</div>
-            <div class="tx-meta">${this.formatDate(t.date)} · ${this.escapeHtml(acc.name || '')} → ${this.escapeHtml(toAcc.name || '')} ${t.note ? '· ' + this.escapeHtml(t.note) : ''}</div>
+            <div class="tx-meta">${this.formatDateTime(t)} · ${this.escapeHtml(acc.name || '')} → ${this.escapeHtml(toAcc.name || '')} ${t.note ? '· ' + this.escapeHtml(t.note) : ''}</div>
           </div>
           <div class="tx-amount" style="color:#4f86c6">${fmt(t.amount)}</div>
         </div>
@@ -2906,7 +2906,7 @@ const App = {
         </div>
         <div class="tx-info">
           <div class="tx-cat">${cat.name || 'Không rõ'} ${photoBadge}${tagsHtml}</div>
-          <div class="tx-meta">${this.formatDate(t.date)} · ${acc.name || ''} ${t.note ? '· ' + this.escapeHtml(t.note) : ''}${locHtml}</div>
+          <div class="tx-meta">${this.formatDateTime(t)} · ${acc.name || ''} ${t.note ? '· ' + this.escapeHtml(t.note) : ''}${locHtml}</div>
         </div>
         <div class="tx-amount ${colorClass}">${sign}${fmt(t.amount)}</div>
       </div>
@@ -2926,6 +2926,17 @@ const App = {
     if (!d) return '';
     const [y, m, day] = d.split('-');
     return `${day}/${m}/${y}`;
+  },
+
+  // Format date + time (nếu có) cho hiển thị trong tx item.
+  // VD: "10/05/2026" hoặc "10/05/2026 · 14:30"
+  formatDateTime(tx) {
+    if (!tx?.date) return '';
+    const dateStr = this.formatDate(tx.date);
+    if (tx.time && /^\d{2}:\d{2}$/.test(tx.time)) {
+      return `${dateStr} · ${tx.time}`;
+    }
+    return dateStr;
   },
 
   escapeHtml(s) {
@@ -3759,12 +3770,15 @@ const App = {
         const acc = (this.state.accounts || []).find(a => a.id === t.accountId);
         const iconHtml = cat?.icon ? window.svgIcon(cat.icon) : window.svgIcon('other');
         const catColor = cat?.color || '#888';
+        const timeHtml = t.time && /^\d{2}:\d{2}$/.test(t.time)
+          ? `<span style="margin-left:6px;color:var(--text3);font-weight:500">⏰ ${t.time}</span>`
+          : '';
         return `
           <div class="heatmap-tx-item" data-tx-id="${t.id}"
                style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s">
             <div style="background:${catColor}1a;color:${catColor};width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px">${iconHtml}</div>
             <div style="flex:1;min-width:0">
-              <div style="font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(cat?.name || 'Không có danh mục')}</div>
+              <div style="font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(cat?.name || 'Không có danh mục')}${timeHtml}</div>
               ${t.note ? `<div style="font-size:11px;color:var(--text2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(t.note)}</div>` : ''}
               <div style="font-size:10px;color:var(--text3);margin-top:2px">${this.escapeHtml(acc?.name || '?')}</div>
             </div>
@@ -7026,10 +7040,12 @@ const App = {
     }
 
     // Build tx + save (dùng applyBalanceDelta như các flow khác)
+    const _now = new Date();
     const tx = {
       type: pending.type,
       amount: pending.amount,
       date: pending.date,
+      time: String(_now.getHours()).padStart(2, '0') + ':' + String(_now.getMinutes()).padStart(2, '0'),
       accountId: pending.accountId,
       toAccountId: pending.toAccountId || null,
       categoryId: pending.categoryId || null,
@@ -7280,11 +7296,13 @@ const App = {
       return { handled: true };
     }
 
-    // Build tx + save (giống _aiChatSavePendingTx)
+    // Build tx + save (giống _aiChatSavePendingTx) — kèm time hiện tại
+    const _now = new Date();
     const tx = {
       type: parsed.type,
       amount: parsed.amount,
-      date: new Date().toISOString().slice(0, 10),
+      date: _now.toISOString().slice(0, 10),
+      time: String(_now.getHours()).padStart(2, '0') + ':' + String(_now.getMinutes()).padStart(2, '0'),
       accountId,
       toAccountId: parsed.toAccountId || null,
       categoryId: parsed.categoryId || null,
@@ -8165,10 +8183,17 @@ const App = {
       if (r.categoryId) categoryId = r.categoryId;
     }
 
+    // Extract date + time từ notif/SMS timestamp (chính xác lúc bank gửi notif)
+    const notifDate = new Date(parsedSms.date);
+    const dateStr = notifDate.toISOString().slice(0, 10);
+    const timeStr = String(notifDate.getHours()).padStart(2, '0') + ':' +
+                    String(notifDate.getMinutes()).padStart(2, '0');
+
     const tx = {
       type: parsedSms.type,
       amount: parsedSms.amount,
-      date: new Date(parsedSms.date).toISOString().slice(0, 10),
+      date: dateStr,
+      time: timeStr, // Giờ chính xác từ NH gửi notif
       accountId: acc.id,
       categoryId,
       note: (parsedSms.note || `SMS ${window.QLT_SmsBankParser.bankName(parsedSms.bank)}`).slice(0, 200),
@@ -8988,6 +9013,18 @@ const App = {
     });
     $('#txAmount').value = fmtAmount(tx.amount);
     $('#txDate').value = tx.date;
+    // Set giờ — nếu tx mới + chưa có giờ → mặc định = giờ hiện tại
+    const timeEl = $('#txTime');
+    if (timeEl) {
+      if (tx.time) {
+        timeEl.value = tx.time;
+      } else if (isNew) {
+        const now = new Date();
+        timeEl.value = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      } else {
+        timeEl.value = '';
+      }
+    }
     $('#txNote').value = tx.note || '';
     $('#txDelete').style.display = isNew ? 'none' : 'block';
     $('#txTitle').textContent = isNew ? 'Thêm giao dịch' : 'Sửa giao dịch';
@@ -9569,6 +9606,13 @@ const App = {
     t.type = $('#txForm').dataset.type;
     t.amount = readAmount($('#txAmount'));
     t.date = $('#txDate').value || today();
+    // Lưu giờ nếu user nhập (HH:MM). Cho phép xoá để revert về "no time".
+    const timeVal = $('#txTime')?.value || '';
+    if (timeVal && /^\d{2}:\d{2}$/.test(timeVal)) {
+      t.time = timeVal;
+    } else {
+      delete t.time;
+    }
     t.note = $('#txNote').value || '';
     t.bookId = t.bookId || this.state.currentBookId;
 
