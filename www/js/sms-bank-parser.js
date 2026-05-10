@@ -12,25 +12,38 @@
   'use strict';
 
   // Detect bank từ sender address (VD: "Vietcombank", "TCB", "BIDV", "+84902xxx")
+  // Hoặc từ package name của notif (vd "com.VCB" → 'vcb', "com.mbmobile" → 'mb')
   // Trả về bank key hoặc null nếu không phải bank SMS.
   function detectBank(address) {
     if (!address) return null;
     const a = String(address).toUpperCase();
-    if (/VCB|VIETCOMBANK/.test(a)) return 'vcb';
+    // Match từ tên/package — broad regex catch nhiều variant
+    if (/VCB|VIETCOMBANK|DIGIBANK/.test(a)) return 'vcb';
     if (/TCB|TECHCOMBANK/.test(a)) return 'tcb';
-    if (/^MB|MBBANK|MB BANK/.test(a)) return 'mb';
-    if (/\bACB\b/.test(a)) return 'acb';
-    if (/BIDV/.test(a)) return 'bidv';
-    if (/VPB|VPBANK/.test(a)) return 'vpb';
-    if (/AGRIBANK|VBA/.test(a)) return 'agri';
-    if (/TPB|TPBANK/.test(a)) return 'tpb';
+    if (/MBBANK|MB.BANK|MOBILEBANKING|MBMOBILE|^MB(?!SB|FC)/.test(a)) return 'mb';
+    if (/\bACB\b|ACBONE|ACB.BANK|ACB.MOBILE/.test(a)) return 'acb';
+    if (/BIDV|SMARTBANKING/.test(a)) return 'bidv';
+    if (/VPB|VPBANK|VPB.NEO/.test(a)) return 'vpb';
+    if (/AGRIBANK|VBA|AGRIBANKPLUS/.test(a)) return 'agri';
+    if (/TPB|TPBANK|TPBMB/.test(a)) return 'tpb';
     if (/SACOMBANK|STB/.test(a)) return 'sacom';
-    if (/VIETINBANK|VTB|CTG/.test(a)) return 'vtb';
-    if (/SHB/.test(a)) return 'shb';
+    if (/VIETINBANK|VTB|CTG|IPAY|EFAST/.test(a)) return 'vtb';
+    if (/\bSHB\b/.test(a)) return 'shb';
     if (/HDBANK|HDB/.test(a)) return 'hdb';
-    if (/VIB/.test(a)) return 'vib';
-    if (/MSB/.test(a)) return 'msb';
-    if (/OCB/.test(a)) return 'ocb';
+    if (/\bVIB\b/.test(a)) return 'vib';
+    if (/\bMSB\b/.test(a)) return 'msb';
+    if (/\bOCB\b/.test(a)) return 'ocb';
+    if (/EXIMBANK|EIB/.test(a)) return 'eib';
+    if (/SEABANK|SSB/.test(a)) return 'seab';
+    if (/PVCOMBANK/.test(a)) return 'pvcom';
+    if (/NCB|NCBBANK/.test(a)) return 'ncb';
+    if (/\bABBANK\b|ABB/.test(a)) return 'abb';
+    if (/SCB(?!I)/.test(a)) return 'scb';
+    if (/LIENVIETPOSTBANK|LPB/.test(a)) return 'lpb';
+    if (/BACABANK|BAB/.test(a)) return 'bab';
+    if (/VIETCAPITAL|BVB/.test(a)) return 'bvb';
+    // Heuristic cuối: nếu address hoặc body có hint là bank → 'unknown'
+    if (/BANK|NGAN HANG|NGÂN HÀNG/.test(a)) return 'unknown';
     return null;
   }
 
@@ -211,7 +224,11 @@
     vcb: 'Vietcombank', tcb: 'Techcombank', mb: 'MBBank', acb: 'ACB',
     bidv: 'BIDV', vpb: 'VPBank', agri: 'Agribank', tpb: 'TPBank',
     sacom: 'Sacombank', vtb: 'VietinBank', shb: 'SHB', hdb: 'HDBank',
-    vib: 'VIB', msb: 'MSB', ocb: 'OCB'
+    vib: 'VIB', msb: 'MSB', ocb: 'OCB',
+    eib: 'Eximbank', seab: 'SeABank', pvcom: 'PVcomBank',
+    ncb: 'NCB', abb: 'ABBank', scb: 'SCB', lpb: 'LienVietPostBank',
+    bab: 'BacABank', bvb: 'BanVietBank',
+    unknown: 'Ngân hàng (chưa rõ)'
   };
 
   window.QLT_SmsBankParser = {

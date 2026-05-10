@@ -87,7 +87,14 @@ public class NotificationReaderService extends NotificationListenerService {
         try {
             String pkg = sbn.getPackageName();
             if (pkg == null) return;
-            if (!BANK_PACKAGES.contains(pkg)) return; // chỉ bank apps
+
+            // Skip notif của chính app (tránh loop với summary notification)
+            if (pkg.equals(getPackageName())) return;
+
+            // Skip system apps thông dụng (Android, Google services, launcher...)
+            if (pkg.startsWith("com.android.") || pkg.startsWith("com.miui.")
+                || pkg.startsWith("com.google.android.") || pkg.startsWith("com.xiaomi.")
+                || pkg.equals("android")) return;
 
             Notification notif = sbn.getNotification();
             if (notif == null) return;
@@ -108,6 +115,15 @@ public class NotificationReaderService extends NotificationListenerService {
 
             // Skip nếu body quá ngắn — không phải notif GD
             if (body.length() < 20) return;
+
+            // Detect bank notif:
+            //   1. Package trong whitelist → known bank (chắc chắn)
+            //   2. Hoặc body có pattern "VND" + amount → có khả năng bank notif
+            //      (catch các bank chưa có trong whitelist, hoặc package thay đổi)
+            boolean isKnownBankPkg = BANK_PACKAGES.contains(pkg);
+            boolean hasBankFormat = body.matches("(?s).*\\b\\d{1,3}([,.]\\d{3})+\\s*(VND|VNĐ|đ)\\b.*")
+                                 || body.matches("(?s).*\\b\\d+[,.]?\\d{0,3}\\s*VND\\b.*");
+            if (!isKnownBankPkg && !hasBankFormat) return; // skip non-bank notif
 
             saveNotification(pkg, title, body, sbn.getPostTime(), sbn.getKey());
         } catch (Exception e) {

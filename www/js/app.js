@@ -7946,6 +7946,83 @@ const App = {
         }
       };
     }
+
+    // Debug: xem 20 notif gần nhất bắt được (verify đúng NH)
+    const debugBtn = $('#setNotifReaderDebug');
+    if (debugBtn) {
+      debugBtn.style.display = enabled ? 'block' : 'none';
+      debugBtn.onclick = async () => this._showNotifDebug();
+    }
+  },
+
+  // Debug view: list 20 notif gần nhất đã capture (cả processed + unprocessed)
+  // → User verify package nào của NH đang được app bắt
+  async _showNotifDebug() {
+    const NR = window.Capacitor?.Plugins?.NotificationReader;
+    if (!NR) return;
+    try {
+      const r = await NR.getCachedNotifications({ onlyUnprocessed: false });
+      const notifs = (r.notifications || []).slice(-20).reverse(); // 20 mới nhất
+      const Parser = window.QLT_SmsBankParser;
+
+      if (notifs.length === 0) {
+        QLT_UI.alert(
+          'Chưa có notif nào được app bắt.\n\n' +
+          'Có thể do:\n' +
+          '• MIUI giết service (cần battery whitelist)\n' +
+          '• Notification access chưa cấp đúng\n' +
+          '• Bank chưa gửi notif từ lúc bật\n\n' +
+          'Mở app NH → tạo 1 GD test → đợi notif → quay lại đây.',
+          { title: '🔬 Debug — không có notif' }
+        );
+        return;
+      }
+
+      const items = notifs.map(n => {
+        const date = new Date(n.postTime).toLocaleString('vi-VN', {
+          day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+        });
+        // Test parser
+        const address = `${n.pkg} ${n.title || ''}`;
+        let parsed = null;
+        try {
+          parsed = Parser?.parseSms({
+            address, body: n.body, date: n.postTime, id: n.sbnKey
+          });
+        } catch (_) {}
+
+        const bankName = parsed ? Parser.bankName(parsed.bank) : '❌ Không phải NH';
+        const parsedInfo = parsed
+          ? `<div style="font-size:11px;color:var(--pos);margin-top:4px">
+               ✅ Parse OK: ${parsed.type === 'income' ? '+' : '-'}${fmt(parsed.amount)}đ${parsed.balance ? ' · SDC ' + fmt(parsed.balance) + 'đ' : ''}
+             </div>`
+          : `<div style="font-size:11px;color:var(--text3);margin-top:4px">⚠️ Không parse được (regex chưa match format này)</div>`;
+
+        return `
+          <div style="padding:12px 14px;border-bottom:1px solid var(--border);background:${parsed ? 'rgba(34,197,94,.04)' : 'rgba(245,158,11,.04)'}">
+            <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:4px">
+              <div style="font-size:12px;font-weight:600;color:var(--text)">${this.escapeHtml(bankName)}</div>
+              <div style="font-size:10px;color:var(--text3)">${date}</div>
+            </div>
+            <div style="font-size:10px;color:var(--text3);font-family:monospace;margin-bottom:4px">📦 ${this.escapeHtml(n.pkg)}${n.processed ? ' · ✓ đã xử lý' : ''}</div>
+            <div style="font-size:11px;color:var(--text2);line-height:1.4;background:var(--surface2);padding:6px 8px;border-radius:4px;font-family:monospace;white-space:pre-wrap">${this.escapeHtml((n.body || '').slice(0, 200))}</div>
+            ${parsedInfo}
+          </div>
+        `;
+      }).join('');
+
+      QLT_UI.alert(`
+        <div style="margin:0 -16px">
+          <div style="padding:10px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);line-height:1.5">
+            App đã bắt được <strong>${notifs.length}</strong> notif. Mỗi item show:
+            🏦 NH detect được, 📦 package name, body, ✅/⚠️ kết quả parse.
+          </div>
+          <div style="max-height:65vh;overflow-y:auto">${items}</div>
+        </div>
+      `, { title: '🔬 Debug — Notif gần nhất', html: true });
+    } catch (e) {
+      QLT_UI.alert('Lỗi load: ' + (e.message || e), { title: 'Lỗi' });
+    }
   },
 
   // ============================================================
@@ -8007,7 +8084,11 @@ const App = {
     const autoSaveEnabled = localStorage.getItem('qlt_notif_autosave') !== 'off';
 
     for (const notif of notifs) {
-      const address = PKG_TO_ADDRESS[notif.pkg] || notif.title || notif.pkg;
+      // Address để parser detect bank: thử PKG_TO_ADDRESS map trước (known),
+      // fallback combine pkg + title (catch unknown packages).
+      // VD: pkg "com.unknownbank.app" + title "Bank XYZ" → detectBank thấy "BANK"
+      const address = PKG_TO_ADDRESS[notif.pkg]
+        || `${notif.pkg} ${notif.title}`;
       const parsed = Parser.parseSms({
         address,
         body: notif.body,
