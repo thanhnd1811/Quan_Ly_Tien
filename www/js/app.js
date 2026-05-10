@@ -2995,8 +2995,9 @@ const App = {
         accChange[t.toAccountId] = (accChange[t.toAccountId] || 0) + t.amount;
       }
     }
-    $('#homeIncome').textContent = fmtBal(inc);
-    $('#homeExpense').textContent = fmtBal(exp);
+    // Animate income/expense numbers (Polish D — consistency với homeBalance)
+    animateNumber($('#homeIncome'), inc, { suffix: '' });
+    animateNumber($('#homeExpense'), exp, { suffix: '' });
     // Streak badge (nếu ≥3 ngày liên tiếp)
     const streak = this.computeStreak();
     const streakHtml = streak >= 3 ? `<span class="streak-badge">🔥 ${streak} ngày liên tiếp</span>` : '';
