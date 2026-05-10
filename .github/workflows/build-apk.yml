@@ -119,6 +119,65 @@ jobs:
           cp android-notif/java/NotificationReaderService.java android/app/src/main/java/com/thanh/quanlytien/
           cp android-notif/java/NotificationReaderPlugin.java android/app/src/main/java/com/thanh/quanlytien/
 
+          # ===== Patch MainActivity.java để register custom plugins =====
+          # Capacitor 6 auto-discovery CHỈ work với plugin từ npm package + cordova-plugin.
+          # Custom plugin trong project (ApkInstaller, SmsReader, NotificationReader) phải
+          # register thủ công qua registerPlugin(class) trong MainActivity.onCreate().
+          # Không register → window.Capacitor.Plugins.X = undefined trong JS.
+          MAIN_ACTIVITY=android/app/src/main/java/com/thanh/quanlytien/MainActivity.java
+          if [ -f "$MAIN_ACTIVITY" ]; then
+            python3 - <<'PYMA'
+          import re, sys
+          path = 'android/app/src/main/java/com/thanh/quanlytien/MainActivity.java'
+          with open(path, 'r', encoding='utf-8') as f:
+              s = f.read()
+          original = s
+
+          # Skip nếu đã register rồi
+          if 'registerPlugin(ApkInstallerPlugin.class)' in s:
+              print('OK: MainActivity đã register plugins (skip)')
+              sys.exit(0)
+
+          # Capacitor mặc định:
+          # public class MainActivity extends BridgeActivity {
+          # }
+          # → cần thêm onCreate + register 3 plugins.
+          new_class = '''public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(android.os.Bundle savedInstanceState) {
+                  // Register custom Capacitor plugins (auto-discovery KHÔNG work với
+                  // plugin trong project, phải register thủ công).
+                  registerPlugin(ApkInstallerPlugin.class);
+                  registerPlugin(SmsReaderPlugin.class);
+                  registerPlugin(NotificationReaderPlugin.class);
+                  super.onCreate(savedInstanceState);
+              }
+          }'''
+
+          # Match class body (đa số case Capacitor sinh empty body)
+          new_s, n = re.subn(
+              r'public\s+class\s+MainActivity\s+extends\s+BridgeActivity\s*\{\s*\}',
+              new_class,
+              s,
+              count=1
+          )
+          if n > 0:
+              s = new_s
+              with open(path, 'w', encoding='utf-8') as f:
+                  f.write(s)
+              print('OK: MainActivity patched với registerPlugin (3 custom plugins)')
+              print('--- MainActivity.java mới:')
+              print(s)
+          else:
+              print('::error::Không match được class body MainActivity — file có thể đã có content khác')
+              print('--- Current content:')
+              print(s)
+              sys.exit(1)
+          PYMA
+          else
+            echo "::warning::MainActivity.java không tồn tại — skip patch"
+          fi
+
           echo "--- Widget + Tile + Installer + SmsReader + NotifReader files đã được copy:"
           ls -la android/app/src/main/res/xml/ai_chat_widget_info.xml
           ls -la android/app/src/main/res/layout/ai_chat_widget.xml
