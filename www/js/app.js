@@ -8754,6 +8754,73 @@ const App = {
 
     document.getElementById('favConfirmNote').value = fav.note || '';
 
+    // ===== Location section — tự lấy GPS, user có thể sửa/bỏ trước khi save =====
+    // Reuse state.editingTx làm scratch object cho location picker (giống tx form)
+    this.state.editingTx = { type: fav.type, location: null };
+    const favLocSection = document.getElementById('favLocationSection');
+    const showLoc = window.QLT_Geo && QLT_Geo.isEnabled() && fav.type !== 'transfer';
+    if (favLocSection) favLocSection.style.display = showLoc ? 'block' : 'none';
+
+    // Đăng ký flag + updater để location picker biết caller là fav confirm (refresh đúng UI)
+    this._favLocActive = showLoc;
+    this._updateFavLocUI = null;
+
+    if (showLoc) {
+      const updateFavLocUI = () => {
+        const loc = this.state.editingTx?.location;
+        const icon = document.getElementById('favLocIcon');
+        const text = document.getElementById('favLocText');
+        if (!icon || !text) return;
+        if (loc?.address) {
+          icon.textContent = '📍';
+          text.textContent = loc.address;
+          text.style.color = 'var(--text)';
+        } else if (loc?.lat) {
+          icon.textContent = '📍';
+          text.textContent = `${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)} (đang tra địa chỉ...)`;
+          text.style.color = 'var(--text2)';
+        } else {
+          icon.textContent = '⏳';
+          text.textContent = 'Đang lấy vị trí GPS...';
+          text.style.color = 'var(--text2)';
+        }
+      };
+      this._updateFavLocUI = updateFavLocUI;
+      updateFavLocUI();
+
+      // Auto-capture GPS — gọi sau khi modal hiển thị
+      QLT_Geo.getCurrentPosition().then(async (pos) => {
+        if (!this.state.editingTx) return; // user đã đóng modal
+        this.state.editingTx.location = { lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy };
+        updateFavLocUI();
+        const geo = await QLT_Geo.reverseGeocode(pos.lat, pos.lng);
+        if (geo && this.state.editingTx?.location) {
+          this.state.editingTx.location.address = geo.address;
+          this.state.editingTx.location.fullAddress = geo.full;
+          updateFavLocUI();
+        }
+      }).catch((e) => {
+        const icon = document.getElementById('favLocIcon');
+        const text = document.getElementById('favLocText');
+        if (icon) icon.textContent = '⚠️';
+        if (text) text.textContent = 'Không lấy được vị trí: ' + (e?.message || 'GPS lỗi');
+      });
+
+      const editBtn = document.getElementById('favLocEdit');
+      const clearBtn = document.getElementById('favLocClear');
+      if (editBtn) editBtn.onclick = () => this.openLocationPicker();
+      if (clearBtn) clearBtn.onclick = () => {
+        if (this.state.editingTx) this.state.editingTx.location = null;
+        const icon = document.getElementById('favLocIcon');
+        const text = document.getElementById('favLocText');
+        if (icon) icon.textContent = '✕';
+        if (text) {
+          text.textContent = 'Đã bỏ vị trí cho GD này';
+          text.style.color = 'var(--text3)';
+        }
+      };
+    }
+
     // Bind save (mỗi lần re-bind để tránh stale closure)
     const saveBtn = document.getElementById('favConfirmSave');
     saveBtn.onclick = async () => {
@@ -8762,6 +8829,8 @@ const App = {
       const date = document.getElementById('favConfirmDate').value || today();
       const timeVal = document.getElementById('favConfirmTime').value;
       const note = document.getElementById('favConfirmNote').value.trim();
+      // Lấy location user đã chọn / GPS auto (có thể null nếu user clear)
+      const userLocation = this.state.editingTx?.location || null;
 
       if (!amount || amount <= 0) {
         QLT_UI.toast('Số tiền không hợp lệ', { type: 'error' });
@@ -8777,8 +8846,12 @@ const App = {
       saveBtn.textContent = '⏳ Đang lưu...';
 
       try {
-        await this._saveFavoriteTx(fav, { amount, accountId, date, time: timeVal, note });
+        await this._saveFavoriteTx(fav, { amount, accountId, date, time: timeVal, note, location: userLocation });
         modal.classList.remove('open');
+        // Cleanup scratch editingTx + cờ favLoc để không leak sang flow khác (vd tx form)
+        this.state.editingTx = null;
+        this._favLocActive = false;
+        this._updateFavLocUI = null;
       } catch (e) {
         QLT_UI.toast('Lỗi lưu: ' + (e.message || e), { type: 'error' });
       } finally {
@@ -8814,7 +8887,13 @@ const App = {
       _favoriteId: fav.id
     };
 
-    if (window.QLT_Geo && QLT_Geo.isEnabled() && fav.type !== 'transfer') {
+    // Location: ưu tiên overrides.location (user đã chọn/edit trong confirm modal).
+    // - location !== undefined → user đã quyết (kể cả null = chủ động bỏ vị trí cho GD này)
+    // - location === undefined → fallback auto-capture (compat _quickSaveFavorite)
+    if (overrides.location !== undefined) {
+      if (overrides.location) tx.location = overrides.location;
+      // null → không gắn location (user đã clear)
+    } else if (window.QLT_Geo && QLT_Geo.isEnabled() && fav.type !== 'transfer') {
       try {
         const pos = await QLT_Geo.getCurrentPosition();
         tx.location = { lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy };
@@ -11707,6 +11786,9 @@ const App = {
   },
 
   _setupTxLocation(isNew) {
+    // Reset cờ favLoc — flow này là tx form đầy đủ, không phải fav confirm
+    this._favLocActive = false;
+    this._updateFavLocUI = null;
     const sec = $('#txLocationSection');
     if (!sec) return;
     const enabled = QLT_Geo.isEnabled();
@@ -11861,8 +11943,13 @@ const App = {
         fullAddress: p.fullAddress || ''
       };
       $('#locPickerModal').classList.remove('open');
-      // Re-render display section
-      this._setupTxLocation(false);
+      // Re-render display section của caller — fav confirm có updater riêng,
+      // còn tx form dùng _setupTxLocation
+      if (this._favLocActive && typeof this._updateFavLocUI === 'function') {
+        this._updateFavLocUI();
+      } else {
+        this._setupTxLocation(false);
+      }
     };
   },
 

@@ -1798,6 +1798,17 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
         <label class="fl">Ghi chú</label>
         <input id="favConfirmNote" class="fi" type="text" placeholder="Tuỳ chọn">
       </div>
+      <div class="fg" id="favLocationSection" style="display:none">
+        <label class="fl">📍 Vị trí <span style="color:var(--text3);font-weight:400">(tự lấy GPS — bạn có thể sửa)</span></label>
+        <div id="favLocationDisplay" style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--surface2);border-radius:8px;font-size:13px;line-height:1.5">
+          <span id="favLocIcon">⏳</span>
+          <span id="favLocText" style="flex:1;color:var(--text2)">Đang lấy vị trí...</span>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <button type="button" id="favLocEdit" class="btn btn-secondary" style="flex:1;font-size:12px;padding:8px">✏️ Sửa vị trí</button>
+          <button type="button" id="favLocClear" class="btn btn-secondary" style="flex:1;font-size:12px;padding:8px;color:var(--danger);border-color:var(--danger)">✕ Bỏ vị trí</button>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" data-close>Huỷ</button>
