@@ -13856,8 +13856,24 @@ const App = {
       if (found) activeGroup = found.key;
     }
 
+    // Logo có sẵn (SVG màu, nền trong suốt) — đọc từ QLT_ICON_LIB lọc theo group đặc biệt
+    const SVG_LOGO_ITEMS = (window.QLT_ICON_LIB || []).filter(x => x.group === 'Ngân hàng');
+    const svgLogoSectionHtml = SVG_LOGO_ITEMS.length ? `
+      <div class="icon-svg-section">
+        <div class="icon-svg-label">Logo ngân hàng</div>
+        <div class="icon-svg-grid">
+          ${SVG_LOGO_ITEMS.map(it => `
+            <div class="icon-svg-pick ${it.name === opts.currentIcon ? 'on' : ''}" data-svg="${it.name}" title="${this.escapeHtml(it.label)}">
+              ${window.svgIcon(it.name)}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : '';
+
     container.innerHTML = `
       <div class="icon-emoji-section">
+        ${svgLogoSectionHtml}
         <div class="emoji-tabs"></div>
         <div class="icon-emoji-grid"></div>
         <div class="icon-emoji-input-row">
@@ -13916,6 +13932,22 @@ const App = {
         }
       };
     }
+
+    // SVG logo (bank) — click → set icon name trực tiếp (không có 'emoji:' prefix)
+    container.querySelectorAll('.icon-svg-pick').forEach(el => {
+      el.onclick = () => {
+        const code = el.dataset.svg;
+        opts.currentIcon = code;
+        // Highlight tile được chọn, bỏ chọn các tile khác
+        container.querySelectorAll('.icon-svg-pick').forEach(x =>
+          x.classList.toggle('on', x.dataset.svg === code)
+        );
+        // Bỏ chọn emoji + clear input "Tự gõ"
+        emojiGrid.querySelectorAll('.icon-emoji-pick').forEach(x => x.classList.remove('on'));
+        if (emojiInput) emojiInput.value = '';
+        if (opts.onPick) opts.onPick(opts.currentIcon);
+      };
+    });
 
     return { setColor: () => {} };
   },

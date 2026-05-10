@@ -108,6 +108,12 @@ window.QLT_ICONS = {
   coin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 9h4a2 2 0 010 4H9zM9 13h5a2 2 0 010 4H9zM11 6v3M13 17v3"/></svg>',
   coins: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1110.34 18M7 6h1v4M16.71 13.88l.7.71-2.82 2.82"/></svg>',
 
+  // ============ LOGO NGÂN HÀNG (transparent — không có nền) ============
+  // Vietcombank — chữ "V" xanh lá đặc trưng (#007E40)
+  'bank-vcb': '<svg viewBox="0 0 24 24"><path fill="#007E40" d="M3 3h5.2l3.8 11.4L15.8 3H21l-7.6 18.5c-.4 1-1.4 1-1.8 0z"/></svg>',
+  // MB Bank — sao đỏ (#E2231A) + chữ "MB" xanh navy (#1F2A6B)
+  'bank-mb': '<svg viewBox="0 0 24 24"><polygon fill="#E2231A" points="12,1 14.1,4.3 17.5,2.5 17.7,6.3 21.5,6.5 19.7,9.9 23,12 19.7,14.1 21.5,17.5 17.7,17.7 17.5,21.5 14.1,19.7 12,23 9.9,19.7 6.5,21.5 6.3,17.7 2.5,17.5 4.3,14.1 1,12 4.3,9.9 2.5,6.5 6.3,6.3 6.5,2.5 9.9,4.3"/><text x="12" y="15.4" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="8.5" font-weight="900" fill="#1F2A6B" letter-spacing="-0.3">MB</text></svg>',
+
   // ============ KHÁC ============
   other: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="17" r="0.5" fill="currentColor"/><path d="M9.1 9a3 3 0 015.83 1c0 2-3 3-3 3"/></svg>',
   bookmark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>',
@@ -246,6 +252,9 @@ window.QLT_ICON_LIB = [
   { name: 'piggy', label: 'Heo đất', group: 'Tiền - Ví', kw: 'heo dat piggy save' },
   { name: 'coins', label: 'Tiết kiệm', group: 'Tiền - Ví', kw: 'tiet kiem coins save' },
   { name: 'coin', label: 'Đồng xu', group: 'Tiền - Ví', kw: 'coin xu' },
+  // Ngân hàng (logo có màu — nền trong suốt)
+  { name: 'bank-vcb', label: 'Vietcombank', group: 'Ngân hàng', kw: 'vietcombank vcb ngan hang ngoai thuong viet nam' },
+  { name: 'bank-mb', label: 'MB Bank', group: 'Ngân hàng', kw: 'mb bank mbbank quan doi military' },
   // Khác
   { name: 'other', label: 'Khác', group: 'Khác', kw: 'khac other question' },
   { name: 'bookmark', label: 'Đánh dấu', group: 'Khác', kw: 'danh dau bookmark' },
