@@ -72,4 +72,64 @@ public class ApkInstallerPlugin extends Plugin {
             call.reject("Lỗi mở installer: " + e.getMessage(), e);
         }
     }
+
+    /**
+     * Share file qua system share sheet — user pick app để save/send.
+     * Dùng cho: export báo cáo CSV/HTML/PDF/JSON → user save vào Drive,
+     * gửi email, share Zalo, etc.
+     *
+     * JS side:
+     *   await Capacitor.Plugins.ApkInstaller.shareFile({
+     *     path: '/data/.../report.csv',
+     *     mime: 'text/csv',
+     *     title: 'Chia sẻ báo cáo'
+     *   });
+     */
+    @PluginMethod
+    public void shareFile(PluginCall call) {
+        String filePath = call.getString("path");
+        String mimeType = call.getString("mime", "*/*");
+        String chooserTitle = call.getString("title", "Chia sẻ file");
+
+        if (filePath == null || filePath.isEmpty()) {
+            call.reject("Thiếu tham số 'path'");
+            return;
+        }
+
+        try {
+            if (filePath.startsWith("file://")) {
+                filePath = filePath.substring(7);
+            }
+            java.io.File file = new java.io.File(filePath);
+            if (!file.exists()) {
+                call.reject("Không tìm thấy file: " + filePath);
+                return;
+            }
+            if (file.length() == 0) {
+                call.reject("File rỗng (0 bytes): " + filePath);
+                return;
+            }
+
+            String authority = getContext().getPackageName() + ".fileprovider";
+            Uri fileUri = FileProvider.getUriForFile(getContext(), authority, file);
+
+            Intent shareIntent = new Intent(Intent.ACTION_SEND);
+            shareIntent.setType(mimeType);
+            shareIntent.putExtra(Intent.EXTRA_STREAM, fileUri);
+            shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+            Intent chooser = Intent.createChooser(shareIntent, chooserTitle);
+            chooser.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+            getContext().startActivity(chooser);
+
+            JSObject result = new JSObject();
+            result.put("shared", true);
+            result.put("path", filePath);
+            result.put("size", file.length());
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("Lỗi share file: " + e.getMessage(), e);
+        }
+    }
 }

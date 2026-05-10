@@ -16389,7 +16389,11 @@ const App = {
 
     const container = document.createElement('div');
     container.innerHTML = stylesHtml + bodyHtml;
-    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;color:#000;font-family:DM Sans,sans-serif';
+    // FIX BUG PDF trắng: KHÔNG dùng left:-9999px (Capacitor WebView ko
+    // capture được off-screen content via html2canvas → canvas trống → PDF
+    // trắng). Đặt on-screen với opacity 0.01 + pointer-events none + z-index
+    // ngầm để render đúng nhưng user không thấy.
+    container.style.cssText = 'position:fixed;left:0;top:0;width:794px;background:#fff;color:#000;font-family:DM Sans,sans-serif;opacity:.01;pointer-events:none;z-index:1';
     document.body.appendChild(container);
 
     const book = this.state.books.find(b => b.id === bookId);
@@ -16763,27 +16767,30 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
       return;
     }
 
-    // Native (Android/iOS): write file to public Documents folder
+    // Native (Android): write file to Cache + trigger system share sheet.
+    // Lý do: Directory.Documents trên Capacitor Android = app-private folder
+    // (/storage/emulated/0/Android/data/[pkg]/files/...) — user KHÔNG thấy
+    // được trong Files app thông thường. Dùng share intent → user pick
+    // "Save to Drive" / "Send via Email" / "Save to Files" / etc.
     const FS = window.Capacitor?.Plugins?.Filesystem;
+    const Installer = window.Capacitor?.Plugins?.ApkInstaller;
     if (!FS) {
       QLT_UI.toast('Lỗi: Filesystem plugin không khả dụng', { type: 'error' });
       return;
     }
 
     try {
-      // Detect content type:
-      // - String → write với encoding utf8
-      // - Blob/Uint8Array → convert sang base64
+      // Detect content type
       let writeData = content;
       let encoding = 'utf8';
       if (content instanceof Blob) {
         writeData = await new Promise((resolve, reject) => {
           const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result).split(',')[1]); // strip data:...;base64,
+          reader.onload = () => resolve(String(reader.result).split(',')[1]);
           reader.onerror = reject;
           reader.readAsDataURL(content);
         });
-        encoding = undefined; // base64 mode
+        encoding = undefined;
       } else if (content instanceof Uint8Array) {
         let binary = '';
         for (let i = 0; i < content.length; i++) binary += String.fromCharCode(content[i]);
@@ -16791,28 +16798,54 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
         encoding = undefined;
       }
 
+      // Write to Cache (luôn writable, không cần permission)
       const writeOpts = {
-        path: 'QuanLyTien/' + filename,
+        path: filename,
         data: writeData,
-        directory: 'DOCUMENTS',
+        directory: 'CACHE',
         recursive: true
       };
       if (encoding) writeOpts.encoding = encoding;
 
       const result = await FS.writeFile(writeOpts);
-      const displayPath = (result?.uri || '').replace(/^file:\/\//, '')
-        || ('Documents/QuanLyTien/' + filename);
+      const fullPath = (result?.uri || '').replace(/^file:\/\//, '');
 
-      QLT_UI.alert(
-        `✅ <strong>Đã lưu file</strong>\n\n` +
-        `📁 Tên: <code>${this.escapeHtml(filename)}</code>\n\n` +
-        `📍 Vị trí: <code>Documents/QuanLyTien/</code>\n\n` +
-        `Mở app <strong>"Tệp"</strong> (Files / File Manager) → Documents → QuanLyTien để xem hoặc chia sẻ.`,
-        { title: 'Đã lưu', html: true }
-      );
+      if (!fullPath) {
+        QLT_UI.alert('Không lấy được đường dẫn file sau khi lưu', { title: 'Lỗi' });
+        return;
+      }
+
+      // Verify file đã write thành công + có size
+      try {
+        const stat = await FS.stat({ path: filename, directory: 'CACHE' });
+        if (!stat || stat.size === 0) {
+          QLT_UI.alert('File rỗng — nội dung không được ghi đúng. Báo dev.', { title: 'Lỗi' });
+          return;
+        }
+      } catch (e) {
+        console.warn('[_download] stat warning:', e);
+      }
+
+      // Trigger system share sheet
+      if (Installer && typeof Installer.shareFile === 'function') {
+        await Installer.shareFile({
+          path: fullPath,
+          mime: mime || '*/*',
+          title: 'Chia sẻ ' + filename
+        });
+        QLT_UI.toast('✅ Đã tạo file — chọn nơi lưu/gửi', { type: 'success', duration: 2500 });
+      } else {
+        // Fallback nếu plugin chưa register: hiện path để user tìm
+        QLT_UI.alert(
+          `✅ Đã tạo file nhưng plugin share chưa khả dụng.\n\n` +
+          `Đường dẫn: ${fullPath}\n\n` +
+          `Cài bản APK mới hơn để có nút share.`,
+          { title: 'File đã tạo' }
+        );
+      }
     } catch (e) {
-      console.error('[_download] native write fail:', e);
-      QLT_UI.alert('Lỗi lưu file: ' + (e.message || e), { title: 'Lỗi' });
+      console.error('[_download] native write/share fail:', e);
+      QLT_UI.alert('Lỗi lưu/chia sẻ file: ' + (e.message || e), { title: 'Lỗi' });
     }
   },
 
