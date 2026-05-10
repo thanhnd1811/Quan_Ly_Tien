@@ -1841,6 +1841,9 @@ const App = {
     this.state.maintenanceLogs = inBook(await window.QLT_Store.getAll('maintenanceLogs'));
     this.state.recurringRules = inBook(await window.QLT_Store.getAll('recurringRules'));
 
+    // Invalidate subscription detection cache (data có thể đã đổi)
+    delete this.state._subsDetectionCache;
+
     // Re-schedule daily summary notif (debounced 1s) — đảm bảo notif 20h
     // luôn dùng data MỚI NHẤT, không phải snapshot khi app khởi động.
     // Bug trước đó: notif schedule body lúc app start với 25k/3 GD → user thêm
@@ -2729,6 +2732,16 @@ const App = {
     this.renderHomeUpdateBanner();
     // Balance mismatch banner — hiện cảnh báo nếu có lệch số dư NH vs app
     this.renderHomeBalanceMismatch();
+    // Subscription detection banner — chỉ hiện nếu user chưa snooze (7 ngày)
+    {
+      const snoozeUntil = parseInt(localStorage.getItem('qlt_subs_banner_snooze') || '0', 10);
+      if (Date.now() > snoozeUntil) {
+        this.renderHomeSubscriptionsBanner();
+      } else {
+        const w = $('#homeSubscriptionsBanner');
+        if (w) w.style.display = 'none';
+      }
+    }
     // AI chat FAB — chỉ hiện khi đã setup API key
     this.renderAiChatFab();
 
@@ -7424,6 +7437,330 @@ const App = {
     const force = !!opts.force;
     const r = await window.QLT_Update.check(force);
     return r;
+  },
+
+  // ============================================================
+  // SUBSCRIPTION DETECTION — phát hiện đăng ký định kỳ tự động
+  // ============================================================
+  // Algorithm: scan tx history 90 ngày gần đây, group by (categoryId,
+  // rounded amount), nếu group có ≥3 tx với interval đều đặn (~30 ngày,
+  // ~7 ngày, ~14 ngày, ~90 ngày) → detect là subscription.
+  //
+  // Filter:
+  // - Đã có recurring rule active match → skip (user đã handle)
+  // - User đã ignore → skip
+  // - Tx < 3 occurrences → skip (không đủ pattern)
+  //
+  // Cache 5 phút trong state để không re-compute mỗi render.
+  _detectSubscriptions() {
+    const cacheKey = '_subsDetectionCache';
+    const cached = this.state[cacheKey];
+    if (cached && (Date.now() - cached.ts) < 5 * 60 * 1000) {
+      return cached.data;
+    }
+
+    const txs = (this.state.transactions || []).filter(t =>
+      t.type === 'expense' && t.amount > 0 && !t._adjustment && t.categoryId
+    );
+
+    // Chỉ xét tx 90 ngày gần đây (pattern còn relevant)
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 90);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    const recentTxs = txs.filter(t => t.date >= cutoffStr);
+
+    // Group by (categoryId, rounded amount)
+    // Round logic: amount < 100k → nearest 1k. ≥ 100k → nearest 5k.
+    // → group 49k với 50k cùng nhóm, 195k với 200k cùng nhóm.
+    const groups = {};
+    for (const t of recentTxs) {
+      const round = t.amount >= 100000 ? 5000 : 1000;
+      const roundedAmt = Math.round(t.amount / round) * round;
+      const key = `${t.categoryId}_${roundedAmt}`;
+      if (!groups[key]) {
+        groups[key] = { txs: [], categoryId: t.categoryId, roundedAmount: roundedAmt };
+      }
+      groups[key].txs.push(t);
+    }
+
+    const detected = [];
+    const ignored = JSON.parse(localStorage.getItem('qlt_subs_ignored') || '{}');
+    const existingRules = (this.state.recurringRules || []).filter(r => r.active);
+
+    for (const [key, group] of Object.entries(groups)) {
+      if (group.txs.length < 3) continue;
+      if (ignored[key]) continue;
+
+      // Skip nếu đã có recurring rule match (cùng categoryId + amount ±10%)
+      const sample = group.txs[0];
+      const hasRule = existingRules.some(r =>
+        r.categoryId === group.categoryId &&
+        Math.abs(r.amount - group.roundedAmount) <= group.roundedAmount * 0.1
+      );
+      if (hasRule) continue;
+
+      // Sort by date asc, calculate intervals
+      const sorted = group.txs.slice().sort((a, b) => a.date.localeCompare(b.date));
+      const intervals = [];
+      for (let i = 1; i < sorted.length; i++) {
+        const d1 = new Date(sorted[i - 1].date + 'T00:00:00');
+        const d2 = new Date(sorted[i].date + 'T00:00:00');
+        const days = Math.round((d2 - d1) / 86400000);
+        if (days > 0) intervals.push(days);
+      }
+      if (intervals.length === 0) continue;
+
+      const avgInterval = intervals.reduce((s, x) => s + x, 0) / intervals.length;
+      let frequency = null, frequencyLabel = '', dayOfMonth = null;
+
+      if (avgInterval >= 25 && avgInterval <= 35) {
+        frequency = 'monthly';
+        frequencyLabel = 'hằng tháng';
+        // Lấy ngày phổ biến nhất trong tháng
+        const days = sorted.map(t => parseInt(t.date.slice(8, 10), 10));
+        dayOfMonth = days.sort((a, b) =>
+          days.filter(d => d === b).length - days.filter(d => d === a).length
+        )[0];
+      } else if (avgInterval >= 5 && avgInterval <= 9) {
+        frequency = 'weekly';
+        frequencyLabel = 'hằng tuần';
+      } else if (avgInterval >= 12 && avgInterval <= 16) {
+        frequency = 'biweekly';
+        frequencyLabel = '2 tuần/lần';
+      } else if (avgInterval >= 85 && avgInterval <= 95) {
+        frequency = 'quarterly';
+        frequencyLabel = 'hằng quý';
+      } else {
+        continue; // not regular pattern
+      }
+
+      const avgAmount = Math.round(sorted.reduce((s, t) => s + t.amount, 0) / sorted.length);
+      const lastTx = sorted[sorted.length - 1];
+      const nextDate = new Date(lastTx.date + 'T00:00:00');
+      nextDate.setDate(nextDate.getDate() + Math.round(avgInterval));
+      const nextDateStr = nextDate.toISOString().slice(0, 10);
+
+      const cat = this.state.categories.find(c => c.id === sample.categoryId);
+
+      // Note phổ biến nhất trong group (vd "Spotify", "Netflix")
+      const noteFreq = {};
+      for (const t of sorted) {
+        const n = (t.note || '').trim();
+        if (n && n.length < 50) noteFreq[n] = (noteFreq[n] || 0) + 1;
+      }
+      const commonNote = Object.entries(noteFreq).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+
+      detected.push({
+        key,
+        amount: avgAmount,
+        categoryId: sample.categoryId,
+        categoryName: cat?.name || 'Không rõ',
+        categoryIcon: cat?.icon || 'other',
+        categoryColor: cat?.color || '#888',
+        frequency,
+        frequencyLabel,
+        dayOfMonth,
+        occurrences: sorted.length,
+        lastDate: lastTx.date,
+        nextExpectedDate: nextDateStr,
+        commonNote,
+        accountId: sample.accountId,
+        avgInterval: Math.round(avgInterval),
+        txIds: sorted.map(t => t.id)
+      });
+    }
+
+    // Sort by occurrences desc — pattern có nhiều tx nhất hiện trước
+    detected.sort((a, b) => b.occurrences - a.occurrences);
+
+    this.state[cacheKey] = { ts: Date.now(), data: detected };
+    return detected;
+  },
+
+  // Render banner trên home nếu detect được subscription mới
+  renderHomeSubscriptionsBanner() {
+    const wrap = $('#homeSubscriptionsBanner');
+    if (!wrap) return;
+    const detected = this._detectSubscriptions();
+    if (detected.length === 0) {
+      wrap.style.display = 'none';
+      return;
+    }
+    // Banner: count + 1 case có occurrences nhiều nhất
+    const top = detected[0];
+    const totalMonthly = detected.reduce((s, d) => {
+      // Convert tất cả về monthly equivalent để show tổng
+      const multiplier = d.frequency === 'monthly' ? 1
+        : d.frequency === 'weekly' ? 4.3
+        : d.frequency === 'biweekly' ? 2.15
+        : d.frequency === 'quarterly' ? 1/3 : 1;
+      return s + d.amount * multiplier;
+    }, 0);
+
+    wrap.innerHTML = `
+      <div style="margin:14px 16px;padding:14px;background:linear-gradient(135deg,rgba(99,102,241,.12),rgba(168,85,247,.08));border-radius:12px;border-left:4px solid #6366f1;cursor:pointer" id="subsBannerCard">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div style="font-size:13px;font-weight:700;color:#4f46e5">💡 Phát hiện ${detected.length} đăng ký định kỳ</div>
+          <button data-act="dismiss-banner" style="background:transparent;border:none;color:#4f46e5;font-size:18px;cursor:pointer;padding:0 4px">✕</button>
+        </div>
+        <div style="font-size:12px;color:var(--text);line-height:1.5">
+          VD: <strong>${this.escapeHtml(top.commonNote || top.categoryName)}</strong> — ${fmt(top.amount)}đ ${this.escapeHtml(top.frequencyLabel)}.
+          ${detected.length > 1 ? `<br>Tổng ~<strong>${fmt(Math.round(totalMonthly))}đ/tháng</strong> qua ${detected.length} đăng ký.` : ''}
+          <br>Tap để xem + tạo định kỳ tự động.
+        </div>
+      </div>
+    `;
+    wrap.style.display = 'block';
+    wrap.querySelector('#subsBannerCard').onclick = (e) => {
+      if (e.target.closest('[data-act="dismiss-banner"]')) return;
+      this._openSubscriptionsModal();
+    };
+    wrap.querySelector('[data-act="dismiss-banner"]').onclick = (e) => {
+      e.stopPropagation();
+      // Snooze 7 ngày
+      const snoozeUntil = Date.now() + 7 * 24 * 3600 * 1000;
+      localStorage.setItem('qlt_subs_banner_snooze', String(snoozeUntil));
+      wrap.style.display = 'none';
+      QLT_UI.toast('Đã ẩn 7 ngày — vào Cài đặt nếu muốn xem lại', { type: 'info', duration: 2500 });
+    };
+  },
+
+  _openSubscriptionsModal() {
+    const detected = this._detectSubscriptions();
+    const modal = document.getElementById('subscriptionsModal');
+    const summaryEl = document.getElementById('subscriptionsModalSummary');
+    const listEl = document.getElementById('subscriptionsModalList');
+    if (!modal || !listEl) return;
+
+    if (detected.length === 0) {
+      summaryEl.innerHTML = '✅ Không có đăng ký định kỳ nào chưa được track.';
+      listEl.innerHTML = `
+        <div style="padding:40px 20px;text-align:center;color:var(--text3);font-size:13px">
+          Tất cả pattern lặp lại đã có recurring rule hoặc chưa đủ data.
+        </div>
+      `;
+      modal.classList.add('open');
+      return;
+    }
+
+    summaryEl.innerHTML = `App phát hiện <strong>${detected.length} đăng ký định kỳ</strong> qua phân tích lịch sử 90 ngày. Tap "Tạo định kỳ" → app tự ghi GD vào ngày kế tiếp.`;
+
+    listEl.innerHTML = detected.map(d => {
+      const iconHtml = d.categoryIcon ? window.svgIcon(d.categoryIcon) : window.svgIcon('other');
+      const nextStr = (() => {
+        const dt = new Date(d.nextExpectedDate + 'T00:00:00');
+        return dt.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      })();
+      const noteOrCat = d.commonNote || d.categoryName;
+      return `
+        <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+            <div style="background:${d.categoryColor}1a;color:${d.categoryColor};width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px">${iconHtml}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(noteOrCat)}</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">${this.escapeHtml(d.categoryName)} · ${d.occurrences} lần · ${this.escapeHtml(d.frequencyLabel)}</div>
+            </div>
+            <div style="font-size:15px;font-weight:700;color:var(--danger);flex-shrink:0">${fmt(d.amount)}đ</div>
+          </div>
+          <div style="background:var(--surface2);padding:8px 10px;border-radius:6px;font-size:11px;color:var(--text2);line-height:1.6;margin-bottom:10px">
+            📅 Lần cuối: <strong>${this.escapeHtml(this.formatDate(d.lastDate))}</strong><br>
+            ⏭️ Dự kiến lần kế: <strong>${this.escapeHtml(nextStr)}</strong> (${d.avgInterval} ngày/lần)
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-primary" data-act="create-rule" data-key="${d.key}" style="flex:1;font-size:12px;padding:8px">⚡ Tạo định kỳ</button>
+            <button class="btn btn-secondary" data-act="ignore" data-key="${d.key}" style="flex:0 0 auto;font-size:12px;padding:8px 14px">Bỏ qua</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Bind actions
+    listEl.querySelectorAll('[data-act="create-rule"]').forEach(btn => {
+      btn.onclick = () => this._createRuleFromSubscription(btn.dataset.key);
+    });
+    listEl.querySelectorAll('[data-act="ignore"]').forEach(btn => {
+      btn.onclick = () => this._ignoreSubscription(btn.dataset.key);
+    });
+
+    modal.classList.add('open');
+  },
+
+  // Tạo recurring rule từ subscription detected → mở modal recurring pre-filled
+  async _createRuleFromSubscription(subKey) {
+    const detected = this._detectSubscriptions();
+    const sub = detected.find(d => d.key === subKey);
+    if (!sub) return;
+
+    // Đóng modal subscriptions
+    document.getElementById('subscriptionsModal')?.classList.remove('open');
+
+    // Mark ignored để khỏi detect lại
+    const ignored = JSON.parse(localStorage.getItem('qlt_subs_ignored') || '{}');
+    ignored[subKey] = { ts: Date.now(), createdRule: true };
+    localStorage.setItem('qlt_subs_ignored', JSON.stringify(ignored));
+    delete this.state._subsDetectionCache;
+
+    // Mở recurring modal (sets defaults via state.editingRecurring) + override
+    setTimeout(() => {
+      try {
+        if (typeof this.openRecurringModal !== 'function') {
+          QLT_UI.toast('Lỗi: openRecurringModal không tồn tại', { type: 'error' });
+          return;
+        }
+        this.openRecurringModal(null);
+
+        // Override editingRecurring với data từ subscription
+        const er = this.state.editingRecurring;
+        if (!er) return;
+        er.type = 'expense';
+        er.name = sub.commonNote || sub.categoryName;
+        er.amount = sub.amount;
+        er.categoryId = sub.categoryId;
+        if (sub.accountId) er.accountId = sub.accountId;
+        er.frequency = sub.frequency;
+        if (sub.dayOfMonth) er.dayOfMonth = sub.dayOfMonth;
+        else if (sub.frequency === 'monthly') {
+          er.dayOfMonth = parseInt(sub.nextExpectedDate.slice(8, 10), 10);
+        }
+        er.startDate = sub.nextExpectedDate;
+        er.note = sub.commonNote || `Đăng ký định kỳ phát hiện tự động`;
+        er._fromSubDetection = true;
+        er._subKey = subKey;
+
+        // Update DOM để khớp state vừa override
+        $('#recName').value = er.name;
+        $('#recAmount').value = Number(er.amount).toLocaleString('vi-VN');
+        $('#recFrequency').value = er.frequency;
+        if (er.dayOfMonth) $('#recDayOfMonth').value = String(er.dayOfMonth);
+        $('#recStartDate').value = er.startDate;
+        $('#recNote').value = er.note;
+        if (er.accountId) $('#recAccount').value = er.accountId;
+        // Update freq UI (show/hide dayOfMonth/dayOfWeek)
+        if (typeof this._recurringApplyFreqUI === 'function') {
+          this._recurringApplyFreqUI(er.frequency);
+        }
+
+        QLT_UI.toast(
+          `💡 Pre-fill từ pattern phát hiện. Kiểm tra danh mục/ví/tần suất rồi tap Lưu.`,
+          { type: 'info', duration: 4500 }
+        );
+      } catch (e) {
+        console.warn('Pre-fill recurring lỗi:', e);
+        QLT_UI.toast('Lỗi mở form: ' + (e.message || e), { type: 'error' });
+      }
+    }, 250);
+  },
+
+  _ignoreSubscription(subKey) {
+    const ignored = JSON.parse(localStorage.getItem('qlt_subs_ignored') || '{}');
+    ignored[subKey] = { ts: Date.now(), ignored: true };
+    localStorage.setItem('qlt_subs_ignored', JSON.stringify(ignored));
+    delete this.state._subsDetectionCache;
+    QLT_UI.toast('Đã bỏ qua — sẽ không gợi ý lại', { type: 'info', duration: 2000 });
+    // Re-render modal để remove cái này
+    setTimeout(() => this._openSubscriptionsModal(), 100);
+    // Re-render banner
+    this.renderHomeSubscriptionsBanner();
   },
 
   // ============================================================

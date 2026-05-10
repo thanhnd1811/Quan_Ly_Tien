@@ -1386,6 +1386,8 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
     <div id="homeUpdateBanner" style="display:none"></div>
     <!-- Banner cảnh báo lệch số dư NH vs app — chỉ hiện khi có mismatch -->
     <div id="homeBalanceMismatchBanner" style="display:none"></div>
+    <!-- Banner phát hiện đăng ký định kỳ — chỉ hiện khi có pattern mới -->
+    <div id="homeSubscriptionsBanner" style="display:none"></div>
 
     <div data-home-widget="wallets">
       <div class="section">
@@ -1648,6 +1650,21 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
     <div class="modal-footer">
       <button class="btn btn-secondary" data-close>Huỷ</button>
       <button class="btn btn-primary" id="goalSave">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Subscription detection — danh sách đăng ký định kỳ phát hiện -->
+<div id="subscriptionsModal" class="modal" style="z-index:310">
+  <div class="modal-card" style="max-height:90vh;display:flex;flex-direction:column">
+    <div class="modal-head">
+      <button data-close data-icon="close"></button>
+      <h3>💡 Phát hiện đăng ký định kỳ</h3>
+    </div>
+    <div id="subscriptionsModalSummary" style="padding:12px 16px;background:linear-gradient(135deg,rgba(99,102,241,.08),transparent);border-bottom:1px solid var(--border);font-size:12px;color:var(--text2);line-height:1.6"></div>
+    <div id="subscriptionsModalList" style="flex:1;overflow-y:auto;min-height:0"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close>Đóng</button>
     </div>
   </div>
 </div>
