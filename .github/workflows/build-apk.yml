@@ -311,12 +311,14 @@ jobs:
           # 1g) NotificationListenerService — đọc push notif từ app NH
           # User phải vào Settings → Notification access → bật cho app này.
           # Service tự khởi động khi user grant, capture notif từ bank apps.
+          # exported="true" REQUIRED — Android system process bind từ ngoài app
+          # qua Intent. exported=false sẽ làm service không hoạt động.
           if 'NotificationReaderService' not in m:
               service_tag = (
                   '        <service android:name=".NotificationReaderService"\n'
                   '            android:label="QLT Notif Reader"\n'
                   '            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"\n'
-                  '            android:exported="false">\n'
+                  '            android:exported="true">\n'
                   '            <intent-filter>\n'
                   '                <action android:name="android.service.notification.NotificationListenerService" />\n'
                   '            </intent-filter>\n'

@@ -1711,6 +1711,14 @@ const App = {
       // Schedule bill reminders (2 ngày trước kỳ định kỳ tới hạn)
       try { await this.scheduleBillReminders(); } catch (_) {}
 
+      // Auto-process pending bank notifications (mỗi lần app khởi động).
+      // User chuyển khoản → notif từ app NH → service capture vào cache →
+      // app mở → trong vài giây tự xử lý → tx xuất hiện trong list.
+      // Delay 1.5s để đợi state load xong + UI render trước.
+      setTimeout(() => {
+        this._processBankNotifications({ silent: false }).catch(() => {});
+      }, 1500);
+
       // Lắng nghe deeplink qltien:// từ App shortcuts (long-press icon)
       try {
         const AppPlugin = window.Capacitor?.Plugins?.App;
@@ -1756,6 +1764,20 @@ const App = {
             // mới ngay sau khi bạn push commit (không phải đợi cache 30 phút).
             this.checkForUpdates({ force: true }).then(() => {
               if (this.state.currentTab === 'home') this.renderHomeUpdateBanner();
+            }).catch(() => {});
+            // Refresh trang Cài đặt nếu user đang ở đó — bắt được trường hợp
+            // user vừa quay từ system Settings (vd vừa grant Notification access)
+            if (this.state.currentTab === 'settings') {
+              this.renderNotifReaderSettings().catch(() => {});
+              this.renderSmsSettings().catch(() => {});
+            }
+            // Auto-process pending bank notifications (silent — không spam toast
+            // nếu không có gì mới). User mở app sau khi NH gửi notif → tx tự
+            // được tạo ngay lập tức nếu autoSave ON.
+            this._processBankNotifications({ silent: false }).then(r => {
+              if (r.savedCount > 0 && this.state.currentTab === 'home') {
+                this.renderHome();
+              }
             }).catch(() => {});
           });
         }
@@ -7648,13 +7670,24 @@ const App = {
     }
 
     enableBtn.onclick = async () => {
+      // Nếu đã enabled → tap = mở Settings để user xem/sửa
+      // Nếu chưa enabled → tap = mở Settings + hướng dẫn
       try {
+        // Trước khi mở Settings, re-check status (có thể vừa cấp xong)
+        const recheck = await NR.isEnabled();
+        if (recheck.enabled) {
+          // Đã grant rồi — refresh UI ngay, không cần mở Settings nữa
+          this.renderNotifReaderSettings();
+          QLT_UI.toast('✅ Đã có quyền — refresh trạng thái', { type: 'success' });
+          return;
+        }
         // Mở Settings hệ thống → Notification access
         await NR.openSettings();
-        // Hướng dẫn user
+        // Set flag để biết user vừa từ Settings về → auto-verify trên resume
+        this._waitingNotifPermission = true;
         QLT_UI.alert(
-          'Tìm "Quản Lý Tiền" trong list app → BẬT toggle.\n\n'
-          + 'Sau đó quay về app, tap nút này lại để verify.',
+          'Tìm "Quản Lý Tiền" trong list → BẬT toggle "Cho phép truy cập thông báo".\n\n'
+          + 'Quay về app sẽ tự động verify (không cần tap lại).',
           { title: '📲 Bật Notification access' }
         );
       } catch (e) {
@@ -7664,109 +7697,156 @@ const App = {
 
     scanBtn.onclick = async () => {
       try {
-        const r = await NR.getCachedNotifications({ onlyUnprocessed: true });
-        const notifs = r.notifications || [];
-
-        if (notifs.length === 0) {
+        const r = await this._processBankNotifications({ silent: false });
+        if (r.pending.length > 0) {
+          // Có GD chưa thể auto-save (thiếu ví/danh mục) → mở queue modal
+          this._openSmsQueueModal(r.pending, { source: 'notification' });
+        } else if (r.savedCount === 0 && r.totalScanned > 0) {
+          QLT_UI.toast(`Đã xử lý ${r.totalScanned} notif — không có GD mới`, { type: 'info', duration: 3000 });
+        } else if (r.totalScanned === 0) {
           QLT_UI.toast('Chưa có thông báo NH nào bắt được. Thử mở Digibank/MBBank → tạo GD test → kiểm tra lại.', { type: 'info', duration: 4000 });
-          return;
         }
-
-        // Parse từng notif qua QLT_SmsBankParser (reuse — body format giống SMS)
-        const Parser = window.QLT_SmsBankParser;
-        if (!Parser) {
-          QLT_UI.toast('Lỗi: Parser chưa load', { type: 'error' });
-          return;
-        }
-
-        const pending = [];
-        // Build address từ pkg để parser detect bank
-        const PKG_TO_ADDRESS = {
-          'com.VCB': 'VCB Vietcombank',
-          'com.vcb.digibank': 'VCB Vietcombank',
-          'vn.com.vcb.digibank': 'VCB Vietcombank',
-          'com.mbmobile': 'MBBank',
-          'com.mbbank.app': 'MBBank',
-          'com.techcombank.bb.app': 'TCB Techcombank',
-          'vn.com.techcombank.app': 'TCB Techcombank',
-          'mobile.acb.com.vn': 'ACB',
-          'com.acb.bank': 'ACB',
-          'com.vnpay.bidv': 'BIDV',
-          'com.bidv.smartbanking': 'BIDV',
-          'com.vpbank.mobiletest': 'VPBank',
-          'com.vpb.mobilebanking': 'VPBank',
-          'com.vpbank.neo': 'VPBank',
-          'vn.com.tpbank.tpbmb': 'TPBank',
-          'com.tpb.app': 'TPBank',
-          'com.sacombank.ewallet': 'Sacombank',
-          'com.sacombank.spbb': 'Sacombank',
-          'com.vietinbank.ipay': 'VietinBank',
-          'vn.com.vietinbank.efast': 'VietinBank',
-          'com.vnpay.agribankplus': 'Agribank',
-          'vn.agribank.emobilebanking': 'Agribank',
-          'com.shb.mb': 'SHB',
-          'com.hdbank.fintech': 'HDBank',
-          'com.vib.app': 'VIB',
-          'com.msb.smartmb': 'MSB',
-          'com.ocbnews.cbs': 'OCB'
-        };
-
-        const processedSmsHashes = JSON.parse(localStorage.getItem('qlt_sms_processed') || '{}');
-        const sbnKeysSeen = [];
-
-        for (const notif of notifs) {
-          const address = PKG_TO_ADDRESS[notif.pkg] || notif.title || notif.pkg;
-          const parsed = Parser.parseSms({
-            address,
-            body: notif.body,
-            date: notif.postTime,
-            id: notif.sbnKey
-          });
-          if (!parsed) {
-            // Notif không parse được → mark processed để khỏi xem lại
-            sbnKeysSeen.push(notif.sbnKey);
-            continue;
-          }
-          // Anti-dup với SMS history (dùng chung hash)
-          if (processedSmsHashes[parsed.hash]) {
-            sbnKeysSeen.push(notif.sbnKey);
-            continue;
-          }
-          // Anti-dup với existing tx
-          const dup = (this.state.transactions || []).find(t => {
-            if (t.amount !== parsed.amount || t.type !== parsed.type) return false;
-            const tDate = t.date;
-            const notifDateStr = new Date(notif.postTime).toISOString().slice(0, 10);
-            return tDate === notifDateStr;
-          });
-          if (dup) {
-            processedSmsHashes[parsed.hash] = { skipped: true, ts: Date.now(), src: 'notif' };
-            sbnKeysSeen.push(notif.sbnKey);
-            continue;
-          }
-          // Add sbnKey vào parsed object để mark processed sau khi save
-          parsed._sbnKey = notif.sbnKey;
-          pending.push(parsed);
-        }
-        localStorage.setItem('qlt_sms_processed', JSON.stringify(processedSmsHashes));
-
-        // Mark các notif không có giá trị (không parse, dup) là processed luôn
-        if (sbnKeysSeen.length > 0) {
-          await NR.markProcessed({ sbnKeys: sbnKeysSeen });
-        }
-
-        if (pending.length === 0) {
-          QLT_UI.toast(`Đã xử lý ${notifs.length} notif — không có GD mới`, { type: 'info', duration: 3000 });
-          this.renderNotifReaderSettings();
-          return;
-        }
-
-        // Mở queue modal — pending có thêm _sbnKey để mark processed sau save
-        this._openSmsQueueModal(pending, { source: 'notification' });
+        this.renderNotifReaderSettings();
       } catch (e) {
         QLT_UI.alert('Lỗi quét: ' + (e.message || e), { title: 'Lỗi' });
       }
     };
+
+    // Bind toggle "Tự động ghi GD ngay"
+    const autoSaveToggle = $('#setNotifAutoSave');
+    if (autoSaveToggle) {
+      autoSaveToggle.checked = localStorage.getItem('qlt_notif_autosave') !== 'off';
+      autoSaveToggle.onchange = (e) => {
+        if (e.target.checked) {
+          localStorage.removeItem('qlt_notif_autosave');
+          QLT_UI.toast('⚡ Đã bật — GD sẽ tự ghi khi NH gửi notif', { type: 'success', duration: 2500 });
+        } else {
+          localStorage.setItem('qlt_notif_autosave', 'off');
+          QLT_UI.toast('Đã tắt — sẽ review thủ công mỗi GD', { type: 'info', duration: 2500 });
+        }
+      };
+    }
+  },
+
+  // ============================================================
+  // CORE: process pending bank notifications
+  // ============================================================
+  // Dùng cho cả manual scan (Settings) lẫn auto-process (resume/init/poll).
+  // - autoSave=true (default): cố gắng save tx ngay nếu đủ field
+  // - silent=true: không show toast (cho auto flow), false: show toast
+  // Trả về: { savedCount, pending, totalScanned, errorCount }
+  async _processBankNotifications({ silent = false } = {}) {
+    const NR = window.Capacitor?.Plugins?.NotificationReader;
+    const Parser = window.QLT_SmsBankParser;
+    const result = { savedCount: 0, pending: [], totalScanned: 0, errorCount: 0 };
+    if (!NR || !Parser) return result;
+
+    // Check enabled trước (tránh call khi user chưa grant)
+    try {
+      const enabledCheck = await NR.isEnabled();
+      if (!enabledCheck.enabled) return result;
+    } catch (_) { return result; }
+
+    const r = await NR.getCachedNotifications({ onlyUnprocessed: true });
+    const notifs = r.notifications || [];
+    result.totalScanned = notifs.length;
+    if (notifs.length === 0) return result;
+
+    const PKG_TO_ADDRESS = {
+      'com.VCB': 'VCB Vietcombank',
+      'com.vcb.digibank': 'VCB Vietcombank',
+      'vn.com.vcb.digibank': 'VCB Vietcombank',
+      'com.mbmobile': 'MBBank',
+      'com.mbbank.app': 'MBBank',
+      'com.techcombank.bb.app': 'TCB Techcombank',
+      'vn.com.techcombank.app': 'TCB Techcombank',
+      'mobile.acb.com.vn': 'ACB',
+      'com.acb.bank': 'ACB',
+      'com.vnpay.bidv': 'BIDV',
+      'com.bidv.smartbanking': 'BIDV',
+      'com.vpbank.mobiletest': 'VPBank',
+      'com.vpb.mobilebanking': 'VPBank',
+      'com.vpbank.neo': 'VPBank',
+      'vn.com.tpbank.tpbmb': 'TPBank',
+      'com.tpb.app': 'TPBank',
+      'com.sacombank.ewallet': 'Sacombank',
+      'com.sacombank.spbb': 'Sacombank',
+      'com.vietinbank.ipay': 'VietinBank',
+      'vn.com.vietinbank.efast': 'VietinBank',
+      'com.vnpay.agribankplus': 'Agribank',
+      'vn.agribank.emobilebanking': 'Agribank',
+      'com.shb.mb': 'SHB',
+      'com.hdbank.fintech': 'HDBank',
+      'com.vib.app': 'VIB',
+      'com.msb.smartmb': 'MSB',
+      'com.ocbnews.cbs': 'OCB'
+    };
+
+    const processedSmsHashes = JSON.parse(localStorage.getItem('qlt_sms_processed') || '{}');
+    const sbnKeysSeen = [];
+    const autoSaveEnabled = localStorage.getItem('qlt_notif_autosave') !== 'off';
+
+    for (const notif of notifs) {
+      const address = PKG_TO_ADDRESS[notif.pkg] || notif.title || notif.pkg;
+      const parsed = Parser.parseSms({
+        address,
+        body: notif.body,
+        date: notif.postTime,
+        id: notif.sbnKey
+      });
+      if (!parsed) {
+        sbnKeysSeen.push(notif.sbnKey);
+        continue;
+      }
+      // Anti-dup với hash + existing tx
+      if (processedSmsHashes[parsed.hash]) {
+        sbnKeysSeen.push(notif.sbnKey);
+        continue;
+      }
+      const dup = (this.state.transactions || []).find(t => {
+        if (t.amount !== parsed.amount || t.type !== parsed.type) return false;
+        const notifDateStr = new Date(notif.postTime).toISOString().slice(0, 10);
+        return t.date === notifDateStr;
+      });
+      if (dup) {
+        processedSmsHashes[parsed.hash] = { skipped: true, ts: Date.now(), src: 'notif' };
+        sbnKeysSeen.push(notif.sbnKey);
+        continue;
+      }
+      parsed._sbnKey = notif.sbnKey;
+
+      // Nếu autoSave bật → thử save tx ngay (skip queue)
+      if (autoSaveEnabled) {
+        try {
+          await this._saveSmsAsTx(parsed);
+          result.savedCount++;
+          sbnKeysSeen.push(notif.sbnKey);
+          continue;
+        } catch (saveErr) {
+          // Auto-save fail (vd thiếu ví) → fallback queue
+          console.warn('[NotifAuto] auto-save fail, queue instead:', saveErr.message);
+          result.errorCount++;
+        }
+      }
+      // AutoSave off HOẶC auto-save fail → add vào pending queue
+      result.pending.push(parsed);
+    }
+    localStorage.setItem('qlt_sms_processed', JSON.stringify(processedSmsHashes));
+
+    if (sbnKeysSeen.length > 0) {
+      try { await NR.markProcessed({ sbnKeys: sbnKeysSeen }); } catch (_) {}
+    }
+
+    // Refresh state nếu có save
+    if (result.savedCount > 0) {
+      await this.reload();
+      if (!silent) {
+        QLT_UI.toast(`✅ Đã tự ghi ${result.savedCount} GD từ thông báo NH`, {
+          type: 'success', duration: 3500
+        });
+      }
+    }
+    return result;
   },
 
   // ============================================================
