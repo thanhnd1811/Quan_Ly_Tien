@@ -115,7 +115,11 @@ jobs:
           # SMS Reader plugin (parse tin nhắn ngân hàng)
           cp android-sms/java/SmsReaderPlugin.java android/app/src/main/java/com/thanh/quanlytien/
 
-          echo "--- Widget + Tile + Installer + SmsReader files đã được copy:"
+          # Notification Reader plugin (đọc push notif từ app NH)
+          cp android-notif/java/NotificationReaderService.java android/app/src/main/java/com/thanh/quanlytien/
+          cp android-notif/java/NotificationReaderPlugin.java android/app/src/main/java/com/thanh/quanlytien/
+
+          echo "--- Widget + Tile + Installer + SmsReader + NotifReader files đã được copy:"
           ls -la android/app/src/main/res/xml/ai_chat_widget_info.xml
           ls -la android/app/src/main/res/layout/ai_chat_widget.xml
           ls -la android/app/src/main/res/drawable/ai_widget_bg.xml
@@ -243,6 +247,28 @@ jobs:
                   print('OK: READ_SMS permission added (SMS Banking Parser)')
               else:
                   print('::error::FAILED to add READ_SMS')
+                  sys.exit(1)
+
+          # 1g) NotificationListenerService — đọc push notif từ app NH
+          # User phải vào Settings → Notification access → bật cho app này.
+          # Service tự khởi động khi user grant, capture notif từ bank apps.
+          if 'NotificationReaderService' not in m:
+              service_tag = (
+                  '        <service android:name=".NotificationReaderService"\n'
+                  '            android:label="QLT Notif Reader"\n'
+                  '            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"\n'
+                  '            android:exported="false">\n'
+                  '            <intent-filter>\n'
+                  '                <action android:name="android.service.notification.NotificationListenerService" />\n'
+                  '            </intent-filter>\n'
+                  '        </service>\n'
+              )
+              new_m, n = re.subn(r'(\s*</application>)', '\n' + service_tag + r'\1', m, count=1)
+              if n > 0:
+                  m = new_m
+                  print('OK: NotificationReaderService registered')
+              else:
+                  print('::error::FAILED to register NotificationReaderService')
                   sys.exit(1)
 
           # FIX QUAN TRỌNG: regex dùng \b (word boundary) chứ KHÔNG phải literal space

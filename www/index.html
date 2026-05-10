@@ -2600,17 +2600,37 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
       </div>
     </div>
 
-    <!-- 2b. SMS ngân hàng — đọc tin nhắn ngân hàng tự động tạo GD -->
-    <div class="settings-group" data-collapsible id="setSecSms">
+    <!-- 2b. Tự động ghi GD từ NH — gồm SMS + push notification -->
+    <div class="settings-group" data-collapsible id="setSecBankAuto">
       <div class="settings-group-head">
-        <div class="settings-group-icon">📨</div>
-        <div class="settings-group-title">SMS ngân hàng</div>
+        <div class="settings-group-icon">🏦</div>
+        <div class="settings-group-title">Tự động ghi GD từ ngân hàng</div>
         <div class="settings-group-chev">▸</div>
       </div>
       <div class="settings-group-content">
         <div style="padding:12px 14px 8px;font-size:12px;color:var(--text2);line-height:1.6">
-          Đọc tin nhắn từ ngân hàng (VCB, Tech, MB, ACB, BIDV...) → app tự đề xuất giao dịch, bạn chỉ cần xác nhận. Tiết kiệm 80% effort ghi tay.
+          App đọc thông báo + SMS từ NH → tự đề xuất giao dịch, bạn chỉ cần xác nhận. Tiết kiệm 80% effort ghi tay.
         </div>
+
+        <!-- ========== Notification Listener (phương thức chính, real-time) ========== -->
+        <div class="settings-subhead">📲 Đọc thông báo app NH (khuyên dùng — real-time)</div>
+        <div class="settings-group-body">
+          <div class="setting-row">
+            <span class="setting-label">Trạng thái Notification access</span>
+            <span class="setting-value" id="setNotifReaderStatus">Chưa bật</span>
+          </div>
+        </div>
+        <div class="settings-group-actions">
+          <button id="setNotifReaderEnable" class="btn btn-primary btn-block">📲 Bật đọc thông báo NH</button>
+          <button id="setNotifReaderScan" class="btn btn-secondary btn-block" style="display:none">🔍 Xem GD đã bắt được</button>
+        </div>
+        <div style="padding:8px 14px;font-size:11px;color:var(--text3);line-height:1.6">
+          ⚡ App chạy ngầm bắt thông báo từ Digibank, MBBank, Techcombank, ACB, BIDV, VPBank, TPBank... ngay khi NH gửi notif.<br>
+          🔒 Chỉ filter notif từ app NH — KHÔNG đọc Zalo, Messenger, hay app khác.
+        </div>
+
+        <!-- ========== SMS Parser (legacy, fallback) ========== -->
+        <div class="settings-subhead" style="margin-top:14px">📨 Đọc SMS ngân hàng (legacy — backup)</div>
         <div class="settings-group-body">
           <div class="setting-row">
             <span class="setting-label">Trạng thái quyền đọc SMS</span>
@@ -2618,14 +2638,14 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
           </div>
         </div>
         <div class="settings-group-actions">
-          <button id="setSmsScan" class="btn btn-primary btn-block">📨 Quét SMS ngân hàng (90 ngày)</button>
+          <button id="setSmsScan" class="btn btn-secondary btn-block">📨 Quét SMS NH (90 ngày)</button>
           <button id="setSmsClear" class="btn btn-secondary btn-block" style="display:none">🗑️ Xoá lịch sử quét</button>
         </div>
         <div style="padding:8px 14px;font-size:11px;color:var(--text3);line-height:1.6">
-          🔒 SMS chỉ đọc trên máy bạn — KHÔNG gửi server. Bạn có thể tắt quyền bất kỳ lúc nào trong Cài đặt → Apps → Quản Lý Tiền → Permissions.
+          ℹ️ SMS giờ ít NH dùng (chỉ OTP + GD lớn). Notification listener ở trên mới là chính.
         </div>
-        <div style="padding:8px 14px;font-size:11px;color:var(--text3);line-height:1.6">
-          🏦 Hỗ trợ: Vietcombank, Techcombank, MBBank, ACB, BIDV (parse tốt) · VPBank, Agribank, TPBank, Sacombank... (best-effort)
+        <div style="padding:8px 14px;font-size:11px;color:var(--text3);line-height:1.6;border-top:1px solid var(--border);margin-top:8px;padding-top:12px">
+          🏦 Hỗ trợ 15 NH: VCB, Techcombank, MBBank, ACB, BIDV (parse chính xác) · VPBank, Agribank, TPBank, Sacombank, VietinBank, SHB, HDBank, VIB, MSB, OCB (best-effort)
         </div>
       </div>
     </div>

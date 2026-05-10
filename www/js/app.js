@@ -6345,6 +6345,8 @@ const App = {
 
     // Render section SMS Banking (status + button bind)
     this.renderSmsSettings().catch((e) => console.warn('renderSmsSettings:', e));
+    // Render section Notification Reader (push notif từ app NH)
+    this.renderNotifReaderSettings().catch((e) => console.warn('renderNotifReaderSettings:', e));
 
     $('#setUser').textContent = window.QLT_Auth.user ? window.QLT_Auth.user.email : 'Chưa đăng nhập';
     const last = await window.QLT_Store.getMeta('lastSync');
@@ -7562,6 +7564,174 @@ const App = {
   },
 
   // ============================================================
+  // NOTIFICATION READER — đọc push notif từ app NH (real-time)
+  // ============================================================
+  async renderNotifReaderSettings() {
+    const NR = window.Capacitor?.Plugins?.NotificationReader;
+    const statusEl = $('#setNotifReaderStatus');
+    const enableBtn = $('#setNotifReaderEnable');
+    const scanBtn = $('#setNotifReaderScan');
+    if (!statusEl || !enableBtn) return;
+
+    if (!NR) {
+      statusEl.textContent = 'Web — không hỗ trợ';
+      enableBtn.disabled = true;
+      enableBtn.textContent = '⚠️ Cần build APK Android';
+      return;
+    }
+
+    // Check enabled
+    let enabled = false;
+    try {
+      const r = await NR.isEnabled();
+      enabled = !!r.enabled;
+    } catch (_) {}
+
+    statusEl.textContent = enabled ? '✅ Đang lắng nghe' : '⚠️ Chưa bật';
+    statusEl.style.color = enabled ? 'var(--pos)' : '#f59e0b';
+    enableBtn.textContent = enabled ? '⚙️ Mở Settings (sửa lại)' : '📲 Bật đọc thông báo NH';
+    scanBtn.style.display = enabled ? 'block' : 'none';
+
+    // Hiện count notif đã bắt nếu enabled
+    if (enabled) {
+      try {
+        const r = await NR.getCachedNotifications({ onlyUnprocessed: true });
+        const count = r.count || 0;
+        if (count > 0) {
+          scanBtn.textContent = `🔍 Xem ${count} GD đã bắt được`;
+          scanBtn.classList.remove('btn-secondary');
+          scanBtn.classList.add('btn-primary');
+        } else {
+          scanBtn.textContent = '🔍 Chưa có GD nào bắt được';
+          scanBtn.classList.add('btn-secondary');
+          scanBtn.classList.remove('btn-primary');
+        }
+      } catch (_) {}
+    }
+
+    enableBtn.onclick = async () => {
+      try {
+        // Mở Settings hệ thống → Notification access
+        await NR.openSettings();
+        // Hướng dẫn user
+        QLT_UI.alert(
+          'Tìm "Quản Lý Tiền" trong list app → BẬT toggle.\n\n'
+          + 'Sau đó quay về app, tap nút này lại để verify.',
+          { title: '📲 Bật Notification access' }
+        );
+      } catch (e) {
+        QLT_UI.alert('Không mở được Settings: ' + (e.message || e), { title: 'Lỗi' });
+      }
+    };
+
+    scanBtn.onclick = async () => {
+      try {
+        const r = await NR.getCachedNotifications({ onlyUnprocessed: true });
+        const notifs = r.notifications || [];
+
+        if (notifs.length === 0) {
+          QLT_UI.toast('Chưa có thông báo NH nào bắt được. Thử mở Digibank/MBBank → tạo GD test → kiểm tra lại.', { type: 'info', duration: 4000 });
+          return;
+        }
+
+        // Parse từng notif qua QLT_SmsBankParser (reuse — body format giống SMS)
+        const Parser = window.QLT_SmsBankParser;
+        if (!Parser) {
+          QLT_UI.toast('Lỗi: Parser chưa load', { type: 'error' });
+          return;
+        }
+
+        const pending = [];
+        // Build address từ pkg để parser detect bank
+        const PKG_TO_ADDRESS = {
+          'com.VCB': 'VCB Vietcombank',
+          'com.vcb.digibank': 'VCB Vietcombank',
+          'vn.com.vcb.digibank': 'VCB Vietcombank',
+          'com.mbmobile': 'MBBank',
+          'com.mbbank.app': 'MBBank',
+          'com.techcombank.bb.app': 'TCB Techcombank',
+          'vn.com.techcombank.app': 'TCB Techcombank',
+          'mobile.acb.com.vn': 'ACB',
+          'com.acb.bank': 'ACB',
+          'com.vnpay.bidv': 'BIDV',
+          'com.bidv.smartbanking': 'BIDV',
+          'com.vpbank.mobiletest': 'VPBank',
+          'com.vpb.mobilebanking': 'VPBank',
+          'com.vpbank.neo': 'VPBank',
+          'vn.com.tpbank.tpbmb': 'TPBank',
+          'com.tpb.app': 'TPBank',
+          'com.sacombank.ewallet': 'Sacombank',
+          'com.sacombank.spbb': 'Sacombank',
+          'com.vietinbank.ipay': 'VietinBank',
+          'vn.com.vietinbank.efast': 'VietinBank',
+          'com.vnpay.agribankplus': 'Agribank',
+          'vn.agribank.emobilebanking': 'Agribank',
+          'com.shb.mb': 'SHB',
+          'com.hdbank.fintech': 'HDBank',
+          'com.vib.app': 'VIB',
+          'com.msb.smartmb': 'MSB',
+          'com.ocbnews.cbs': 'OCB'
+        };
+
+        const processedSmsHashes = JSON.parse(localStorage.getItem('qlt_sms_processed') || '{}');
+        const sbnKeysSeen = [];
+
+        for (const notif of notifs) {
+          const address = PKG_TO_ADDRESS[notif.pkg] || notif.title || notif.pkg;
+          const parsed = Parser.parseSms({
+            address,
+            body: notif.body,
+            date: notif.postTime,
+            id: notif.sbnKey
+          });
+          if (!parsed) {
+            // Notif không parse được → mark processed để khỏi xem lại
+            sbnKeysSeen.push(notif.sbnKey);
+            continue;
+          }
+          // Anti-dup với SMS history (dùng chung hash)
+          if (processedSmsHashes[parsed.hash]) {
+            sbnKeysSeen.push(notif.sbnKey);
+            continue;
+          }
+          // Anti-dup với existing tx
+          const dup = (this.state.transactions || []).find(t => {
+            if (t.amount !== parsed.amount || t.type !== parsed.type) return false;
+            const tDate = t.date;
+            const notifDateStr = new Date(notif.postTime).toISOString().slice(0, 10);
+            return tDate === notifDateStr;
+          });
+          if (dup) {
+            processedSmsHashes[parsed.hash] = { skipped: true, ts: Date.now(), src: 'notif' };
+            sbnKeysSeen.push(notif.sbnKey);
+            continue;
+          }
+          // Add sbnKey vào parsed object để mark processed sau khi save
+          parsed._sbnKey = notif.sbnKey;
+          pending.push(parsed);
+        }
+        localStorage.setItem('qlt_sms_processed', JSON.stringify(processedSmsHashes));
+
+        // Mark các notif không có giá trị (không parse, dup) là processed luôn
+        if (sbnKeysSeen.length > 0) {
+          await NR.markProcessed({ sbnKeys: sbnKeysSeen });
+        }
+
+        if (pending.length === 0) {
+          QLT_UI.toast(`Đã xử lý ${notifs.length} notif — không có GD mới`, { type: 'info', duration: 3000 });
+          this.renderNotifReaderSettings();
+          return;
+        }
+
+        // Mở queue modal — pending có thêm _sbnKey để mark processed sau save
+        this._openSmsQueueModal(pending, { source: 'notification' });
+      } catch (e) {
+        QLT_UI.alert('Lỗi quét: ' + (e.message || e), { title: 'Lỗi' });
+      }
+    };
+  },
+
+  // ============================================================
   // SMS BANKING PARSER — đọc SMS NH tự đề xuất giao dịch
   // ============================================================
   async renderSmsSettings() {
@@ -7809,6 +7979,14 @@ const App = {
           const processed = JSON.parse(localStorage.getItem('qlt_sms_processed') || '{}');
           processed[p.hash] = { skipped: true, ts: Date.now() };
           localStorage.setItem('qlt_sms_processed', JSON.stringify(processed));
+          // Nếu là notif → mark processed bên native
+          if (p._sbnKey && window.Capacitor?.Plugins?.NotificationReader) {
+            try {
+              await window.Capacitor.Plugins.NotificationReader.markProcessed({
+                sbnKeys: [p._sbnKey]
+              });
+            } catch (_) {}
+          }
           p.status = 'skipped';
           this._renderSmsQueueList();
         } else if (btn.dataset.act === 'edit') {
@@ -7865,6 +8043,15 @@ const App = {
     const processed = JSON.parse(localStorage.getItem('qlt_sms_processed') || '{}');
     processed[parsedSms.hash] = { savedAt: Date.now(), amount: parsedSms.amount };
     localStorage.setItem('qlt_sms_processed', JSON.stringify(processed));
+
+    // Nếu có _sbnKey (từ notification listener) → mark processed bên native
+    if (parsedSms._sbnKey && window.Capacitor?.Plugins?.NotificationReader) {
+      try {
+        await window.Capacitor.Plugins.NotificationReader.markProcessed({
+          sbnKeys: [parsedSms._sbnKey]
+        });
+      } catch (_) {}
+    }
 
     return tx;
   },
