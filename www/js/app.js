@@ -80,6 +80,15 @@ const QLT_UI = (() => {
       el.classList.add('fade');
       setTimeout(() => el.remove(), 260);
     }, ms);
+    // Haptic feedback theo type — silent if disabled (qlt_haptic_off)
+    if (!localStorage.getItem('qlt_haptic_off') === '1' && navigator.vibrate) {
+      try {
+        if (opts.type === 'success') navigator.vibrate([10, 30, 10]);
+        else if (opts.type === 'error') navigator.vibrate([40, 60, 40, 60]);
+        else if (opts.type === 'warn') navigator.vibrate([20, 50, 20]);
+        // 'info' và default → không vibrate (tránh spam)
+      } catch (_) {}
+    }
   }
 
   // Insight banner: HTML support + slide từ top, tap để dismiss sớm
@@ -146,6 +155,29 @@ function haptic(type = 'light') {
   };
   try { navigator.vibrate(patterns[type] || 10); } catch (_) {}
 }
+
+// Global delegate haptic — tap mọi button quan trọng auto vibrate.
+// Chạy capture phase để fire trước onclick (ko block). Throttle 80ms để
+// tránh double-fire khi event bubble.
+document.addEventListener('DOMContentLoaded', () => {
+  let lastHapticTs = 0;
+  const HAPTIC_THROTTLE_MS = 80;
+  document.addEventListener('click', (e) => {
+    const now = Date.now();
+    if (now - lastHapticTs < HAPTIC_THROTTLE_MS) return;
+    const t = e.target.closest('button, .btn, .pill, .seg-item, .fav-chip, .qlt-switch, .tx-type-pill, [data-tab], [data-icon="trash"], [data-icon="close"]');
+    if (!t) return;
+    // Skip nếu đã có haptic call trong code (vd menuBtn, drawer)
+    if (t.dataset._noAutoHaptic === '1') return;
+    // Type theo class
+    const cls = t.className || '';
+    let level = 'light';
+    if (t.matches('.btn-danger, [data-icon="trash"]')) level = 'medium';
+    else if (t.matches('.btn-primary, .qlt-dialog-btn.primary')) level = 'light';
+    haptic(level);
+    lastHapticTs = now;
+  }, { capture: true });
+}, { once: true });
 
 // Animated number counter — count-up smooth từ giá trị cũ → mới (~280ms)
 // Lưu giá trị cuối cùng trên element để biết "from" cho lần animate tiếp theo
