@@ -1384,6 +1384,147 @@ const App = {
     } catch (e) { console.warn('Bill reminder lỗi:', e); }
   },
 
+  // ============ WEEKLY INSIGHTS (Chủ nhật 21h) ============
+  // Tổng kết tuần — so sánh với 4 tuần trước, top category, pattern.
+  _computeWeeklyInsights() {
+    const txs = this.state.transactions || [];
+    const now = new Date();
+
+    // This week: Monday 00:00 → Sunday 23:59
+    // getDay(): CN=0, T2=1, ..., T7=6
+    const dow = now.getDay() || 7; // CN → 7
+    const startThisWeek = new Date(now);
+    startThisWeek.setDate(startThisWeek.getDate() - (dow - 1));
+    startThisWeek.setHours(0, 0, 0, 0);
+    const endThisWeek = new Date(startThisWeek);
+    endThisWeek.setDate(endThisWeek.getDate() + 6);
+    const startStr = startThisWeek.toISOString().slice(0, 10);
+    const endStr = endThisWeek.toISOString().slice(0, 10);
+
+    const thisWeekExp = txs.filter(t =>
+      this.isRealExpense(t) && t.date >= startStr && t.date <= endStr
+    );
+    const thisWeekTotal = thisWeekExp.reduce((s, t) => s + t.amount, 0);
+    const thisWeekCount = thisWeekExp.length;
+
+    // 4 tuần trước (excl this week)
+    const last4Totals = [];
+    for (let w = 1; w <= 4; w++) {
+      const wStart = new Date(startThisWeek);
+      wStart.setDate(wStart.getDate() - 7 * w);
+      const wEnd = new Date(wStart);
+      wEnd.setDate(wEnd.getDate() + 6);
+      const wsS = wStart.toISOString().slice(0, 10);
+      const weS = wEnd.toISOString().slice(0, 10);
+      const wTotal = txs.filter(t =>
+        this.isRealExpense(t) && t.date >= wsS && t.date <= weS
+      ).reduce((s, t) => s + t.amount, 0);
+      last4Totals.push(wTotal);
+    }
+    const valid = last4Totals.filter(x => x > 0);
+    const avg = valid.length > 0 ? valid.reduce((s, x) => s + x, 0) / valid.length : 0;
+
+    // Top categories tuần này
+    const byCat = {};
+    for (const t of thisWeekExp) {
+      if (!t.categoryId) continue;
+      byCat[t.categoryId] = (byCat[t.categoryId] || 0) + t.amount;
+    }
+    const topCats = Object.entries(byCat)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([catId, amt]) => {
+        const cat = (this.state.categories || []).find(c => c.id === catId);
+        return { name: cat?.name || '?', amount: amt };
+      });
+
+    // Day-of-week phân tích: ngày nào chi nhiều nhất tuần
+    const byDay = {};
+    for (const t of thisWeekExp) {
+      byDay[t.date] = (byDay[t.date] || 0) + t.amount;
+    }
+    const peakDay = Object.entries(byDay).sort((a, b) => b[1] - a[1])[0];
+    const peakDayInfo = peakDay ? (() => {
+      const d = new Date(peakDay[0] + 'T00:00:00');
+      const weekdays = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+      return { dayLabel: weekdays[d.getDay()], date: peakDay[0], amount: peakDay[1] };
+    })() : null;
+
+    return {
+      startStr,
+      endStr,
+      thisWeekTotal,
+      thisWeekCount,
+      avgWeek: avg,
+      diff: thisWeekTotal - avg,
+      diffPct: avg > 0 ? Math.round((thisWeekTotal - avg) / avg * 100) : null,
+      topCats,
+      peakDay: peakDayInfo
+    };
+  },
+
+  // Build body cho notif weekly summary
+  _buildWeeklySummaryBody(insights) {
+    if (insights.thisWeekCount === 0) {
+      return 'Tuần này chưa ghi GD nào — đừng quên tổng kết tài chính tuần qua nhé!';
+    }
+    let body = `Tuần này: chi ${fmt(insights.thisWeekTotal)}đ qua ${insights.thisWeekCount} GD.`;
+    if (insights.diffPct != null) {
+      if (insights.diffPct > 15) body += ` Cao hơn TB ${insights.diffPct}%.`;
+      else if (insights.diffPct < -15) body += ` Tiết kiệm ${-insights.diffPct}% vs TB.`;
+      else body += ` Tương đương TB 4 tuần.`;
+    }
+    if (insights.topCats[0]) {
+      body += ` Top: ${insights.topCats[0].name} ${fmt(insights.topCats[0].amount)}đ.`;
+    }
+    if (insights.peakDay && insights.peakDay.amount >= 100000) {
+      body += ` ${insights.peakDay.dayLabel} chi nhiều nhất ${fmt(insights.peakDay.amount)}đ.`;
+    }
+    return body;
+  },
+
+  async scheduleWeeklySummaryNotif() {
+    if (!window.Capacitor?.Plugins?.LocalNotifications) return;
+    if (localStorage.getItem('qlt_weekly_notif_off') === '1') return;
+    const LN = window.Capacitor.Plugins.LocalNotifications;
+    try {
+      const perm = await LN.requestPermissions();
+      if (perm.display !== 'granted') return;
+      const id = 99005;
+      await LN.cancel({ notifications: [{ id }] });
+
+      // Compute next Sunday 21:00
+      const now = new Date();
+      const dow = now.getDay(); // CN=0
+      const daysUntilSunday = dow === 0
+        ? (now.getHours() < 21 ? 0 : 7) // CN trước 21h → fire today; sau 21h → next CN
+        : (7 - dow);
+      const nextSunday = new Date(now);
+      nextSunday.setDate(nextSunday.getDate() + daysUntilSunday);
+      nextSunday.setHours(21, 0, 0, 0);
+
+      // Skip nếu nextSunday < now (edge case)
+      if (nextSunday <= now) {
+        nextSunday.setDate(nextSunday.getDate() + 7);
+      }
+
+      const insights = this._computeWeeklyInsights();
+      const body = this._buildWeeklySummaryBody(insights);
+      const name = this._getDisplayName();
+
+      await LN.schedule({
+        notifications: [{
+          id,
+          title: `📊 Tổng kết tuần · ${name}`,
+          body,
+          schedule: { at: nextSunday, allowWhileIdle: true },
+          sound: 'default'
+        }]
+      });
+      console.log('[WeeklyNotif] scheduled at', nextSunday.toISOString());
+    } catch (e) { console.warn('Weekly summary notif lỗi:', e); }
+  },
+
   // ============ MORNING GREETING (8h sáng) ============
   // Notification chào buổi sáng — random 1 trong vài câu chào
   // Mục đích: tạo cảm giác "app đồng hành" + nhắc user mở app đầu ngày
@@ -1717,6 +1858,8 @@ const App = {
       try { await this.scheduleMorningGreeting(); } catch (_) {}
       // Schedule bill reminders (2 ngày trước kỳ định kỳ tới hạn)
       try { await this.scheduleBillReminders(); } catch (_) {}
+      // Schedule weekly summary (Chủ nhật 21h)
+      try { await this.scheduleWeeklySummaryNotif(); } catch (_) {}
 
       // Auto-process pending bank notifications (mỗi lần app khởi động).
       // User chuyển khoản → notif từ app NH → service capture vào cache →
@@ -1855,6 +1998,7 @@ const App = {
     if (this._dailyNotifRescheduleTimer) clearTimeout(this._dailyNotifRescheduleTimer);
     this._dailyNotifRescheduleTimer = setTimeout(() => {
       this.scheduleDailySummaryNotif().catch(() => {});
+      this.scheduleWeeklySummaryNotif().catch(() => {});
     }, 1000);
   },
 
@@ -6847,6 +6991,25 @@ const App = {
             try { await window.Capacitor.Plugins.LocalNotifications.cancel({ notifications: [{ id: 99003 }] }); } catch (_) {}
           }
           QLT_UI.toast('Đã tắt chào buổi sáng', { type: 'success' });
+        }
+      };
+    }
+
+    // Toggle weekly summary
+    const weeklyNotif = $('#setWeeklyNotif');
+    if (weeklyNotif) {
+      weeklyNotif.checked = localStorage.getItem('qlt_weekly_notif_off') !== '1';
+      weeklyNotif.onchange = async (e) => {
+        if (e.target.checked) {
+          localStorage.removeItem('qlt_weekly_notif_off');
+          await this.scheduleWeeklySummaryNotif();
+          QLT_UI.toast('Đã bật tổng kết tuần (CN 21h)', { type: 'success' });
+        } else {
+          localStorage.setItem('qlt_weekly_notif_off', '1');
+          if (window.Capacitor?.Plugins?.LocalNotifications) {
+            try { await window.Capacitor.Plugins.LocalNotifications.cancel({ notifications: [{ id: 99005 }] }); } catch (_) {}
+          }
+          QLT_UI.toast('Đã tắt tổng kết tuần', { type: 'success' });
         }
       };
     }
