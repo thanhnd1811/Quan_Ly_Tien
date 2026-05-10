@@ -8897,17 +8897,40 @@ const App = {
 
     for (const rule of (this.state.recurringRules || [])) {
       if (!rule.active) continue;
-      // Cursor bắt đầu từ today (forward projection)
-      let cursor = new Date(todayStr + 'T00:00:00');
-      cursor.setDate(cursor.getDate() - 1); // bắt đầu trước 1 ngày để recurringNextDate trả về today nếu match
-      let cursorStr = cursor.toISOString().slice(0, 10);
 
-      // Loop tối đa 60 lần để tránh infinite, project N ngày
-      for (let i = 0; i < 60; i++) {
+      // FIX BUG: Cursor advance + dedup để tránh runaway loop.
+      // Trước: nếu rule.frequency không match case nào trong recurringNextDate
+      // (vd 'biweekly', 'quarterly', undefined, hoặc fall-through case),
+      // hàm trả về fromDate → cursor không tiến → loop fire 60 lần cùng ngày.
+      // Sau: dedup bằng seenDates set + cap MAX_EVENTS_PER_RULE.
+      const seenDates = new Set();
+      const MAX_EVENTS_PER_RULE = 8;
+      const MAX_ITER = 40;
+      let cursorStr = todayStr;
+      let eventsAdded = 0;
+
+      for (let i = 0; i < MAX_ITER; i++) {
+        if (eventsAdded >= MAX_EVENTS_PER_RULE) break;
+
         const nextStr = this.recurringNextDate(rule, cursorStr);
-        if (!nextStr || nextStr > endStr) break;
+        // Validate: nextStr phải là valid date string YYYY-MM-DD
+        if (!nextStr || typeof nextStr !== 'string'
+            || !/^\d{4}-\d{2}-\d{2}$/.test(nextStr)) break;
+        if (nextStr > endStr) break;
         if (rule.endDate && nextStr > rule.endDate) break;
-        // Skip nếu nextStr <= today (đã được runRecurringRules xử lý)
+
+        // Dedup: nếu nextStr đã thấy → recurringNextDate đang loop → force advance
+        if (seenDates.has(nextStr)) {
+          const d = new Date(cursorStr + 'T00:00:00');
+          d.setDate(d.getDate() + 1);
+          const newCursor = d.toISOString().slice(0, 10);
+          if (newCursor === cursorStr || newCursor > endStr) break;
+          cursorStr = newCursor;
+          continue;
+        }
+        seenDates.add(nextStr);
+
+        // Skip nếu nextStr trong quá khứ (đã được runRecurringRules xử lý)
         if (nextStr < todayStr) {
           const d = new Date(nextStr + 'T00:00:00');
           d.setDate(d.getDate() + 1);
@@ -8927,6 +8950,7 @@ const App = {
           source: 'recurring',
           ruleId: rule.id
         });
+        eventsAdded++;
 
         const d = new Date(nextStr + 'T00:00:00');
         d.setDate(d.getDate() + 1);
@@ -8934,20 +8958,14 @@ const App = {
       }
     }
 
-    // 2. Reminders với dueDate trong window
-    for (const rem of (this.state.reminders || [])) {
-      if (rem.done) continue;
-      if (!rem.dueDate) continue;
-      if (rem.dueDate < todayStr || rem.dueDate > endStr) continue;
-      addEvent(rem.dueDate, {
-        type: rem.amount > 0 ? 'expense' : 'income', // reminder thường là phải trả
-        amount: Math.abs(rem.amount || 0),
-        accountId: rem.accountId,
-        name: rem.title || 'Nhắc nhở',
-        source: 'reminder',
-        reminderId: rem.id
-      });
-    }
+    // 2. Reminders — schema có frequency + startDate (giống recurring rules,
+    // nhưng dành cho lời nhắc đóng tiền). Bỏ qua nếu không có amount > 0
+    // (reminder không phải là tx — chỉ là alert nhắc).
+    // Tạm thời SKIP reminders trong cashflow projection vì:
+    // - Reminder ko phải GD chắc chắn (chỉ là gợi ý, user có thể skip)
+    // - Recurring rules đã cover các kỳ thanh toán định kỳ thật
+    // → Tránh double-count: 1 khoản đã có rule + reminder.
+    // Nếu user muốn reminder vào projection, chuyển reminder thành recurring rule.
 
     // 3. Build balanceByDay projection
     // Bắt đầu từ balance hiện tại của từng ví, apply events theo thứ tự ngày
