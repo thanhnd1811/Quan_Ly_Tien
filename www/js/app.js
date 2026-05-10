@@ -1075,6 +1075,19 @@ const App = {
   },
 
   // Schedule notification "Tổng kết hôm nay" 20h hằng ngày
+  // Lấy tên hiển thị của user (Google profile nếu có, fallback "bạn")
+  _getDisplayName() {
+    try {
+      const u = window.QLT_Auth?.user;
+      if (u?.name) {
+        // Lấy tên đầu (first name) cho thân mật, vd "Thanh Nguyễn" → "Thanh"
+        const firstName = String(u.name).split(/\s+/).pop(); // VN: tên thường ở cuối
+        return firstName || u.name;
+      }
+    } catch (_) {}
+    return 'bạn';
+  },
+
   async scheduleDailySummaryNotif() {
     if (!window.Capacitor?.Plugins?.LocalNotifications) return;
     if (localStorage.getItem('qlt_daily_notif_off') === '1') return;
@@ -1083,7 +1096,6 @@ const App = {
       const perm = await LN.requestPermissions();
       console.log('[DailyNotif] permission:', perm);
       if (perm.display !== 'granted') {
-        // User chưa cấp quyền → toast cảnh báo (chỉ hiện khi user vừa toggle)
         console.warn('[DailyNotif] Notification permission KHÔNG cấp:', perm.display);
         return;
       }
@@ -1095,9 +1107,23 @@ const App = {
       const expToday = this.state.transactions
         .filter(t => t.type === 'expense' && t.date === todayStr)
         .reduce((s, t) => s + t.amount, 0);
-      const body = expToday > 0
-        ? `Hôm nay đã chi ${fmt(expToday)} đ. Bấm để xem chi tiết.`
-        : 'Hôm nay chưa ghi giao dịch nào. Đừng quên ghi lại nhé!';
+      const countToday = this.state.transactions.filter(t => t.date === todayStr).length;
+      const name = this._getDisplayName();
+
+      // Cải tiến: khi 0 GD → message thúc giục mạnh hơn, có nhắc tên user
+      let body;
+      if (countToday === 0) {
+        // Xoay vòng giữa 3 messages để không nhàm chán (chọn theo ngày)
+        const reminders = [
+          `🤔 ${name} ơi, hôm nay chưa ghi giao dịch nào. Quên à? Tap để mở app ghi nhanh.`,
+          `📝 Hôm nay 0 giao dịch. ${name} có chi tiêu gì mà chưa ghi không?`,
+          `⏰ Cuối ngày rồi mà sổ vẫn trống. Đừng để ngày mai quên hết, ghi luôn đi ${name}!`
+        ];
+        const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+        body = reminders[dayOfYear % reminders.length];
+      } else {
+        body = `Hôm nay đã chi ${fmt(expToday)} đ qua ${countToday} giao dịch. Bấm để xem chi tiết.`;
+      }
 
       await LN.schedule({
         notifications: [{
@@ -1109,6 +1135,56 @@ const App = {
         }]
       });
     } catch (e) { console.warn('Daily summary notif lỗi:', e); }
+  },
+
+  // ============ MORNING GREETING (8h sáng) ============
+  // Notification chào buổi sáng — random 1 trong vài câu chào
+  // Mục đích: tạo cảm giác "app đồng hành" + nhắc user mở app đầu ngày
+  async scheduleMorningGreeting() {
+    if (!window.Capacitor?.Plugins?.LocalNotifications) return;
+    if (localStorage.getItem('qlt_morning_notif_off') === '1') return;
+    const LN = window.Capacitor.Plugins.LocalNotifications;
+    try {
+      const perm = await LN.requestPermissions();
+      if (perm.display !== 'granted') {
+        console.warn('[MorningNotif] Notification permission KHÔNG cấp');
+        return;
+      }
+      const id = 99003;
+      await LN.cancel({ notifications: [{ id }] });
+
+      // Xoay vòng greetings theo ngày (deterministic — cùng 1 ngày luôn 1 greeting)
+      const name = this._getDisplayName();
+      const greetings = [
+        { title: `☀️ Chào buổi sáng, ${name}!`,
+          body: 'Bắt đầu ngày mới năng lượng nhé. Hôm nay dự định chi tiêu gì?' },
+        { title: `🌅 Một ngày mới đến rồi, ${name}!`,
+          body: 'Đừng quên ghi lại các khoản chi để cuối tháng không bất ngờ.' },
+        { title: `🌞 Hi ${name}! Sáng tốt lành!`,
+          body: 'Đi cà phê sáng nay hết bao nhiêu? Mở app ghi luôn cho khỏi quên.' },
+        { title: `☕ Good morning, ${name}!`,
+          body: 'Lên kế hoạch tài chính tuyệt vời ngay từ sáng nhé.' },
+        { title: `🌻 Ngày mới ${name} ơi!`,
+          body: 'Tiền vào tiền ra — ghi đầy đủ là làm chủ tài chính. Cùng nào!' },
+        { title: `💪 Sáng tốt, ${name}!`,
+          body: 'Mục tiêu hôm nay: chi tiêu thông minh, tiết kiệm thêm 1 chút.' },
+        { title: `🍀 Hello ${name}!`,
+          body: 'Hôm nay bạn có khoản thu/chi nào dự kiến không? Lên app ghi trước nhé.' }
+      ];
+      const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+      const pick = greetings[dayOfYear % greetings.length];
+
+      await LN.schedule({
+        notifications: [{
+          id,
+          title: pick.title,
+          body: pick.body,
+          schedule: { on: { hour: 8, minute: 0 }, allowWhileIdle: true },
+          sound: 'default'
+        }]
+      });
+      console.log('[MorningNotif] scheduled 8:00 —', pick.title);
+    } catch (e) { console.warn('Morning greeting notif lỗi:', e); }
   },
 
   // Xử lý deeplink từ App shortcuts (qltien://add?type=expense)
@@ -1383,6 +1459,8 @@ const App = {
 
       // Schedule daily summary notification (8h tối) nếu user cho phép
       try { await this.scheduleDailySummaryNotif(); } catch (_) {}
+      // Schedule morning greeting (8h sáng) nếu user cho phép
+      try { await this.scheduleMorningGreeting(); } catch (_) {}
 
       // Lắng nghe deeplink qltien:// từ App shortcuts (long-press icon)
       try {
@@ -5726,6 +5804,25 @@ const App = {
             try { await window.Capacitor.Plugins.LocalNotifications.cancel({ notifications: [{ id: 99001 }] }); } catch (_) {}
           }
           QLT_UI.toast('Đã tắt thông báo tổng kết', { type: 'success' });
+        }
+      };
+    }
+
+    // Toggle chào buổi sáng (8h)
+    const morningNotif = $('#setMorningNotif');
+    if (morningNotif) {
+      morningNotif.checked = localStorage.getItem('qlt_morning_notif_off') !== '1';
+      morningNotif.onchange = async (e) => {
+        if (e.target.checked) {
+          localStorage.removeItem('qlt_morning_notif_off');
+          await this.scheduleMorningGreeting();
+          QLT_UI.toast('Đã bật chào buổi sáng (8h)', { type: 'success' });
+        } else {
+          localStorage.setItem('qlt_morning_notif_off', '1');
+          if (window.Capacitor?.Plugins?.LocalNotifications) {
+            try { await window.Capacitor.Plugins.LocalNotifications.cancel({ notifications: [{ id: 99003 }] }); } catch (_) {}
+          }
+          QLT_UI.toast('Đã tắt chào buổi sáng', { type: 'success' });
         }
       };
     }

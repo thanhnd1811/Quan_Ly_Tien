@@ -2494,7 +2494,18 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
       <div class="settings-group-content">
         <div class="settings-group-body">
           <div class="setting-row">
-            <span class="setting-label">Tổng kết hằng ngày (20h)</span>
+            <span class="setting-label" style="line-height:1.5">Chào buổi sáng (8h)
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">Lời chào + nhắc nhở tài chính mỗi sáng</div>
+            </span>
+            <label class="qlt-switch">
+              <input type="checkbox" id="setMorningNotif">
+              <span class="qlt-switch-slider"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label" style="line-height:1.5">Tổng kết hằng ngày (20h)
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">Cuối ngày báo tổng chi + nhắc nếu quên ghi GD</div>
+            </span>
             <label class="qlt-switch">
               <input type="checkbox" id="setDailyNotif">
               <span class="qlt-switch-slider"></span>
