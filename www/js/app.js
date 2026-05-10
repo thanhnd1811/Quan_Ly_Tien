@@ -3821,10 +3821,31 @@ const App = {
     if (!wrap) return;
 
     const history = this._computeNetWorthHistory(12);
+    if (history.length === 0) {
+      // Không có tx nào → ẩn section thay vì hiện trống
+      wrap.innerHTML = '';
+      return;
+    }
     if (history.length < 2) {
+      // Chỉ 1 tháng có data → không vẽ chart vì 1 điểm không có "trend"
+      const only = history[0];
       wrap.innerHTML = `
-        <div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">
-          📊 Cần ít nhất 2 tháng data để hiển thị net worth trend.
+        <div style="padding:0 4px;margin-bottom:8px">
+          <div style="font-size:13px;font-weight:700;color:var(--text);letter-spacing:.3px;text-transform:uppercase">
+            📈 Net Worth — Tổng tài sản
+          </div>
+        </div>
+        <div style="background:var(--surface2);padding:14px;border-radius:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="font-size:11px;color:var(--text3)">${this.escapeHtml(only.label)} · ${only.month.slice(0, 4)}</div>
+            <div style="font-size:18px;font-weight:700">${fmt(only.netWorth)}đ</div>
+          </div>
+          <div style="margin-top:8px;font-size:11px;color:var(--text3);line-height:1.5">
+            💼 Ví: <strong style="color:var(--text2)">${fmt(only.paymentTotal)}đ</strong> · 💎 Tiết kiệm: <strong style="color:var(--text2)">${fmt(only.savingsTotal)}đ</strong>
+          </div>
+          <div style="margin-top:10px;padding:8px 10px;background:rgba(99,102,241,.08);border-radius:6px;font-size:11px;color:var(--text2);line-height:1.5">
+            ℹ️ Cần thêm <strong>1 tháng dữ liệu</strong> để hiển thị xu hướng (trend chart cần ≥ 2 điểm).
+          </div>
         </div>
       `;
       return;
@@ -8778,12 +8799,34 @@ const App = {
     const todayDate = new Date(today() + 'T00:00:00');
     const result = [];
 
+    // FIX BUG: tìm tháng có data thật để chỉ render từ đó.
+    // Trước: algorithm rollback balance qua tx → nếu user có balance 5tr
+    // mà KHÔNG có tx tháng trước → ra ra balance 5tr cho mọi tháng → biểu đồ giả.
+    // Sau: chỉ render từ tháng đầu tiên có tx (hoặc account.createdAt nếu có).
+    if (txs.length === 0) {
+      // Hoàn toàn không có tx → không có dữ liệu lịch sử để vẽ
+      this.state[cacheKey] = { ts: Date.now(), ver: cacheVer, data: [] };
+      return [];
+    }
+
+    // Earliest tx date in DB
+    const earliestTxDate = txs.map(t => t.date).filter(Boolean).sort()[0];
+    if (!earliestTxDate) {
+      this.state[cacheKey] = { ts: Date.now(), ver: cacheVer, data: [] };
+      return [];
+    }
+    const earliestMonth = earliestTxDate.slice(0, 7); // YYYY-MM
+
     for (let i = months - 1; i >= 0; i--) {
       // Last day of (current month - i months)
       const d = new Date(todayDate.getFullYear(), todayDate.getMonth() - i + 1, 0);
       // Nếu d > today → use today (current month chưa kết thúc)
       const targetDate = d > todayDate ? todayDate : d;
       const dateStr = targetDate.toISOString().slice(0, 10);
+      const targetMonth = targetDate.toISOString().slice(0, 7);
+
+      // SKIP nếu tháng này TRƯỚC tháng có tx đầu tiên — không có data thật
+      if (targetMonth < earliestMonth) continue;
 
       let paymentTotal = 0, savingsTotal = 0;
       for (const acc of accounts) {
@@ -8793,7 +8836,7 @@ const App = {
         for (const t of txs) {
           if (!t.date || t.date <= dateStr) continue; // chỉ tính tx SAU dateStr
           if (t.type === 'expense' && t.accountId === acc.id) {
-            delta -= t.amount; // tx này giảm balance → trước đó cao hơn
+            delta -= t.amount;
           } else if (t.type === 'income' && t.accountId === acc.id) {
             delta += t.amount;
           } else if (t.type === 'transfer') {
@@ -8801,7 +8844,6 @@ const App = {
             if (t.toAccountId === acc.id) delta += t.amount;
           }
         }
-        // balanceAt(target) = current - delta(target → now)
         const histBal = current - delta;
 
         if (this.isPayment(acc)) paymentTotal += histBal;
@@ -8810,7 +8852,7 @@ const App = {
       }
 
       result.push({
-        month: targetDate.toISOString().slice(0, 7),
+        month: targetMonth,
         label: `T${targetDate.getMonth() + 1}`,
         date: dateStr,
         netWorth: paymentTotal + savingsTotal,
