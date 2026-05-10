@@ -73,13 +73,38 @@ const QLT_UI = (() => {
     if (!wrap) return;
     const el = document.createElement('div');
     el.className = 'qlt-toast' + (opts.type ? ' ' + opts.type : '');
-    el.textContent = message;
+
+    // Support action button: opts.action = { label, callback }
+    // VD: QLT_UI.toast('Đã xoá', { type: 'success', action: { label: 'Hoàn tác', callback: () => restoreTx() }, duration: 5000 })
+    if (opts.action && typeof opts.action.callback === 'function') {
+      const text = document.createElement('span');
+      text.className = 'qlt-toast-text';
+      text.textContent = message;
+      el.appendChild(text);
+      const btn = document.createElement('button');
+      btn.className = 'qlt-toast-action';
+      btn.type = 'button';
+      btn.textContent = opts.action.label || 'Hoàn tác';
+      let consumed = false;
+      btn.onclick = () => {
+        if (consumed) return;
+        consumed = true;
+        try { opts.action.callback(); } catch (e) { console.warn('toast action lỗi:', e); }
+        el.classList.add('fade');
+        setTimeout(() => el.remove(), 260);
+      };
+      el.appendChild(btn);
+    } else {
+      el.textContent = message;
+    }
+
     wrap.appendChild(el);
-    const ms = opts.duration || (opts.type === 'error' ? 3500 : 2200);
+    const ms = opts.duration || (opts.type === 'error' ? 3500 : opts.action ? 5000 : 2200);
     setTimeout(() => {
       el.classList.add('fade');
       setTimeout(() => el.remove(), 260);
     }, ms);
+
     // Haptic feedback theo type — silent if disabled (qlt_haptic_off)
     if (!localStorage.getItem('qlt_haptic_off') === '1' && navigator.vibrate) {
       try {
@@ -2737,27 +2762,17 @@ const App = {
   // Undo toast — hiện thông báo "Đã xoá. Hoàn tác?" trong 5s
   // onUndo: function chạy khi user bấm hoàn tác (phải tự khôi phục data)
   showUndoToast(message, onUndo, durationMs = 5000) {
-    const wrap = document.getElementById('qltToastWrap');
-    if (!wrap) return;
-    const el = document.createElement('div');
-    el.className = 'qlt-toast undo-toast';
-    el.style.cssText = 'background:var(--text);color:var(--bg);display:flex;align-items:center;gap:14px';
-    el.innerHTML = `
-      <span style="flex:1">${this.escapeHtml(message)}</span>
-      <button style="background:transparent;color:#f4b942;border:none;font-weight:700;font-size:13px;cursor:pointer;padding:4px 10px">HOÀN TÁC</button>
-    `;
-    wrap.appendChild(el);
-    let undone = false;
-    const btn = el.querySelector('button');
-    btn.onclick = async () => {
-      if (undone) return;
-      undone = true;
-      try { await onUndo(); } catch (e) { console.warn('Undo lỗi:', e); }
-      el.remove();
-    };
-    setTimeout(() => {
-      if (!undone) { el.classList.add('fade'); setTimeout(() => el.remove(), 260); }
-    }, durationMs);
+    // Dùng QLT_UI.toast với action API (mới) — CSS nhất quán, design polish hơn.
+    QLT_UI.toast(message, {
+      type: 'success',
+      duration: durationMs,
+      action: {
+        label: 'Hoàn tác',
+        callback: () => {
+          Promise.resolve(onUndo()).catch(e => console.warn('Undo lỗi:', e));
+        }
+      }
+    });
   },
 
   // Helper: skeleton placeholder cho list rows (dùng khi đang load)

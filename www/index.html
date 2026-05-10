@@ -1279,6 +1279,11 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
 .qlt-toast{background:rgba(15,30,22,0.95);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;padding:13px 20px;border-radius:26px;font-size:13.5px;font-weight:500;max-width:420px;box-shadow:0 10px 30px rgba(0,0,0,0.30), 0 4px 10px rgba(0,0,0,0.18);animation:toastIn .26s cubic-bezier(.2,.8,.3,1.2);text-align:center;line-height:1.4;word-break:break-word;letter-spacing:0.1px}
 .qlt-toast.success{background:linear-gradient(135deg,#1f5239,#2d6a4f)}
 .qlt-toast.error{background:linear-gradient(135deg,#a8324a,#c94060)}
+/* Toast với action button (vd Hoàn tác) */
+.qlt-toast:has(.qlt-toast-action){display:flex;align-items:center;gap:14px;padding:12px 12px 12px 20px;text-align:left}
+.qlt-toast-text{flex:1}
+.qlt-toast-action{background:rgba(255,255,255,.18);border:none;color:#fff;font-weight:700;font-size:13px;padding:8px 14px;border-radius:18px;cursor:pointer;flex-shrink:0;letter-spacing:.3px;text-transform:uppercase;transition:background .15s}
+.qlt-toast-action:active{background:rgba(255,255,255,.32)}
 .qlt-toast.info{background:linear-gradient(135deg,#1e4a6b,#2c6391)}
 .qlt-toast.fade{animation:toastOut .28s ease forwards}
 @keyframes toastIn{from{opacity:0;transform:translateY(20px) scale(.92)}to{opacity:1;transform:translateY(0) scale(1)}}
