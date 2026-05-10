@@ -1321,6 +1321,69 @@ const App = {
     } catch (e) { console.warn('Daily summary notif lỗi:', e); }
   },
 
+  // ============ BILL REMINDER — nhắc 2 ngày trước kỳ định kỳ tới hạn ============
+  // Quét tất cả recurringRules active, tính ngày đáo hạn kế tiếp, schedule
+  // notification 2 ngày trước (lúc 10:00 sáng).
+  // Notification ID range: 99010-99029 (cap 20 reminders cùng lúc).
+  async scheduleBillReminders() {
+    if (!window.Capacitor?.Plugins?.LocalNotifications) return;
+    if (localStorage.getItem('qlt_bill_reminder_off') === '1') return;
+    const LN = window.Capacitor.Plugins.LocalNotifications;
+    try {
+      const perm = await LN.requestPermissions();
+      if (perm.display !== 'granted') return;
+
+      // Cancel toàn bộ bill reminders cũ trước (tránh duplicate khi reschedule)
+      const cancelIds = Array.from({ length: 20 }, (_, i) => ({ id: 99010 + i }));
+      await LN.cancel({ notifications: cancelIds });
+
+      const rules = (this.state.recurringRules || []).filter(r => r.active);
+      if (rules.length === 0) return;
+
+      const now = new Date();
+      const todayStr = today();
+      let nextId = 99010;
+
+      for (const rule of rules) {
+        if (nextId > 99029) break; // Cap 20
+
+        // Tính ngày đáo hạn kế tiếp (dựa trên lastRunDate hoặc startDate)
+        const cursorStr = rule.lastRunDate || rule.startDate || todayStr;
+        const nextDateStr = this.recurringNextDate(rule, cursorStr);
+        if (!nextDateStr) continue;
+        if (rule.endDate && nextDateStr > rule.endDate) continue;
+
+        // Reminder time = 2 ngày trước, 10:00 sáng
+        const dueDate = new Date(nextDateStr + 'T00:00:00');
+        const reminderTime = new Date(dueDate);
+        reminderTime.setDate(reminderTime.getDate() - 2);
+        reminderTime.setHours(10, 0, 0, 0);
+
+        // Skip nếu reminder đã qua hoặc trong vòng 2h tới (notif gấp ko có giá trị)
+        if (reminderTime.getTime() - now.getTime() < 2 * 3600 * 1000) continue;
+
+        const cat = this.state.categories?.find(c => c.id === rule.categoryId);
+        const acc = this.state.accounts?.find(a => a.id === rule.accountId);
+        const typeLabel = rule.type === 'expense' ? '💸 Chi'
+                        : rule.type === 'income' ? '💰 Thu' : '🔄 Chuyển';
+
+        const title = `📅 Sắp đến kỳ: ${rule.name || cat?.name || 'GD định kỳ'}`;
+        const body = `Còn 2 ngày → ${nextDateStr}\n${typeLabel} ${fmt(rule.amount)} đ${acc ? ' · ' + acc.name : ''}`;
+
+        await LN.schedule({
+          notifications: [{
+            id: nextId++,
+            title,
+            body,
+            schedule: { at: reminderTime, allowWhileIdle: true },
+            sound: 'default'
+          }]
+        });
+        console.log(`[BillReminder] Scheduled ${rule.name} → ${reminderTime.toISOString()}`);
+      }
+    } catch (e) { console.warn('Bill reminder lỗi:', e); }
+  },
+
   // ============ MORNING GREETING (8h sáng) ============
   // Notification chào buổi sáng — random 1 trong vài câu chào
   // Mục đích: tạo cảm giác "app đồng hành" + nhắc user mở app đầu ngày
@@ -1645,6 +1708,8 @@ const App = {
       try { await this.scheduleDailySummaryNotif(); } catch (_) {}
       // Schedule morning greeting (8h sáng) nếu user cho phép
       try { await this.scheduleMorningGreeting(); } catch (_) {}
+      // Schedule bill reminders (2 ngày trước kỳ định kỳ tới hạn)
+      try { await this.scheduleBillReminders(); } catch (_) {}
 
       // Lắng nghe deeplink qltien:// từ App shortcuts (long-press icon)
       try {
@@ -4581,6 +4646,92 @@ const App = {
       hintHtml = `<div class="forecast-hint">💡 Giữ ≤ <strong>${fmt(safeDailyCap)} đ/ngày</strong> trong ${remainDays} ngày còn lại để không vượt dự báo</div>`;
     }
 
+    // ===== TOP 3 CATEGORY TĂNG/GIẢM (driver phân tích) =====
+    // So sánh chi từng danh mục cha tháng này vs trung bình 3 tháng trước cùng vị trí ngày
+    // → giúp user thấy CỤ THỂ category nào đang đẩy forecast lên/xuống.
+    let driversHtml = '';
+    if (validMonths.length >= 1) {
+      // Map category cha → tổng tháng này (chỉ tính tới ngày hiện tại để fair compare)
+      const cats = this.state.categories || [];
+      const parentOf = (catId) => {
+        const c = cats.find(x => x.id === catId);
+        if (!c) return null;
+        return c.parentId ? cats.find(x => x.id === c.parentId) : c;
+      };
+
+      // Aggregate hiện tại tháng này (đến hôm nay)
+      const currentByParent = {}; // parentId → { name, sum }
+      for (const t of this.state.transactions) {
+        if (!this.isRealExpense(t) || !t.date.startsWith(ym)) continue;
+        const p = parentOf(t.categoryId);
+        if (!p) continue;
+        if (!currentByParent[p.id]) currentByParent[p.id] = { name: p.name, sum: 0 };
+        currentByParent[p.id].sum += t.amount;
+      }
+
+      // Aggregate trung bình các tháng trước (tới ngày dayOfMonth — fair compare)
+      const prevAvgByParent = {};
+      for (const m of validMonths) {
+        const [y, mo] = m.ym.split('-').map(Number);
+        const cutoffDay = dayOfMonth; // chỉ tính tới ngày X
+        for (const t of this.state.transactions) {
+          if (!this.isRealExpense(t) || !t.date.startsWith(m.ym)) continue;
+          const tDay = parseInt(t.date.slice(8, 10), 10);
+          if (tDay > cutoffDay) continue;
+          const p = parentOf(t.categoryId);
+          if (!p) continue;
+          if (!prevAvgByParent[p.id]) prevAvgByParent[p.id] = { name: p.name, sums: [] };
+          // group by month first
+          const key = m.ym;
+          if (!prevAvgByParent[p.id]._tmpMonth) prevAvgByParent[p.id]._tmpMonth = {};
+          prevAvgByParent[p.id]._tmpMonth[key] = (prevAvgByParent[p.id]._tmpMonth[key] || 0) + t.amount;
+        }
+      }
+      // Compute average per parent across validMonths
+      const prevFinal = {};
+      for (const pid in prevAvgByParent) {
+        const monthSums = Object.values(prevAvgByParent[pid]._tmpMonth || {});
+        if (!monthSums.length) continue;
+        const avg = monthSums.reduce((s, x) => s + x, 0) / validMonths.length;
+        prevFinal[pid] = { name: prevAvgByParent[pid].name, avg };
+      }
+
+      // Compute diff cho từng parent
+      const allParents = new Set([...Object.keys(currentByParent), ...Object.keys(prevFinal)]);
+      const drivers = [];
+      for (const pid of allParents) {
+        const curSum = currentByParent[pid]?.sum || 0;
+        const prevAvg = prevFinal[pid]?.avg || 0;
+        const name = currentByParent[pid]?.name || prevFinal[pid]?.name || '?';
+        const diff = curSum - prevAvg;
+        // Skip nếu < 50k diff (noise)
+        if (Math.abs(diff) < 50000) continue;
+        drivers.push({ name, curSum, prevAvg, diff });
+      }
+      drivers.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+      const top = drivers.slice(0, 3);
+
+      if (top.length > 0) {
+        const rows = top.map(d => {
+          const pct = d.prevAvg > 0 ? Math.round(Math.abs(d.diff) / d.prevAvg * 100) : null;
+          const arrow = d.diff > 0 ? '▲' : '▼';
+          const cls = d.diff > 0 ? 'up' : 'down';
+          const pctStr = pct != null ? `${pct}%` : 'mới';
+          return `<div class="forecast-driver-row">
+            <span class="forecast-driver-name">${d.name}</span>
+            <span class="forecast-driver-amt">${fmt(d.curSum)} đ</span>
+            <span class="forecast-driver-diff ${cls}">${arrow} ${pctStr}</span>
+          </div>`;
+        }).join('');
+        driversHtml = `
+          <div class="forecast-drivers">
+            <div class="forecast-drivers-head">📍 So với cùng kỳ tháng trước (đến ngày ${dayOfMonth})</div>
+            ${rows}
+          </div>
+        `;
+      }
+    }
+
     // Progress bar: đã chi (xanh) — marker ở vị trí % ngày đã qua
     const dayPct = Math.round(dayOfMonth / totalDays * 100);
     const spentPct = forecast > 0 ? Math.min(100, Math.round(spent / forecast * 100)) : 0;
@@ -4605,6 +4756,7 @@ const App = {
           <span>Hôm nay (${dayPct}%)</span>
           <span>Cuối ${monthLabel}</span>
         </div>
+        ${driversHtml}
       </div>
     `;
   },
@@ -6076,6 +6228,33 @@ const App = {
             try { await window.Capacitor.Plugins.LocalNotifications.cancel({ notifications: [{ id: 99003 }] }); } catch (_) {}
           }
           QLT_UI.toast('Đã tắt chào buổi sáng', { type: 'success' });
+        }
+      };
+    }
+
+    // Toggle nhắc kỳ thanh toán
+    const billReminder = $('#setBillReminder');
+    if (billReminder) {
+      billReminder.checked = localStorage.getItem('qlt_bill_reminder_off') !== '1';
+      billReminder.onchange = async (e) => {
+        if (e.target.checked) {
+          localStorage.removeItem('qlt_bill_reminder_off');
+          await this.scheduleBillReminders();
+          const ruleCount = (this.state.recurringRules || []).filter(r => r.active).length;
+          QLT_UI.toast(
+            ruleCount > 0
+              ? `Đã bật nhắc cho ${ruleCount} giao dịch định kỳ`
+              : 'Đã bật — chưa có giao dịch định kỳ nào để nhắc',
+            { type: 'success' }
+          );
+        } else {
+          localStorage.setItem('qlt_bill_reminder_off', '1');
+          if (window.Capacitor?.Plugins?.LocalNotifications) {
+            // Cancel toàn bộ bill reminders (id 99010-99029)
+            const cancelIds = Array.from({ length: 20 }, (_, i) => ({ id: 99010 + i }));
+            try { await window.Capacitor.Plugins.LocalNotifications.cancel({ notifications: cancelIds }); } catch (_) {}
+          }
+          QLT_UI.toast('Đã tắt nhắc kỳ thanh toán', { type: 'success' });
         }
       };
     }
@@ -11730,6 +11909,8 @@ const App = {
     $('#recurringModal').classList.remove('open');
     this.renderRecurring();
     if (this.state.currentTab === 'home') this.renderHome();
+    // Re-schedule bill reminders để bắt rule mới/cập nhật
+    this.scheduleBillReminders().catch(() => {});
     this.autoSync();
   },
 
@@ -11741,6 +11922,8 @@ const App = {
     await this.reload();
     $('#recurringModal').classList.remove('open');
     this.renderRecurring();
+    // Re-schedule bill reminders sau khi xoá rule
+    this.scheduleBillReminders().catch(() => {});
     this.autoSync();
     QLT_UI.toast('Đã xoá quy tắc', { type: 'success' });
   },
