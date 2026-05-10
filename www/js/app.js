@@ -6389,23 +6389,28 @@ const App = {
   // ============ SETTINGS ============
   // Accordion: tap heading → toggle expand/collapse, persist trong localStorage
   initSettingsAccordion() {
-    const STATE_KEY = 'qlt_settings_accordion';
-    const saved = JSON.parse(localStorage.getItem(STATE_KEY) || '{}');
+    // Single-open accordion: chỉ 1 section mở tại một thời điểm.
+    // Default: tất cả collapsed. Tap để mở → tự đóng section cũ.
+    const allGroups = $$('.settings-group[data-collapsible]');
 
-    $$('.settings-group[data-collapsible]').forEach(group => {
-      const id = group.id;
-      // Restore saved state (override default expanded class nếu user đã đóng/mở thủ công)
-      if (id && Object.prototype.hasOwnProperty.call(saved, id)) {
-        group.classList.toggle('expanded', !!saved[id]);
-      }
+    // Đảm bảo all collapsed mặc định (xoá class expanded nếu có sẵn từ HTML)
+    allGroups.forEach(g => g.classList.remove('expanded'));
+
+    allGroups.forEach(group => {
       const head = group.querySelector('.settings-group-head');
       if (!head || head._accBound) return;
       head._accBound = true;
       head.onclick = () => {
-        group.classList.toggle('expanded');
-        if (id) {
-          saved[id] = group.classList.contains('expanded');
-          localStorage.setItem(STATE_KEY, JSON.stringify(saved));
+        const wasExpanded = group.classList.contains('expanded');
+        // Đóng TẤT CẢ trước
+        allGroups.forEach(g => g.classList.remove('expanded'));
+        // Nếu section này chưa mở → mở; nếu đã mở rồi → để đóng (toggle).
+        if (!wasExpanded) {
+          group.classList.add('expanded');
+          // Smooth scroll header lên đầu màn hình để user thấy nội dung
+          setTimeout(() => {
+            head.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 200);
         }
       };
     });
@@ -8619,16 +8624,9 @@ const App = {
     if (badgeEl) badgeEl.style.display = hasKey ? 'none' : 'inline-block';
     if (removeBtn) removeBtn.style.display = hasKey ? 'block' : 'none';
 
-    // Auto-expand section AI nếu chưa setup (để user thấy ngay)
-    const aiSec = $('#setSecAI');
-    if (aiSec && !hasKey && !aiSec.classList.contains('expanded')) {
-      const stateKey = 'qlt_settings_accordion';
-      const saved = JSON.parse(localStorage.getItem(stateKey) || '{}');
-      // Chỉ auto-expand nếu user CHƯA tự đóng (không có entry trong saved state)
-      if (!Object.prototype.hasOwnProperty.call(saved, 'setSecAI')) {
-        aiSec.classList.add('expanded');
-      }
-    }
+    // Trước đây auto-expand section AI nếu chưa setup. Nay đã chuyển sang
+    // single-open accordion → tất cả default collapsed, không auto-expand
+    // section nào nữa (theo yêu cầu user).
 
     // Restore key vào ô input nếu có (mask hết)
     if (keyInput && hasKey) {
