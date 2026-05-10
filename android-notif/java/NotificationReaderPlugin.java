@@ -155,4 +155,92 @@ public class NotificationReaderPlugin extends Plugin {
             call.reject("Lỗi xoá cache: " + e.getMessage(), e);
         }
     }
+
+    /**
+     * Cancel summary notification (clear badge count trên icon launcher).
+     * Gọi sau khi JS đã process pending notifs xong.
+     */
+    @PluginMethod
+    public void clearBadge(PluginCall call) {
+        try {
+            androidx.core.app.NotificationManagerCompat
+                .from(getContext())
+                .cancel(99100); // NotificationReaderService.SUMMARY_NOTIF_ID
+            JSObject ret = new JSObject();
+            ret.put("cleared", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Lỗi clear badge: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Update badge count thủ công. Dùng nếu JS muốn override count
+     * (vd: count theo logic riêng — pending bao gồm chưa save thành công).
+     */
+    @PluginMethod
+    public void setBadgeCount(PluginCall call) {
+        int count = call.getInt("count", 0);
+        try {
+            if (count <= 0) {
+                androidx.core.app.NotificationManagerCompat
+                    .from(getContext()).cancel(99100);
+            } else {
+                // Reuse logic của service — gọi service helper qua context
+                Intent i = new Intent(getContext(), NotificationReaderService.class);
+                i.setAction("UPDATE_BADGE");
+                i.putExtra("count", count);
+                // Service không expose method từ ngoài → đơn giản nhất: post
+                // notification từ plugin trực tiếp (cùng channel, cùng id)
+                postBadgeNotification(count);
+            }
+            JSObject ret = new JSObject();
+            ret.put("ok", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Lỗi setBadgeCount: " + e.getMessage(), e);
+        }
+    }
+
+    private void postBadgeNotification(int count) {
+        // Mirror logic NotificationReaderService.postSummaryNotification
+        // Đơn giản hoá: chỉ post notif với count
+        try {
+            android.content.Context ctx = getContext();
+            android.app.NotificationManager mgr = (android.app.NotificationManager)
+                ctx.getSystemService(android.content.Context.NOTIFICATION_SERVICE);
+            if (mgr == null) return;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                android.app.NotificationChannel channel = new android.app.NotificationChannel(
+                    "qlt_bank_summary", "💰 GD ngân hàng chờ ghi",
+                    android.app.NotificationManager.IMPORTANCE_LOW
+                );
+                channel.setShowBadge(true);
+                mgr.createNotificationChannel(channel);
+            }
+            Intent openIntent = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+            if (openIntent != null) {
+                openIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                int piFlags = android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                    | android.app.PendingIntent.FLAG_IMMUTABLE;
+                android.app.PendingIntent pi = android.app.PendingIntent
+                    .getActivity(ctx, 0, openIntent, piFlags);
+
+                androidx.core.app.NotificationCompat.Builder builder =
+                    new androidx.core.app.NotificationCompat.Builder(ctx, "qlt_bank_summary")
+                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setContentTitle("💰 " + count + " giao dịch ngân hàng chờ ghi")
+                    .setContentText("Tap để mở app — tự ghi vào sổ")
+                    .setNumber(count)
+                    .setContentIntent(pi)
+                    .setAutoCancel(false)
+                    .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW);
+
+                try {
+                    androidx.core.app.NotificationManagerCompat.from(ctx)
+                        .notify(99100, builder.build());
+                } catch (SecurityException ignore) { }
+            }
+        } catch (Exception ignore) { }
+    }
 }

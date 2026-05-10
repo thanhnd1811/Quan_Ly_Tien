@@ -295,6 +295,18 @@ jobs:
                   print('::error::FAILED to add REQUEST_INSTALL_PACKAGES')
                   sys.exit(1)
 
+          # 1ff) POST_NOTIFICATIONS — Android 13+ yêu cầu để app post notif
+          # (Cần cho summary notification của bank notif → badge count icon)
+          if 'POST_NOTIFICATIONS' not in m:
+              perm = '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n'
+              new_m, n = re.subn(r'(\s*<application\b)', '\n' + perm + r'\1', m, count=1)
+              if n > 0:
+                  m = new_m
+                  print('OK: POST_NOTIFICATIONS permission added')
+              else:
+                  print('::error::FAILED to add POST_NOTIFICATIONS')
+                  sys.exit(1)
+
           # 1f) READ_SMS permission — đọc tin nhắn ngân hàng (SMS Banking Parser)
           # User phải explicit grant runtime — Android bảo vệ chặt SMS permission.
           # App chỉ đọc local, không gửi SMS đi đâu.

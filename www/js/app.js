@@ -7846,6 +7846,18 @@ const App = {
         });
       }
     }
+
+    // Clear badge / update theo pending count còn lại
+    try {
+      if (result.pending.length === 0) {
+        // Xử lý hết → clear badge
+        await NR.clearBadge();
+      } else {
+        // Còn pending → set badge = số còn lại
+        await NR.setBadgeCount({ count: result.pending.length });
+      }
+    } catch (_) {}
+
     return result;
   },
 

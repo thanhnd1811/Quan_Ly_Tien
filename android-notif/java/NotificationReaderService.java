@@ -1,11 +1,18 @@
 package com.thanh.quanlytien;
 
 import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.HashSet;
@@ -146,8 +153,88 @@ public class NotificationReaderService extends NotificationListenerService {
             }
 
             prefs.edit().putString(KEY_NOTIFICATIONS, arr.toString()).apply();
+
+            // Post summary notification cho badge count (số trên icon launcher)
+            int unprocessedCount = 0;
+            for (int i = 0; i < arr.length(); i++) {
+                if (!arr.getJSONObject(i).optBoolean("processed", false)) unprocessedCount++;
+            }
+            postSummaryNotification(unprocessedCount);
         } catch (Exception e) {
             // Silent fail
+        }
+    }
+
+    private static final String SUMMARY_CHANNEL_ID = "qlt_bank_summary";
+    private static final int SUMMARY_NOTIF_ID = 99100;
+
+    /**
+     * Post 1 notification riêng của QLT để launcher show badge count trên icon.
+     * MIUI/Samsung/Pixel đều support setNumber → tự động hiện chấm/số.
+     * Tap notification → mở app → process pending → app cancel notification này.
+     */
+    private void postSummaryNotification(int count) {
+        if (count <= 0) {
+            cancelSummaryNotification();
+            return;
+        }
+        try {
+            Context ctx = getApplicationContext();
+            NotificationManager mgr = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (mgr == null) return;
+
+            // Create channel (Android 8+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationChannel channel = new NotificationChannel(
+                    SUMMARY_CHANNEL_ID,
+                    "💰 GD ngân hàng chờ ghi",
+                    NotificationManager.IMPORTANCE_LOW // ko ring/vibrate, chỉ show badge
+                );
+                channel.setDescription("Đếm số giao dịch ngân hàng đã bắt được nhưng chưa ghi vào app");
+                channel.setShowBadge(true);
+                mgr.createNotificationChannel(channel);
+            }
+
+            // Tap notification → mở app
+            Intent openIntent = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+            if (openIntent == null) {
+                openIntent = new Intent();
+                openIntent.setClassName(ctx, "com.thanh.quanlytien.MainActivity");
+            }
+            openIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            int piFlags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+            PendingIntent pi = PendingIntent.getActivity(ctx, 0, openIntent, piFlags);
+
+            String title = "💰 " + count + " giao dịch ngân hàng chờ ghi";
+            String body = count == 1
+                ? "Tap để mở app — tự ghi vào sổ"
+                : "Tap để mở app — tự ghi " + count + " GD vào sổ";
+
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, SUMMARY_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_info) // fallback icon — chấp nhận được
+                .setContentTitle(title)
+                .setContentText(body)
+                .setNumber(count) // launcher hiện badge count
+                .setContentIntent(pi)
+                .setAutoCancel(false)
+                .setOngoing(false)
+                .setPriority(NotificationCompat.PRIORITY_LOW);
+
+            try {
+                NotificationManagerCompat.from(ctx).notify(SUMMARY_NOTIF_ID, builder.build());
+            } catch (SecurityException ignore) {
+                // POST_NOTIFICATIONS chưa cấp (Android 13+) → silent skip
+            }
+        } catch (Exception e) {
+            // Silent — service phải resilient
+        }
+    }
+
+    private void cancelSummaryNotification() {
+        try {
+            NotificationManagerCompat.from(getApplicationContext()).cancel(SUMMARY_NOTIF_ID);
+        } catch (Exception e) {
+            // Silent
         }
     }
 
