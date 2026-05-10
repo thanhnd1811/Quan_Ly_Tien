@@ -5874,6 +5874,7 @@ const App = {
               <div class="goal-item-meta">${this.escapeHtml(metaText)}</div>
             </div>
             <div class="goal-item-pct">${totalPct}%</div>
+            <button class="goal-item-progress-btn" data-progress="${g.id}" title="Xem chart tiến độ + dự báo" style="background:transparent;border:none;cursor:pointer;font-size:18px;padding:6px 4px;color:var(--text2)">📊</button>
           </div>
           <div class="goal-item-bar"><div class="goal-item-bar-fill ${status}" style="width:${totalPct}%"></div></div>
           <div class="goal-item-amts">
@@ -5885,11 +5886,19 @@ const App = {
       `;
     }).join('');
 
-    // Bấm dòng (nhưng tránh nút "Đóng")
+    // Bấm dòng (nhưng tránh nút "Đóng" + nút "📊")
     list.querySelectorAll('[data-goal]').forEach(el => {
       el.onclick = (e) => {
         if (e.target.closest('[data-contrib]')) return;
+        if (e.target.closest('[data-progress]')) return;
         this.openGoalModal(el.dataset.goal);
+      };
+    });
+    // Bấm nút 📊 → mở modal projection
+    list.querySelectorAll('[data-progress]').forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        this._openGoalProgressModal(el.dataset.progress);
       };
     });
     list.querySelectorAll('[data-contrib]').forEach(el => {
@@ -7743,6 +7752,333 @@ const App = {
     const force = !!opts.force;
     const r = await window.QLT_Update.check(force);
     return r;
+  },
+
+  // ============================================================
+  // GOAL PROJECTION — chart tiến độ + dự báo cho mục tiêu tiết kiệm
+  // ============================================================
+  // Cho mỗi goal: vẽ chart 2 đường:
+  //   - Đường actual (solid green): cumulative contribution theo tháng
+  //   - Đường ideal (dashed gray): linear từ start đến deadline
+  // + Compute current pace (TB 3 tháng gần) → projected end date
+  // + Required pace để hit deadline
+  _buildGoalProjection(goal) {
+    if (!goal) return null;
+    const target = goal.targetAmount || 0;
+    const contributions = (goal.contributions || []).slice()
+      .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+    const startDate = goal.startDate
+      || (contributions[0]?.date)
+      || today();
+    const deadline = goal.targetDate || today();
+
+    // Cumulative theo tháng (lưu lần cuối tháng)
+    const cumulByMonth = {};
+    let cumulative = 0;
+    for (const c of contributions) {
+      cumulative += c.amount || 0;
+      if (c.date) cumulByMonth[c.date.slice(0, 7)] = cumulative;
+    }
+    const totalContributed = cumulative;
+
+    // Build timeline từ start tới (max(deadline, today) + 3 tháng buffer)
+    const startD = new Date(startDate.slice(0, 7) + '-01T00:00:00');
+    const deadlineD = new Date(deadline.slice(0, 7) + '-01T00:00:00');
+    const todayD = new Date(today().slice(0, 7) + '-01T00:00:00');
+    const endD = new Date(Math.max(deadlineD.getTime(), todayD.getTime()));
+    endD.setMonth(endD.getMonth() + 2);
+
+    // Total months planned (start → deadline) — để compute ideal slope
+    const plannedMonths = Math.max(1,
+      (deadlineD.getFullYear() - startD.getFullYear()) * 12 +
+      (deadlineD.getMonth() - startD.getMonth())
+    );
+
+    const timeline = [];
+    let cur = new Date(startD);
+    let lastCumul = 0;
+    let monthIdx = 0;
+    while (cur <= endD) {
+      const ym = cur.toISOString().slice(0, 7);
+      if (cumulByMonth[ym] != null) lastCumul = cumulByMonth[ym];
+      const ideal = Math.min(target, Math.round(target * monthIdx / plannedMonths));
+      // actual chỉ tính tới hôm nay (sau đó null để chart break line)
+      const isPastOrCurrent = cur <= todayD;
+      timeline.push({
+        month: ym,
+        label: `T${cur.getMonth() + 1}`,
+        actual: isPastOrCurrent ? lastCumul : null,
+        ideal,
+        isFuture: !isPastOrCurrent
+      });
+      cur.setMonth(cur.getMonth() + 1);
+      monthIdx++;
+    }
+
+    // Compute current pace (avg/tháng 3 tháng gần nhất)
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+    const recentSum = contributions
+      .filter(c => c.date && new Date(c.date) >= threeMonthsAgo)
+      .reduce((s, c) => s + (c.amount || 0), 0);
+    const currentPace = Math.round(recentSum / 3);
+
+    const remaining = Math.max(0, target - totalContributed);
+
+    // Projected end — at current pace
+    let projectedEnd = null;
+    let monthsToTarget = null;
+    if (currentPace > 0 && remaining > 0) {
+      monthsToTarget = Math.ceil(remaining / currentPace);
+      const d = new Date();
+      d.setMonth(d.getMonth() + monthsToTarget);
+      projectedEnd = d.toISOString().slice(0, 10);
+    }
+
+    // Required pace to hit deadline
+    const now = new Date();
+    const monthsLeft = Math.max(1,
+      (deadlineD.getFullYear() - now.getFullYear()) * 12 +
+      (deadlineD.getMonth() - now.getMonth())
+    );
+    const requiredPace = remaining > 0 ? Math.ceil(remaining / monthsLeft) : 0;
+
+    // Status: ahead / on track / behind
+    let status = 'on-track';
+    let statusMsg = '';
+    if (remaining === 0) {
+      status = 'achieved';
+      statusMsg = '🎉 Đã hoàn thành!';
+    } else if (currentPace === 0) {
+      status = 'stalled';
+      statusMsg = '⚠️ Pace = 0 — chưa đóng góp 3 tháng qua';
+    } else if (currentPace >= requiredPace) {
+      status = 'ahead';
+      statusMsg = `✅ Đang đi tốt — pace ${fmt(currentPace)}đ/tháng vượt yêu cầu (${fmt(requiredPace)}đ/tháng)`;
+    } else {
+      status = 'behind';
+      const diff = requiredPace - currentPace;
+      statusMsg = `⚠️ Cần tăng pace thêm ${fmt(diff)}đ/tháng để kịp deadline`;
+    }
+
+    return {
+      goal,
+      timeline,
+      target,
+      totalContributed,
+      remaining,
+      currentPace,
+      requiredPace,
+      projectedEnd,
+      monthsToTarget,
+      monthsLeft,
+      deadline,
+      status,
+      statusMsg,
+      contributions
+    };
+  },
+
+  _openGoalProgressModal(goalId) {
+    const goal = this.state.goals.find(g => g.id === goalId);
+    if (!goal) return;
+    const proj = this._buildGoalProjection(goal);
+    if (!proj) return;
+
+    const modal = document.getElementById('goalProgressModal');
+    if (!modal) return;
+
+    const iconHtml = (goal.icon || '').startsWith('emoji:') ? goal.icon.slice(6) : '🏆';
+    const goalColor = goal.color || '#f59e0b';
+
+    document.getElementById('goalProgressTitle').textContent = `📊 ${goal.name}`;
+
+    // Summary
+    const pct = proj.target > 0 ? Math.min(100, Math.round(proj.totalContributed / proj.target * 100)) : 0;
+    const projEndStr = proj.projectedEnd ? this.formatDate(proj.projectedEnd) : '—';
+    const deadlineStr = this.formatDate(proj.deadline);
+    const statusColors = {
+      'achieved': 'var(--pos)',
+      'ahead': 'var(--pos)',
+      'on-track': 'var(--text)',
+      'behind': '#f59e0b',
+      'stalled': 'var(--danger)'
+    };
+
+    document.getElementById('goalProgressSummary').innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <div style="width:48px;height:48px;border-radius:50%;background:${goalColor}1a;color:${goalColor};display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">${iconHtml}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:var(--text3)">${pct}% tiến độ</div>
+          <div style="font-size:18px;font-weight:700">${fmt(proj.totalContributed)}đ / ${fmt(proj.target)}đ</div>
+        </div>
+      </div>
+      <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-bottom:14px">
+        <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,${goalColor},${goalColor}dd);border-radius:4px"></div>
+      </div>
+      <div style="background:var(--surface2);padding:10px 12px;border-radius:8px;font-size:12px;line-height:2">
+        <div style="display:flex;justify-content:space-between"><span>📅 Deadline</span><strong>${this.escapeHtml(deadlineStr)}</strong></div>
+        <div style="display:flex;justify-content:space-between"><span>⏱️ Pace hiện tại (TB 3 tháng)</span><strong>${fmt(proj.currentPace)}đ/tháng</strong></div>
+        <div style="display:flex;justify-content:space-between"><span>🎯 Pace cần thiết</span><strong>${fmt(proj.requiredPace)}đ/tháng</strong></div>
+        <div style="display:flex;justify-content:space-between"><span>⏭️ Dự kiến hoàn thành</span><strong>${this.escapeHtml(projEndStr)}${proj.monthsToTarget != null ? ` (${proj.monthsToTarget} tháng)` : ''}</strong></div>
+      </div>
+      <div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:${statusColors[proj.status]}15;color:${statusColors[proj.status]};font-size:13px;font-weight:600;line-height:1.5">
+        ${this.escapeHtml(proj.statusMsg)}
+      </div>
+    `;
+
+    // Render chart
+    requestAnimationFrame(() => this._drawGoalProjectionChart(proj, goalColor));
+
+    modal.classList.add('open');
+  },
+
+  _drawGoalProjectionChart(proj, goalColor) {
+    const canvas = document.getElementById('goalProgressCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth;
+    const H = canvas.clientHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const cs = getComputedStyle(document.documentElement);
+    const text3Color = (cs.getPropertyValue('--text3') || '#a89e95').trim();
+    const borderColor = (cs.getPropertyValue('--border') || '#e4ddd6').trim();
+
+    const data = proj.timeline;
+    if (data.length < 2) {
+      ctx.fillStyle = text3Color;
+      ctx.font = '13px DM Sans, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Chưa đủ data để vẽ chart', W / 2, H / 2);
+      return;
+    }
+
+    const padTop = 20, padBottom = 32, padLeft = 50, padRight = 16;
+    const innerW = W - padLeft - padRight;
+    const innerH = H - padTop - padBottom;
+
+    const yMax = proj.target * 1.05;
+    const yScale = (v) => padTop + (1 - v / yMax) * innerH;
+    const stepX = innerW / (data.length - 1);
+
+    // Y grid + labels
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 0.5;
+    ctx.fillStyle = text3Color;
+    ctx.font = '10px DM Sans, sans-serif';
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 4; i++) {
+      const v = (yMax * i) / 4;
+      const y = yScale(v);
+      ctx.beginPath();
+      ctx.moveTo(padLeft, y);
+      ctx.lineTo(padLeft + innerW, y);
+      ctx.stroke();
+      let label;
+      if (v >= 1000000) label = (v / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+      else if (v >= 1000) label = Math.round(v / 1000) + 'k';
+      else label = Math.round(v) + '';
+      ctx.fillText(label, padLeft - 4, y + 3);
+    }
+
+    // X labels
+    ctx.textAlign = 'center';
+    const stride = data.length > 8 ? Math.ceil(data.length / 8) : 1;
+    data.forEach((d, i) => {
+      if (i % stride !== 0 && i !== data.length - 1) return;
+      const x = padLeft + i * stepX;
+      ctx.fillText(d.label, x, padTop + innerH + 16);
+    });
+
+    // Ideal line (dashed gray)
+    ctx.strokeStyle = text3Color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    data.forEach((d, i) => {
+      const x = padLeft + i * stepX;
+      const y = yScale(d.ideal);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Actual line (solid colored)
+    ctx.strokeStyle = goalColor;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    let started = false;
+    data.forEach((d, i) => {
+      if (d.actual == null) return;
+      const x = padLeft + i * stepX;
+      const y = yScale(d.actual);
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // Target line (horizontal at yMax/1.05)
+    const yTarget = yScale(proj.target);
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 4]);
+    ctx.beginPath();
+    ctx.moveTo(padLeft, yTarget);
+    ctx.lineTo(padLeft + innerW, yTarget);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Label "Target" ở đầu line
+    ctx.fillStyle = '#10b981';
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 10px DM Sans, sans-serif';
+    ctx.fillText('🎯', padLeft + 2, yTarget - 4);
+
+    // Today marker (vertical line)
+    const todayMonth = today().slice(0, 7);
+    const todayIdx = data.findIndex(d => d.month === todayMonth);
+    if (todayIdx >= 0) {
+      const xToday = padLeft + todayIdx * stepX;
+      ctx.strokeStyle = goalColor;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      ctx.moveTo(xToday, padTop);
+      ctx.lineTo(xToday, padTop + innerH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Legend
+    ctx.font = '10px DM Sans, sans-serif';
+    ctx.textAlign = 'left';
+    // Solid line legend
+    ctx.strokeStyle = goalColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(padLeft, 12);
+    ctx.lineTo(padLeft + 14, 12);
+    ctx.stroke();
+    ctx.fillStyle = goalColor;
+    ctx.fillText('Thực tế', padLeft + 18, 15);
+    // Dashed line legend
+    ctx.strokeStyle = text3Color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 2]);
+    ctx.beginPath();
+    ctx.moveTo(padLeft + 80, 12);
+    ctx.lineTo(padLeft + 94, 12);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = text3Color;
+    ctx.fillText('Lý tưởng', padLeft + 98, 15);
   },
 
   // ============================================================

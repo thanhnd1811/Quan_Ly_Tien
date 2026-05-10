@@ -1710,6 +1710,25 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
   </div>
 </div>
 
+<!-- Modal: Goal Progress — chart tiến độ + dự báo cho mục tiêu tiết kiệm -->
+<div id="goalProgressModal" class="modal" style="z-index:310">
+  <div class="modal-card" style="max-height:92vh;display:flex;flex-direction:column">
+    <div class="modal-head">
+      <button data-close data-icon="close"></button>
+      <h3 id="goalProgressTitle">📊 Tiến độ mục tiêu</h3>
+    </div>
+    <div style="flex:1;overflow-y:auto;min-height:0">
+      <div id="goalProgressSummary" style="padding:16px"></div>
+      <div style="padding:0 12px 12px">
+        <canvas id="goalProgressCanvas" style="width:100%;height:240px;display:block;background:var(--surface2);border-radius:10px"></canvas>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close>Đóng</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Quick Add Favorites — manage list -->
 <div id="favoritesModal" class="modal" style="z-index:310">
   <div class="modal-card" style="max-height:85vh;display:flex;flex-direction:column">
