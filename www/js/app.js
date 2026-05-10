@@ -8480,17 +8480,18 @@ const App = {
     const favs = this.getFavorites();
 
     if (favs.length === 0) {
-      // Empty state — gợi ý
+      // Empty state — buttons rõ ràng (thay vì span dễ miss tap)
       wrap.innerHTML = `
         <div class="fav-section">
           <div class="fav-head">
             <div class="fav-title">⚡ Tạo GD nhanh</div>
           </div>
-          <div class="fav-empty">
-            Pin các GD hay làm (cà phê, bữa trưa, xăng…) → tap 1 cú lưu.<br>
-            <span class="fav-empty-cta" data-act="suggest">💡 Đề xuất từ GD hay làm</span>
-            ·
-            <span class="fav-empty-cta" data-act="manage">⚙️ Tự thêm</span>
+          <div style="font-size:12px;color:var(--text3);text-align:center;line-height:1.6;margin-bottom:10px">
+            Pin các GD hay làm (cà phê, bữa trưa, xăng…) → tap 1 cú lưu
+          </div>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="btn btn-primary" data-act="suggest" style="flex:1;font-size:13px;padding:10px">💡 Đề xuất từ GD hay làm</button>
+            <button type="button" class="btn btn-secondary" data-act="manage" style="flex:1;font-size:13px;padding:10px">⚙️ Tự thêm</button>
           </div>
         </div>
       `;
@@ -8536,26 +8537,41 @@ const App = {
       </div>
     `;
 
-    // Bind chip tap
+    // Bind chip tap — FIX BUG: long-press detection block luôn tap thường.
+    // Trước: pressTimer = setTimeout ID (truthy) → click event check
+    // `if (pressTimer)` → BLOCK tap cả khi user chỉ tap nhanh.
+    // Sau: dùng longPressFired flag riêng — chỉ block click sau khi
+    // long-press đã FIRE thật, ko block tap nhanh.
     wrap.querySelectorAll('.fav-chip[data-fav]').forEach(el => {
       let pressTimer = null;
-      el.onclick = () => {
-        if (pressTimer) return; // ignore tap nếu vừa long-press
+      let longPressFired = false;
+
+      el.onclick = (e) => {
+        if (longPressFired) {
+          longPressFired = false; // reset
+          e.preventDefault();
+          return;
+        }
         haptic('light');
         this._quickSaveFavorite(el.dataset.fav);
       };
-      // Long press → show options (edit/delete)
+
       const startPress = () => {
+        longPressFired = false;
+        if (pressTimer) clearTimeout(pressTimer);
         pressTimer = setTimeout(() => {
           haptic('medium');
+          longPressFired = true;
           this._showFavoriteOptions(el.dataset.fav);
-          pressTimer = 'fired';
         }, 500);
       };
       const cancelPress = () => {
-        if (pressTimer && pressTimer !== 'fired') clearTimeout(pressTimer);
-        setTimeout(() => { pressTimer = null; }, 100);
+        if (pressTimer) {
+          clearTimeout(pressTimer);
+          pressTimer = null;
+        }
       };
+
       el.addEventListener('touchstart', startPress, { passive: true });
       el.addEventListener('touchend', cancelPress);
       el.addEventListener('touchmove', cancelPress);
