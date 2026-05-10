@@ -1593,6 +1593,34 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
   </div>
 </div>
 
+<!-- Modal: Hồ sơ cá nhân — chỉ lưu local, không cần đăng nhập -->
+<div id="profileModal" class="modal" style="z-index:310">
+  <div class="modal-card">
+    <div class="modal-head">
+      <button data-close data-icon="close"></button>
+      <h3>👤 Hồ sơ của bạn</h3>
+    </div>
+    <div class="modal-body">
+      <div class="fg">
+        <label class="fl">Bạn muốn được gọi là gì?</label>
+        <input id="profileName" class="fi" type="text" maxlength="40" placeholder="VD: Thanh, Mai, Nam...">
+        <div style="font-size:12px;color:var(--text3);margin-top:6px;line-height:1.5">
+          App sẽ dùng tên này khi chào buổi sáng, nhắc nhở 20h, và Trợ lý AI.
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Avatar</label>
+        <div id="profileEmojiPicker" style="display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin-top:4px"></div>
+      </div>
+      <div id="profileGoogleHint" style="display:none;background:var(--surface2);padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.6;color:var(--text2);margin-top:8px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close>Huỷ</button>
+      <button class="btn btn-primary" id="profileSaveBtn">Lưu</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Ghi nhận đóng góp -->
 <div id="contribModal" class="modal" style="z-index:310">
   <div class="modal-card">
@@ -2359,6 +2387,17 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
       </div>
       <div class="settings-group-content">
         <div class="settings-group-body">
+          <!-- Hồ sơ cá nhân — local, không cần đăng nhập Google -->
+          <div class="setting-row" id="setProfileRow" style="cursor:pointer">
+            <span class="setting-label" style="display:flex;align-items:center;gap:10px">
+              <span id="setProfileAvatar" style="font-size:24px;line-height:1">👤</span>
+              <span style="display:flex;flex-direction:column">
+                <span style="font-weight:600">Hồ sơ cá nhân</span>
+                <span id="setProfileName" style="font-size:12px;color:var(--text3);font-weight:400">Tap để đặt tên + avatar</span>
+              </span>
+            </span>
+            <span style="color:var(--text3)">▸</span>
+          </div>
           <div class="setting-row">
             <span class="setting-label">Email</span>
             <span class="setting-value" id="setUser">-</span>

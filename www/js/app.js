@@ -1075,17 +1075,130 @@ const App = {
   },
 
   // Schedule notification "Tổng kết hôm nay" 20h hằng ngày
-  // Lấy tên hiển thị của user (Google profile nếu có, fallback "bạn")
+  // ============ USER PROFILE (local, không cần đăng nhập Google) ============
+  // Ưu tiên: profile local > Google profile > "bạn"
+  // Lưu tại localStorage['qlt_user_profile'] = { name, emoji }
+  getUserProfile() {
+    try {
+      const raw = localStorage.getItem('qlt_user_profile');
+      if (raw) return JSON.parse(raw);
+    } catch (_) {}
+    return null;
+  },
+
+  saveUserProfile(profile) {
+    try {
+      const cleaned = {
+        name: String(profile.name || '').trim().slice(0, 40),
+        emoji: String(profile.emoji || '').slice(0, 4)
+      };
+      // Trống → xoá hẳn (fallback Google / Khách)
+      if (!cleaned.name && !cleaned.emoji) {
+        localStorage.removeItem('qlt_user_profile');
+      } else {
+        localStorage.setItem('qlt_user_profile', JSON.stringify(cleaned));
+      }
+      // Re-render drawer + Settings + reschedule greetings để dùng tên mới
+      try { this.renderAuthUI(); } catch (_) {}
+      try { this.renderProfileSettingsRow(); } catch (_) {}
+      try { this.scheduleMorningGreeting(); } catch (_) {}
+      try { this.scheduleDailySummaryNotif(); } catch (_) {}
+    } catch (e) { console.warn('saveUserProfile lỗi:', e); }
+  },
+
+  // Lấy tên hiển thị (priority: local > Google > "bạn")
   _getDisplayName() {
     try {
+      const local = this.getUserProfile();
+      if (local?.name) {
+        const firstName = String(local.name).split(/\s+/).pop();
+        return firstName || local.name;
+      }
       const u = window.QLT_Auth?.user;
       if (u?.name) {
-        // Lấy tên đầu (first name) cho thân mật, vd "Thanh Nguyễn" → "Thanh"
-        const firstName = String(u.name).split(/\s+/).pop(); // VN: tên thường ở cuối
+        const firstName = String(u.name).split(/\s+/).pop();
         return firstName || u.name;
       }
     } catch (_) {}
     return 'bạn';
+  },
+
+  // Cập nhật row "Hồ sơ cá nhân" trong Settings (avatar emoji + tên)
+  renderProfileSettingsRow() {
+    const avatarEl = document.getElementById('setProfileAvatar');
+    const nameEl = document.getElementById('setProfileName');
+    if (!avatarEl || !nameEl) return;
+    const local = this.getUserProfile();
+    const u = window.QLT_Auth?.user;
+    if (local?.name || local?.emoji) {
+      avatarEl.textContent = local.emoji || '👤';
+      nameEl.textContent = local.name || '(Chưa đặt tên)';
+    } else if (u?.name) {
+      avatarEl.textContent = '👤';
+      nameEl.textContent = `Đang dùng từ Google: ${u.name} — tap để đổi`;
+    } else {
+      avatarEl.textContent = '👤';
+      nameEl.textContent = 'Tap để đặt tên + avatar';
+    }
+  },
+
+  // Mở modal sửa hồ sơ (gọi từ drawer header tap hoặc Settings row tap)
+  openProfileModal() {
+    const modal = document.getElementById('profileModal');
+    if (!modal) return;
+
+    const cur = this.getUserProfile() || {};
+    const u = window.QLT_Auth?.user;
+
+    // Pre-fill: dùng local trước, fallback Google
+    document.getElementById('profileName').value = cur.name || u?.name || '';
+
+    // Render emoji picker (16 options, 8 cột × 2 hàng)
+    const EMOJIS = ['👤','👨','👩','🧑','👦','👧','🧑‍💻','👨‍🎓',
+                    '🐱','🐶','🦊','🐼','🦄','💰','⭐','🚀'];
+    const picker = document.getElementById('profileEmojiPicker');
+    const selectedEmoji = cur.emoji || '👤';
+    picker.innerHTML = EMOJIS.map(e => `
+      <div class="profile-emoji-cell ${e === selectedEmoji ? 'on' : ''}" data-emoji="${e}"
+           style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:22px;
+                  background:${e === selectedEmoji ? 'var(--accent-soft)' : 'var(--surface2)'};
+                  border:2px solid ${e === selectedEmoji ? 'var(--accent)' : 'transparent'};
+                  border-radius:10px;cursor:pointer;transition:.15s">${e}</div>
+    `).join('');
+    picker.querySelectorAll('[data-emoji]').forEach(el => {
+      el.onclick = () => {
+        picker.querySelectorAll('[data-emoji]').forEach(x => {
+          x.style.background = 'var(--surface2)';
+          x.style.border = '2px solid transparent';
+          x.classList.remove('on');
+        });
+        el.style.background = 'var(--accent-soft)';
+        el.style.border = '2px solid var(--accent)';
+        el.classList.add('on');
+      };
+    });
+
+    // Hint nếu user đã đăng nhập Google
+    const hint = document.getElementById('profileGoogleHint');
+    if (u?.name) {
+      hint.style.display = 'block';
+      hint.innerHTML = `ℹ️ Bạn đã đăng nhập Google (<b>${u.name}</b>). Tên + avatar bạn đặt ở đây sẽ override hồ sơ Google.`;
+    } else {
+      hint.style.display = 'none';
+    }
+
+    // Bind save (mỗi lần mở re-bind để tránh stale closure)
+    const saveBtn = document.getElementById('profileSaveBtn');
+    saveBtn.onclick = () => {
+      const name = document.getElementById('profileName').value.trim();
+      const selected = picker.querySelector('[data-emoji].on');
+      const emoji = selected?.dataset.emoji || '';
+      this.saveUserProfile({ name, emoji });
+      modal.classList.remove('open');
+      QLT_UI.toast(name ? `✅ Đã lưu — chào ${this._getDisplayName()}!` : 'Đã xoá hồ sơ', { type: 'success', duration: 2000 });
+    };
+
+    modal.classList.add('open');
   },
 
   async scheduleDailySummaryNotif() {
@@ -1750,6 +1863,27 @@ const App = {
       requestAnimationFrame(() => this._updateDrawerOverflowHints());
     };
     $('#drawerOverlay').onclick = () => $('#drawer').classList.remove('open');
+
+    // Tap header drawer (avatar + name) → mở modal sửa hồ sơ cá nhân
+    const drHeader = document.querySelector('#drawer .dr-header');
+    if (drHeader) {
+      drHeader.style.cursor = 'pointer';
+      drHeader.onclick = () => {
+        haptic('light');
+        $('#drawer').classList.remove('open'); // đóng drawer trước khi mở modal
+        setTimeout(() => this.openProfileModal(), 200);
+      };
+    }
+
+    // Tap row "Hồ sơ cá nhân" trong Settings → mở modal
+    const profileRow = document.getElementById('setProfileRow');
+    if (profileRow) {
+      profileRow.onclick = () => {
+        haptic('light');
+        this.openProfileModal();
+      };
+    }
+
     // Bind scroll event để cập nhật fade gradient
     const drList = $('#drList');
     if (drList) drList.addEventListener('scroll', () => this._updateDrawerOverflowHints());
@@ -2010,53 +2144,68 @@ const App = {
     return 'data:image/svg+xml,' + svg;
   },
 
+  // Render emoji thành avatar dạng SVG data URL (vòng tròn trắng + emoji)
+  _emojiAvatarDataUrl(emoji) {
+    const svg = encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">
+        <rect width="80" height="80" fill="#ffffff" rx="40"/>
+        <text x="50%" y="58%" text-anchor="middle" font-size="48" dominant-baseline="middle">${emoji}</text>
+      </svg>`
+    );
+    return 'data:image/svg+xml,' + svg;
+  },
+
   renderAuthUI() {
     const u = window.QLT_Auth.user;
+    const local = this.getUserProfile();
     const avatarEl = $('#drUserAvatar');
-    if (u) {
+    const isLoggedIn = !!u;
+
+    // === Tên + email (priority: local name > Google name > "Khách") ===
+    if (local?.name) {
+      $('#drUserName').textContent = local.name;
+      $('#drUserEmail').textContent = u?.email || 'Hồ sơ cá nhân';
+    } else if (u) {
       $('#drUserName').textContent = u.name || u.email;
       $('#drUserEmail').textContent = u.email;
-      if (u.picture) {
-        // Google profile URL có thể fail load → thử nhiều variants trước khi fallback letter
-        // Variants:
-        //  1. URL gốc
-        //  2. Đổi size về s200-c (tương thích nhiều)
-        //  3. Bỏ size suffix
-        const tryUrls = [u.picture];
-        const m = u.picture.match(/^(.+)=s\d+-c$/);
-        if (m) {
-          tryUrls.push(m[1] + '=s200-c');
-          tryUrls.push(m[1]);
-        }
-        let attempt = 0;
-        const tryNext = () => {
-          if (attempt < tryUrls.length) {
-            avatarEl.src = tryUrls[attempt++];
-          } else {
-            // Hết variants → letter avatar
-            avatarEl.onerror = null;
-            avatarEl.src = this._letterAvatarDataUrl(u.name, u.email);
-          }
-        };
-        avatarEl.onerror = tryNext;
-        tryNext();
-      } else {
-        // Không có URL → letter avatar luôn
-        avatarEl.onerror = null;
-        avatarEl.src = this._letterAvatarDataUrl(u.name, u.email);
-      }
-      $('#loginItem').style.display = 'none';
-      $('#logoutItem').style.display = 'flex';
-      $('#syncItem').style.display = 'flex';
     } else {
       $('#drUserName').textContent = 'Khách';
-      $('#drUserEmail').textContent = 'Chưa đăng nhập';
-      avatarEl.onerror = null;
-      avatarEl.src = 'icons/icon-192.png';
-      $('#loginItem').style.display = 'flex';
-      $('#logoutItem').style.display = 'none';
-      $('#syncItem').style.display = 'none';
+      $('#drUserEmail').textContent = 'Tap để đặt tên';
     }
+
+    // === Avatar (priority: local emoji > Google picture chain > letter > icon) ===
+    avatarEl.onerror = null;
+    if (local?.emoji) {
+      avatarEl.src = this._emojiAvatarDataUrl(local.emoji);
+    } else if (u?.picture) {
+      // Google picture với fallback chain (URL gốc → s200-c → no size → letter)
+      const tryUrls = [u.picture];
+      const m = u.picture.match(/^(.+)=s\d+-c$/);
+      if (m) {
+        tryUrls.push(m[1] + '=s200-c');
+        tryUrls.push(m[1]);
+      }
+      let attempt = 0;
+      const tryNext = () => {
+        if (attempt < tryUrls.length) {
+          avatarEl.src = tryUrls[attempt++];
+        } else {
+          avatarEl.onerror = null;
+          avatarEl.src = this._letterAvatarDataUrl(u.name, u.email);
+        }
+      };
+      avatarEl.onerror = tryNext;
+      tryNext();
+    } else if (u) {
+      avatarEl.src = this._letterAvatarDataUrl(u.name, u.email);
+    } else {
+      avatarEl.src = 'icons/icon-192.png';
+    }
+
+    // === Login/Logout/Sync visibility theo trạng thái Google ===
+    $('#loginItem').style.display = isLoggedIn ? 'none' : 'flex';
+    $('#logoutItem').style.display = isLoggedIn ? 'flex' : 'none';
+    $('#syncItem').style.display = isLoggedIn ? 'flex' : 'none';
   },
 
   renderBookHeader() {
@@ -5731,6 +5880,9 @@ const App = {
   async renderSettings() {
     // Init accordion behavior
     this.initSettingsAccordion();
+
+    // Render row "Hồ sơ cá nhân" (avatar + tên hiện tại)
+    this.renderProfileSettingsRow();
 
     $('#setUser').textContent = window.QLT_Auth.user ? window.QLT_Auth.user.email : 'Chưa đăng nhập';
     const last = await window.QLT_Store.getMeta('lastSync');
