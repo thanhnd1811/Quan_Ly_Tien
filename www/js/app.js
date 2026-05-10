@@ -1829,6 +1829,15 @@ const App = {
     this.state.fuelLogs = inBook(await window.QLT_Store.getAll('fuelLogs'));
     this.state.maintenanceLogs = inBook(await window.QLT_Store.getAll('maintenanceLogs'));
     this.state.recurringRules = inBook(await window.QLT_Store.getAll('recurringRules'));
+
+    // Re-schedule daily summary notif (debounced 1s) — đảm bảo notif 20h
+    // luôn dùng data MỚI NHẤT, không phải snapshot khi app khởi động.
+    // Bug trước đó: notif schedule body lúc app start với 25k/3 GD → user thêm
+    // 100k vào buổi chiều → 20h fire vẫn "25k/3 GD" sai.
+    if (this._dailyNotifRescheduleTimer) clearTimeout(this._dailyNotifRescheduleTimer);
+    this._dailyNotifRescheduleTimer = setTimeout(() => {
+      this.scheduleDailySummaryNotif().catch(() => {});
+    }, 1000);
   },
 
   currentBook() {
