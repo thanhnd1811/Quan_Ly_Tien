@@ -2203,6 +2203,9 @@ const App = {
       }, { passive: true });
     });
 
+    // Pull-to-refresh trên home scroll-body
+    this._initPullToRefresh();
+
     // Eye buttons (ẩn/hiện số dư)
     const homeEye = $('#homeEyeBtn');
     if (homeEye) homeEye.onclick = (e) => { e.stopPropagation(); this.toggleHideAmounts(); };
@@ -7947,6 +7950,96 @@ const App = {
     const force = !!opts.force;
     const r = await window.QLT_Update.check(force);
     return r;
+  },
+
+  // ============================================================
+  // PULL-TO-REFRESH — vuốt xuống ở Trang chủ để reload + sync
+  // ============================================================
+  // Pure JS, không dùng lib. Bind touchstart/move/end trên scroll-body.
+  _initPullToRefresh() {
+    const wrap = document.querySelector('#screen-home .scroll-body[data-ptr]');
+    const indicator = document.getElementById('homePtrIndicator');
+    if (!wrap || !indicator || wrap._ptrBound) return;
+    wrap._ptrBound = true;
+
+    const THRESHOLD = 80; // px cần kéo để trigger
+    const MAX_PULL = 120; // max pull distance
+    let startY = 0;
+    let pullDistance = 0;
+    let isPulling = false;
+    let isRefreshing = false;
+
+    wrap.addEventListener('touchstart', (e) => {
+      if (isRefreshing) return;
+      // Chỉ trigger nếu scroll ở top
+      if (wrap.scrollTop > 0) return;
+      startY = e.touches[0].clientY;
+      isPulling = true;
+    }, { passive: true });
+
+    wrap.addEventListener('touchmove', (e) => {
+      if (!isPulling || isRefreshing) return;
+      const currentY = e.touches[0].clientY;
+      const delta = currentY - startY;
+      if (delta <= 0) {
+        // Vuốt lên → cancel pull
+        isPulling = false;
+        indicator.classList.remove('pulling');
+        return;
+      }
+      // Resistance: pull càng xa càng chậm
+      pullDistance = Math.min(MAX_PULL, delta * 0.5);
+      const yOffset = pullDistance - 60; // start hidden at -60, show at 0
+      const rotate = (pullDistance / THRESHOLD) * 360;
+      indicator.style.setProperty('--pull-y', yOffset + 'px');
+      indicator.style.setProperty('--pull-rotate', rotate + 'deg');
+      indicator.classList.add('pulling');
+      // Prevent default scroll khi pulling > 5px
+      if (pullDistance > 5 && e.cancelable) e.preventDefault();
+    }, { passive: false });
+
+    const endHandler = async () => {
+      if (!isPulling || isRefreshing) {
+        isPulling = false;
+        return;
+      }
+      isPulling = false;
+
+      if (pullDistance >= THRESHOLD) {
+        // Trigger refresh
+        isRefreshing = true;
+        indicator.classList.remove('pulling');
+        indicator.classList.add('refreshing');
+        haptic('medium');
+        try {
+          await this.reload();
+          if (this.state.currentTab === 'home') this.renderHome();
+          // Auto sync nếu user đã login Google
+          if (window.QLT_Auth?.user) {
+            try { await this.autoSync(); } catch (_) {}
+          }
+          QLT_UI.toast('✅ Đã làm mới', { type: 'success', duration: 1500 });
+        } catch (e) {
+          QLT_UI.toast('Lỗi làm mới: ' + (e.message || e), { type: 'error' });
+        }
+        // Hide indicator after refresh
+        setTimeout(() => {
+          indicator.classList.remove('refreshing');
+          indicator.style.removeProperty('--pull-y');
+          indicator.style.removeProperty('--pull-rotate');
+          isRefreshing = false;
+        }, 600);
+      } else {
+        // Bounce back
+        indicator.classList.remove('pulling');
+        indicator.style.removeProperty('--pull-y');
+        indicator.style.removeProperty('--pull-rotate');
+      }
+      pullDistance = 0;
+    };
+
+    wrap.addEventListener('touchend', endHandler);
+    wrap.addEventListener('touchcancel', endHandler);
   },
 
   // ============================================================
