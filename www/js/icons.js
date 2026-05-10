@@ -108,8 +108,9 @@ window.QLT_ICONS = {
   coin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 9h4a2 2 0 010 4H9zM9 13h5a2 2 0 010 4H9zM11 6v3M13 17v3"/></svg>',
   coins: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1110.34 18M7 6h1v4M16.71 13.88l.7.71-2.82 2.82"/></svg>',
 
-  // ============ LOGO NGÂN HÀNG (transparent SVG, sẽ thêm khi có file chính thức) ============
-  // (Trống — section "Logo ngân hàng" trong picker sẽ tự ẩn khi không có entry nào)
+  // ============ LOGO NGÂN HÀNG (PNG file thật từ user — không tự vẽ) ============
+  'bank-vcb': '<img src="img/bank-vcb.png" alt="Vietcombank" style="width:100%;height:100%;object-fit:contain;display:block">',
+  'bank-mb': '<img src="img/bank-mb.png" alt="MB Bank" style="width:100%;height:100%;object-fit:contain;display:block">',
 
   // ============ KHÁC ============
   other: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="17" r="0.5" fill="currentColor"/><path d="M9.1 9a3 3 0 015.83 1c0 2-3 3-3 3"/></svg>',
@@ -249,7 +250,9 @@ window.QLT_ICON_LIB = [
   { name: 'piggy', label: 'Heo đất', group: 'Tiền - Ví', kw: 'heo dat piggy save' },
   { name: 'coins', label: 'Tiết kiệm', group: 'Tiền - Ví', kw: 'tiet kiem coins save' },
   { name: 'coin', label: 'Đồng xu', group: 'Tiền - Ví', kw: 'coin xu' },
-  // Ngân hàng — chờ logo SVG chính thức từ user, đăng ký ở đây với group: 'Ngân hàng'
+  // Ngân hàng — PNG nền trong suốt từ user
+  { name: 'bank-vcb', label: 'Vietcombank', group: 'Ngân hàng', kw: 'vietcombank vcb ngan hang ngoai thuong viet nam' },
+  { name: 'bank-mb', label: 'MB Bank', group: 'Ngân hàng', kw: 'mb bank mbbank quan doi military' },
   // Khác
   { name: 'other', label: 'Khác', group: 'Khác', kw: 'khac other question' },
   { name: 'bookmark', label: 'Đánh dấu', group: 'Khác', kw: 'danh dau bookmark' },
