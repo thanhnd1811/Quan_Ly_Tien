@@ -1601,6 +1601,25 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
       <h3>👤 Hồ sơ của bạn</h3>
     </div>
     <div class="modal-body">
+      <!-- Avatar preview (lớn, ở giữa) — tap để chụp/chọn ảnh -->
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:18px">
+        <div id="profileAvatarPreview"
+             style="width:96px;height:96px;border-radius:50%;background:var(--surface2);
+                    display:flex;align-items:center;justify-content:center;font-size:52px;
+                    cursor:pointer;overflow:hidden;border:3px solid var(--accent-soft);
+                    box-shadow:0 4px 12px rgba(0,0,0,.15);transition:transform .15s">
+          👤
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+          <button id="profilePickPhotoBtn" type="button" class="btn btn-secondary" style="font-size:13px;padding:8px 14px">
+            📷 Chụp / Chọn ảnh
+          </button>
+          <button id="profileRemovePhotoBtn" type="button" class="btn btn-secondary" style="font-size:13px;padding:8px 14px;display:none;color:var(--danger)">
+            🗑️ Xoá ảnh
+          </button>
+        </div>
+      </div>
+
       <div class="fg">
         <label class="fl">Bạn muốn được gọi là gì?</label>
         <input id="profileName" class="fi" type="text" maxlength="40" placeholder="VD: Thanh, Mai, Nam...">
@@ -1608,8 +1627,9 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
           App sẽ dùng tên này khi chào buổi sáng, nhắc nhở 20h, và Trợ lý AI.
         </div>
       </div>
-      <div class="fg">
-        <label class="fl">Avatar</label>
+
+      <div class="fg" id="profileEmojiSection">
+        <label class="fl">Hoặc chọn avatar emoji (nếu không upload ảnh)</label>
         <div id="profileEmojiPicker" style="display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin-top:4px"></div>
       </div>
       <div id="profileGoogleHint" style="display:none;background:var(--surface2);padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.6;color:var(--text2);margin-top:8px"></div>

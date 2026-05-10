@@ -1090,10 +1090,11 @@ const App = {
     try {
       const cleaned = {
         name: String(profile.name || '').trim().slice(0, 40),
-        emoji: String(profile.emoji || '').slice(0, 4)
+        emoji: String(profile.emoji || '').slice(0, 4),
+        photo: profile.photo || null  // dataUrl JPEG ~10-15KB sau khi compress
       };
-      // Trống → xoá hẳn (fallback Google / Khách)
-      if (!cleaned.name && !cleaned.emoji) {
+      // Trống tất cả → xoá hẳn (fallback Google / Khách)
+      if (!cleaned.name && !cleaned.emoji && !cleaned.photo) {
         localStorage.removeItem('qlt_user_profile');
       } else {
         localStorage.setItem('qlt_user_profile', JSON.stringify(cleaned));
@@ -1103,7 +1104,13 @@ const App = {
       try { this.renderProfileSettingsRow(); } catch (_) {}
       try { this.scheduleMorningGreeting(); } catch (_) {}
       try { this.scheduleDailySummaryNotif(); } catch (_) {}
-    } catch (e) { console.warn('saveUserProfile lỗi:', e); }
+    } catch (e) {
+      // QuotaExceededError nếu localStorage đầy (hiếm — avatar chỉ ~15KB)
+      if (e.name === 'QuotaExceededError') {
+        QLT_UI.toast('localStorage đầy — không lưu được ảnh. Thử ảnh nhỏ hơn.', { type: 'error' });
+      }
+      console.warn('saveUserProfile lỗi:', e);
+    }
   },
 
   // Lấy tên hiển thị (priority: local > Google > "bạn")
@@ -1123,20 +1130,27 @@ const App = {
     return 'bạn';
   },
 
-  // Cập nhật row "Hồ sơ cá nhân" trong Settings (avatar emoji + tên)
+  // Cập nhật row "Hồ sơ cá nhân" trong Settings (avatar photo/emoji + tên)
   renderProfileSettingsRow() {
     const avatarEl = document.getElementById('setProfileAvatar');
     const nameEl = document.getElementById('setProfileName');
     if (!avatarEl || !nameEl) return;
     const local = this.getUserProfile();
     const u = window.QLT_Auth?.user;
-    if (local?.name || local?.emoji) {
+    if (local?.photo) {
+      // Có ảnh upload → render <img> trong span
+      avatarEl.innerHTML = `<img src="${local.photo}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;display:block">`;
+      nameEl.textContent = local.name || '(Chưa đặt tên)';
+    } else if (local?.name || local?.emoji) {
+      avatarEl.innerHTML = '';
       avatarEl.textContent = local.emoji || '👤';
       nameEl.textContent = local.name || '(Chưa đặt tên)';
     } else if (u?.name) {
+      avatarEl.innerHTML = '';
       avatarEl.textContent = '👤';
       nameEl.textContent = `Đang dùng từ Google: ${u.name} — tap để đổi`;
     } else {
+      avatarEl.innerHTML = '';
       avatarEl.textContent = '👤';
       nameEl.textContent = 'Tap để đặt tên + avatar';
     }
@@ -1150,33 +1164,83 @@ const App = {
     const cur = this.getUserProfile() || {};
     const u = window.QLT_Auth?.user;
 
-    // Pre-fill: dùng local trước, fallback Google
+    // Pre-fill name
     document.getElementById('profileName').value = cur.name || u?.name || '';
 
-    // Render emoji picker (16 options, 8 cột × 2 hàng)
+    // === Avatar preview (photo > emoji > 👤 default) ===
+    const previewEl = document.getElementById('profileAvatarPreview');
+    const removeBtn = document.getElementById('profileRemovePhotoBtn');
+
+    // State tạm trong modal — sẽ commit khi user bấm Lưu
+    let pendingPhoto = cur.photo || null;
+    let pendingEmoji = cur.emoji || '👤';
+
+    const refreshPreview = () => {
+      if (pendingPhoto) {
+        previewEl.innerHTML = `<img src="${pendingPhoto}" style="width:100%;height:100%;object-fit:cover">`;
+        removeBtn.style.display = 'inline-flex';
+      } else {
+        previewEl.innerHTML = '';
+        previewEl.textContent = pendingEmoji || '👤';
+        removeBtn.style.display = 'none';
+      }
+    };
+    refreshPreview();
+
+    // === Render emoji picker (16 options) ===
     const EMOJIS = ['👤','👨','👩','🧑','👦','👧','🧑‍💻','👨‍🎓',
                     '🐱','🐶','🦊','🐼','🦄','💰','⭐','🚀'];
     const picker = document.getElementById('profileEmojiPicker');
-    const selectedEmoji = cur.emoji || '👤';
-    picker.innerHTML = EMOJIS.map(e => `
-      <div class="profile-emoji-cell ${e === selectedEmoji ? 'on' : ''}" data-emoji="${e}"
-           style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:22px;
-                  background:${e === selectedEmoji ? 'var(--accent-soft)' : 'var(--surface2)'};
-                  border:2px solid ${e === selectedEmoji ? 'var(--accent)' : 'transparent'};
-                  border-radius:10px;cursor:pointer;transition:.15s">${e}</div>
-    `).join('');
-    picker.querySelectorAll('[data-emoji]').forEach(el => {
-      el.onclick = () => {
-        picker.querySelectorAll('[data-emoji]').forEach(x => {
-          x.style.background = 'var(--surface2)';
-          x.style.border = '2px solid transparent';
-          x.classList.remove('on');
+    const renderPicker = () => {
+      picker.innerHTML = EMOJIS.map(e => `
+        <div class="profile-emoji-cell ${e === pendingEmoji && !pendingPhoto ? 'on' : ''}" data-emoji="${e}"
+             style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:22px;
+                    background:${e === pendingEmoji && !pendingPhoto ? 'var(--accent-soft)' : 'var(--surface2)'};
+                    border:2px solid ${e === pendingEmoji && !pendingPhoto ? 'var(--accent)' : 'transparent'};
+                    opacity:${pendingPhoto ? '0.5' : '1'};
+                    border-radius:10px;cursor:pointer;transition:.15s">${e}</div>
+      `).join('');
+      picker.querySelectorAll('[data-emoji]').forEach(el => {
+        el.onclick = () => {
+          // Tap emoji → bỏ ảnh upload (nếu có), set emoji
+          pendingPhoto = null;
+          pendingEmoji = el.dataset.emoji;
+          refreshPreview();
+          renderPicker();
+        };
+      });
+    };
+    renderPicker();
+
+    // === Upload photo button ===
+    document.getElementById('profilePickPhotoBtn').onclick = async () => {
+      try {
+        const photos = await this.pickPhotos({
+          camera: false,
+          multi: false,
+          header: 'Avatar của bạn'
         });
-        el.style.background = 'var(--accent-soft)';
-        el.style.border = '2px solid var(--accent)';
-        el.classList.add('on');
-      };
-    });
+        if (!photos || !photos.length) return;
+        // Compress sang vuông 200×200 JPEG q80
+        const compressed = await this._compressAvatar(photos[0]);
+        pendingPhoto = compressed;
+        refreshPreview();
+        renderPicker();  // re-render emoji picker (mờ đi vì có ảnh)
+        QLT_UI.toast('Đã chọn ảnh — bấm Lưu để áp dụng', { type: 'info', duration: 1800 });
+      } catch (e) {
+        QLT_UI.toast('Không upload được: ' + (e.message || 'lỗi không rõ'), { type: 'error' });
+      }
+    };
+
+    // Tap preview avatar cũng = upload
+    previewEl.onclick = () => document.getElementById('profilePickPhotoBtn').click();
+
+    // === Remove photo button ===
+    removeBtn.onclick = () => {
+      pendingPhoto = null;
+      refreshPreview();
+      renderPicker();
+    };
 
     // Hint nếu user đã đăng nhập Google
     const hint = document.getElementById('profileGoogleHint');
@@ -1187,15 +1251,22 @@ const App = {
       hint.style.display = 'none';
     }
 
-    // Bind save (mỗi lần mở re-bind để tránh stale closure)
+    // === Save handler ===
     const saveBtn = document.getElementById('profileSaveBtn');
     saveBtn.onclick = () => {
       const name = document.getElementById('profileName').value.trim();
-      const selected = picker.querySelector('[data-emoji].on');
-      const emoji = selected?.dataset.emoji || '';
-      this.saveUserProfile({ name, emoji });
+      // Photo có → ưu tiên lưu photo, emoji ko cần (priority đã handle)
+      const profileToSave = pendingPhoto
+        ? { name, photo: pendingPhoto, emoji: '' }
+        : { name, photo: null, emoji: pendingEmoji };
+      this.saveUserProfile(profileToSave);
       modal.classList.remove('open');
-      QLT_UI.toast(name ? `✅ Đã lưu — chào ${this._getDisplayName()}!` : 'Đã xoá hồ sơ', { type: 'success', duration: 2000 });
+      QLT_UI.toast(
+        (name || pendingPhoto || pendingEmoji)
+          ? `✅ Đã lưu — chào ${this._getDisplayName()}!`
+          : 'Đã xoá hồ sơ',
+        { type: 'success', duration: 2000 }
+      );
     };
 
     modal.classList.add('open');
@@ -2144,6 +2215,34 @@ const App = {
     return 'data:image/svg+xml,' + svg;
   },
 
+  // Compress avatar: center-crop hình vuông + resize 200×200 + JPEG q80
+  // Mục đích: localStorage chỉ ~10-15KB/avatar (không bùng dung lượng).
+  async _compressAvatar(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const TARGET = 200;
+          // Center crop sang vuông
+          const minSide = Math.min(img.width, img.height);
+          const sx = (img.width - minSide) / 2;
+          const sy = (img.height - minSide) / 2;
+          const canvas = document.createElement('canvas');
+          canvas.width = TARGET;
+          canvas.height = TARGET;
+          const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, TARGET, TARGET);
+          // JPEG q80 — đủ rõ + tiny size
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        } catch (e) { reject(e); }
+      };
+      img.onerror = () => reject(new Error('Lỗi đọc ảnh'));
+      img.src = dataUrl;
+    });
+  },
+
   // Render emoji thành avatar dạng SVG data URL (vòng tròn trắng + emoji)
   _emojiAvatarDataUrl(emoji) {
     const svg = encodeURIComponent(
@@ -2173,9 +2272,11 @@ const App = {
       $('#drUserEmail').textContent = 'Tap để đặt tên';
     }
 
-    // === Avatar (priority: local emoji > Google picture chain > letter > icon) ===
+    // === Avatar (priority: local photo > emoji > Google picture > letter > icon) ===
     avatarEl.onerror = null;
-    if (local?.emoji) {
+    if (local?.photo) {
+      avatarEl.src = local.photo;
+    } else if (local?.emoji) {
       avatarEl.src = this._emojiAvatarDataUrl(local.emoji);
     } else if (u?.picture) {
       // Google picture với fallback chain (URL gốc → s200-c → no size → letter)
