@@ -285,24 +285,30 @@
       if (type === 'lend' || type === 'borrow') {
         filtered = loans.filter(l => l.type === type);
       }
+      // Schema thực tế của loan (xem App.saveLoan/saveLoanPayment trong app.js):
+      //   { principal, counterparty, date, dueDate, note, status, type, payments[] }
+      // Trước đây hàm này đọc nhầm l.amount / l.partnerName / l.startDate (không tồn tại)
+      // → principal=0 → remaining=0 → AI luôn nói "đã trả xong".
       const list = filtered.map(l => {
-        const principal = l.amount || 0;
+        const principal = l.principal || 0;
         const paid = (l.payments || []).reduce((s, p) => s + (p.amount || 0), 0);
-        const remaining = principal - paid;
+        const remaining = Math.max(0, principal - paid);
+        const isClosed = l.status === 'closed';
         return {
-          partner: l.partnerName || '?',
+          partner: l.counterparty || '?',
           type: l.type === 'lend' ? 'cho vay' : 'mình vay',
           principal,
           paid,
           remaining,
-          status: remaining <= 0 ? 'đã trả xong' : 'đang còn',
-          startDate: l.startDate,
+          status: isClosed ? 'đã trả xong' : 'đang còn',
+          startDate: l.date,
           dueDate: l.dueDate,
           note: l.note
         };
       });
-      const totalLend = list.filter(l => l.type === 'cho vay' && l.remaining > 0).reduce((s, l) => s + l.remaining, 0);
-      const totalBorrow = list.filter(l => l.type === 'mình vay' && l.remaining > 0).reduce((s, l) => s + l.remaining, 0);
+      // Tổng đang cho vay / đang nợ — match logic App.renderLoans: chỉ tính khoản chưa đóng.
+      const totalLend = list.filter(l => l.type === 'cho vay' && l.status === 'đang còn').reduce((s, l) => s + l.remaining, 0);
+      const totalBorrow = list.filter(l => l.type === 'mình vay' && l.status === 'đang còn').reduce((s, l) => s + l.remaining, 0);
       return {
         count: list.length,
         totalLending: totalLend,
