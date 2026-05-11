@@ -51,7 +51,7 @@
         parameters: {
           type: 'object',
           properties: {
-            fromDate: { type: 'string', description: 'YYYY-MM-DD. Hôm nay = ' + (new Date()).toISOString().slice(0,10) },
+            fromDate: { type: 'string', description: 'YYYY-MM-DD. Hôm nay = ' + ymdLocal() },
             toDate: { type: 'string', description: 'YYYY-MM-DD' },
             categoryKeyword: { type: 'string', description: 'Optional — lọc theo cat (vd "cà phê", "xăng")' },
             accountKeyword: { type: 'string', description: 'Optional — lọc theo ví (vd "vcb", "tiền mặt", "mb")' },
@@ -165,6 +165,23 @@
         }
       }
     ];
+  }
+
+  // ============================================================
+  // DATE HELPERS — dùng LOCAL components, KHÔNG toISOString()
+  // ============================================================
+  // Lý do: toISOString() convert sang UTC. Trong VN (UTC+7),
+  //   new Date(2026, 4, 1) (local midnight 1/5) = 2026-04-30T17:00Z UTC
+  //   → .slice(0,7) = '2026-04' (SAI — phải là '2026-05').
+  // Bug này khiến AI báo "3 tháng gần đây" thành tháng 02, 03, 04 thay vì
+  // 03, 04, 05 vào ngày 11/5/2026.
+  function ymLocal(d) {
+    d = d || new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+  function ymdLocal(d) {
+    d = d || new Date();
+    return ymLocal(d) + '-' + String(d.getDate()).padStart(2, '0');
   }
 
   // ============================================================
@@ -448,7 +465,7 @@
         });
       }
 
-      const ym = new Date().toISOString().slice(0, 7);
+      const ym = ymLocal();
       const stats = vehicles.map(v => {
         // Tháng này
         const monthFuel = v.fuel.filter(f => (f.date || '').startsWith(ym)).reduce((s, f) => s + (f.amount || 0), 0);
@@ -504,7 +521,7 @@
       const budgets = this._state().budgets || [];
       const cats = this._state().categories || [];
       const txs = this._state().transactions || [];
-      const ym = new Date().toISOString().slice(0, 7);
+      const ym = ymLocal();
       const list = budgets.map(b => {
         const cat = cats.find(c => c.id === b.categoryId);
         const spent = txs.filter(t =>
@@ -621,7 +638,7 @@
         if (!toAcc) errors.push('Transfer cần chỉ định ví đích (toAccountKeyword)');
       }
 
-      const today = new Date().toISOString().slice(0, 10);
+      const today = ymdLocal();
       const finalDate = (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) ? date : today;
 
       // Stash trong state để UI render preview card + Save button gọi sau
@@ -664,7 +681,7 @@
       const n = Math.max(1, Math.min(12, months || 3));
       for (let i = n - 1; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const ym = d.toISOString().slice(0, 7);
+        const ym = ymLocal(d);
         let inc = 0, exp = 0;
         for (const t of txs) {
           if (!t.date || !t.date.startsWith(ym)) continue;
@@ -683,11 +700,11 @@
   // ============================================================
   function buildSystemPrompt(userContext) {
     const now = new Date();
-    const today = now.toISOString().slice(0, 10);
-    const ym = today.slice(0, 7);
-    const yesterday = (() => { const d = new Date(now); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); })();
-    const lastMonth = (() => { const d = new Date(now); d.setMonth(d.getMonth()-1); return d.toISOString().slice(0,7); })();
-    const sixMonthsAgo = (() => { const d = new Date(now); d.setMonth(d.getMonth()-6); return d.toISOString().slice(0,10); })();
+    const today = ymdLocal(now);
+    const ym = ymLocal(now);
+    const yesterday = (() => { const d = new Date(now); d.setDate(d.getDate()-1); return ymdLocal(d); })();
+    const lastMonth = (() => { const d = new Date(now); d.setMonth(d.getMonth()-1); return ymLocal(d); })();
+    const sixMonthsAgo = (() => { const d = new Date(now); d.setMonth(d.getMonth()-6); return ymdLocal(d); })();
     const appKnowledge = window.QLT_AppKnowledge || '';
     return `Bạn là TRỢ LÝ AI của app "Quản Lý Tiền" — chuyên hỗ trợ người dùng Việt Nam quản lý chi tiêu cá nhân.
 
@@ -861,7 +878,7 @@ VÍ DỤ TRẢ LỜI (theo nhóm câu hỏi):
       const totalBal = accs.reduce((s, a) => s + (a.balance || 0), 0);
       const cats = app.state.categories || [];
       const txs = app.state.transactions || [];
-      const ym = new Date().toISOString().slice(0, 7);
+      const ym = ymLocal();
       const monthTxs = txs.filter(t => t.date && t.date.startsWith(ym));
       const monthInc = monthTxs.filter(t => t.type === 'income' && !t._adjustment).reduce((s, t) => s + t.amount, 0);
       const monthExp = monthTxs.filter(t => t.type === 'expense' && !t._adjustment).reduce((s, t) => s + t.amount, 0);
