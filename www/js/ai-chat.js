@@ -245,8 +245,10 @@
     },
 
     async find_transactions({ fromDate, toDate, categoryKeyword, accountKeyword, type, minAmount, limit = 20 }) {
+      // Bỏ _adjustment (tx do bank reconcile sinh ra) — không phải chi tiêu thật,
+      // sẽ làm nhiễu khi user hỏi "hôm nay tôi mua gì".
       let txs = (this._state().transactions || []).filter(t =>
-        t.date >= fromDate && t.date <= toDate
+        t.date >= fromDate && t.date <= toDate && !t._adjustment
       );
       if (type) txs = txs.filter(t => t.type === type);
       if (minAmount) txs = txs.filter(t => t.amount >= minAmount);
@@ -319,19 +321,32 @@
 
     async get_savings_goals() {
       const goals = this._state().goals || [];
+      // Schema goal (App.saveGoal): { name, targetAmount, startDate, targetDate, contributions[], status }
+      // Số đã đóng góp = sum(contributions[].amount) — KHÔNG có field g.currentAmount.
+      // Hạn = g.targetDate — KHÔNG có g.deadline.
+      // Status nguồn từ app: 'active' | 'achieved' | 'cancelled'.
+      const app = window.QLT_App;
       const list = goals.map(g => {
         const target = g.targetAmount || 0;
-        const current = g.currentAmount || 0;
-        const remaining = target - current;
+        const current = app?.goalContributed
+          ? app.goalContributed(g)
+          : (g.contributions || []).reduce((s, c) => s + (c.amount || 0), 0);
+        const remaining = Math.max(0, target - current);
         const percent = target > 0 ? Math.round(current / target * 100) : 0;
+        let status;
+        if (g.status === 'cancelled') status = 'đã huỷ';
+        else if (g.status === 'achieved' || percent >= 100) status = 'đã đạt';
+        else if (percent >= 80) status = 'sắp đạt';
+        else status = 'đang tiết kiệm';
         return {
           name: g.name || '?',
           target,
           current,
           remaining,
           percent,
-          deadline: g.deadline,
-          status: percent >= 100 ? 'đã đạt' : (percent >= 80 ? 'sắp đạt' : 'đang tiết kiệm')
+          startDate: g.startDate,
+          targetDate: g.targetDate,
+          status
         };
       });
       return { count: list.length, goals: list };
