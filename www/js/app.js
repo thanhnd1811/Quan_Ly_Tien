@@ -6875,7 +6875,7 @@ const App = {
     // - Loan mới (có _principalTxId): xoá tx liên kết, applyBalanceDelta tự cập nhật ví
     // - Loan cũ (không có): direct mutate balance như trước (legacy fallback)
     if (loan._principalTxId) {
-      const tx = (await window.QLT_Store.getAll('transactions')).find(t => t.id === loan._principalTxId);
+      const tx = await window.QLT_Store.get('transactions', loan._principalTxId);
       if (tx) {
         await this.applyBalanceDelta(tx, -1);
         await window.QLT_Store.del('transactions', tx.id);
@@ -6890,7 +6890,7 @@ const App = {
     // Hoàn tác từng lần trả tương tự
     for (const p of (loan.payments || [])) {
       if (p.txId) {
-        const tx = (await window.QLT_Store.getAll('transactions')).find(t => t.id === p.txId);
+        const tx = await window.QLT_Store.get('transactions', p.txId);
         if (tx) {
           await this.applyBalanceDelta(tx, -1);
           await window.QLT_Store.del('transactions', tx.id);
@@ -7009,7 +7009,7 @@ const App = {
     // - Payment mới (có txId): xoá tx liên kết → applyBalanceDelta tự cập nhật ví
     // - Payment cũ: direct mutate (legacy fallback)
     if (p.txId) {
-      const tx = (await window.QLT_Store.getAll('transactions')).find(t => t.id === p.txId);
+      const tx = await window.QLT_Store.get('transactions', p.txId);
       if (tx) {
         await this.applyBalanceDelta(tx, -1);
         await window.QLT_Store.del('transactions', tx.id);
@@ -15324,9 +15324,13 @@ const App = {
     const wrap = $('#setStorageInfo');
     if (!wrap) return;
     try {
-      const allTxs = await window.QLT_Store.getAll('transactions');
-      const allBooks = await window.QLT_Store.getAll('books');
-      const allAccs = await window.QLT_Store.getAll('accounts');
+      // Parallelize 11 store reads + dedupe (trước đây: 3 upfront + 11 trong loop = 14 tuần tự).
+      const STORES = ['accounts', 'categories', 'transactions', 'reminders', 'books', 'loans', 'budgets', 'goals', 'fuelLogs', 'maintenanceLogs', 'recurringRules'];
+      const arrays = await Promise.all(STORES.map(s => window.QLT_Store.getAll(s)));
+      const byStore = Object.fromEntries(STORES.map((s, i) => [s, arrays[i]]));
+      const allTxs = byStore.transactions;
+      const allBooks = byStore.books;
+      const allAccs = byStore.accounts;
       let photoCount = 0, photoBytes = 0;
       for (const t of allTxs) {
         const photos = this.getTxPhotos(t);
@@ -15336,9 +15340,8 @@ const App = {
       const photoMB = (photoBytes / 1024 / 1024).toFixed(1);
       // Estimate IndexedDB size — sum of JSON.stringify length
       let totalBytes = 0;
-      for (const s of ['accounts', 'categories', 'transactions', 'reminders', 'books', 'loans', 'budgets', 'goals', 'fuelLogs', 'maintenanceLogs', 'recurringRules']) {
-        const arr = await window.QLT_Store.getAll(s);
-        totalBytes += JSON.stringify(arr).length;
+      for (const s of STORES) {
+        totalBytes += JSON.stringify(byStore[s]).length;
       }
       const totalMB = (totalBytes / 1024 / 1024).toFixed(2);
       wrap.innerHTML = `
@@ -16299,7 +16302,7 @@ const App = {
 
     // Hoàn tác tx cũ nếu sửa (sẽ tạo lại tx mới đúng giá trị)
     if (!isNew && log.txId) {
-      const oldTx = (await window.QLT_Store.getAll('transactions')).find(t => t.id === log.txId);
+      const oldTx = await window.QLT_Store.get('transactions', log.txId);
       if (oldTx) {
         await this.applyBalanceDelta(oldTx, -1);
         await window.QLT_Store.del('transactions', oldTx.id);
@@ -16338,7 +16341,7 @@ const App = {
     if (!log?.id) return;
     if (!await QLT_UI.confirm('Xoá lần đổ xăng này? Giao dịch chi tiêu liên kết cũng sẽ bị xoá.', { okLabel: 'Xoá', danger: true })) return;
     if (log.txId) {
-      const tx = (await window.QLT_Store.getAll('transactions')).find(t => t.id === log.txId);
+      const tx = await window.QLT_Store.get('transactions', log.txId);
       if (tx) {
         await this.applyBalanceDelta(tx, -1);
         await window.QLT_Store.del('transactions', tx.id);
@@ -16448,7 +16451,7 @@ const App = {
     const isNew = !log.id;
 
     if (!isNew && log.txId) {
-      const oldTx = (await window.QLT_Store.getAll('transactions')).find(t => t.id === log.txId);
+      const oldTx = await window.QLT_Store.get('transactions', log.txId);
       if (oldTx) {
         await this.applyBalanceDelta(oldTx, -1);
         await window.QLT_Store.del('transactions', oldTx.id);
@@ -16486,7 +16489,7 @@ const App = {
     if (!log?.id) return;
     if (!await QLT_UI.confirm('Xoá lần bảo dưỡng này? Giao dịch chi tiêu liên kết cũng sẽ bị xoá.', { okLabel: 'Xoá', danger: true })) return;
     if (log.txId) {
-      const tx = (await window.QLT_Store.getAll('transactions')).find(t => t.id === log.txId);
+      const tx = await window.QLT_Store.get('transactions', log.txId);
       if (tx) {
         await this.applyBalanceDelta(tx, -1);
         await window.QLT_Store.del('transactions', tx.id);
@@ -16785,7 +16788,7 @@ const App = {
       if (m.txId) {
         const tx = await window.QLT_Store.get('transactions', m.txId);
         if (tx) {
-          const acc = (await window.QLT_Store.getAll('accounts')).find(a => a.id === tx.accountId);
+          const acc = await window.QLT_Store.get('accounts', tx.accountId);
           if (acc) {
             acc.balance -= tx.amount;
             await window.QLT_Store.put('accounts', acc);
@@ -16808,7 +16811,7 @@ const App = {
             tx.note = newNote;
             await window.QLT_Store.put('transactions', tx);
             if (delta !== 0) {
-              const acc = (await window.QLT_Store.getAll('accounts')).find(a => a.id === tx.accountId);
+              const acc = await window.QLT_Store.get('accounts', tx.accountId);
               if (acc) {
                 acc.balance += delta;
                 await window.QLT_Store.put('accounts', acc);
@@ -16832,7 +16835,7 @@ const App = {
           memberId: m.id
         });
         m.txId = tx.id;
-        const acc = (await window.QLT_Store.getAll('accounts')).find(a => a.id === accId);
+        const acc = await window.QLT_Store.get('accounts', accId);
         if (acc) {
           acc.balance += contrib;
           await window.QLT_Store.put('accounts', acc);
@@ -16842,7 +16845,7 @@ const App = {
   },
 
   async calculateSettlement(bookId) {
-    const book = (await window.QLT_Store.getAll('books')).find(b => b.id === bookId);
+    const book = await window.QLT_Store.get('books', bookId);
     if (!book) return null;
     const members = (book.members || []).filter(m => (m.name && m.name.trim()) || (m.contribution || 0) > 0);
     if (members.length === 0) return null;
