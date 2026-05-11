@@ -4040,7 +4040,25 @@ html[data-theme="dark"] .tx-loc-badge{background:#1a3a5c;color:#7eb6e8}
           <input type="checkbox" id="bookExportPhotos" style="width:18px;height:18px;accent-color:var(--accent)">
           <span>Kèm ảnh hoá đơn / minh chứng vào báo cáo</span>
         </label>
-        <label class="fl">Báo cáo trong đợt (chưa chốt chia tiền)</label>
+        <label class="fl">Khoảng thời gian (áp cho "Trong đợt")</label>
+        <div id="bookExportRangePills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+          <div class="pill on" data-range="all">Tất cả</div>
+          <div class="pill" data-range="month">Tháng này</div>
+          <div class="pill" data-range="last-month">Tháng trước</div>
+          <div class="pill" data-range="last-7">7 ngày qua</div>
+          <div class="pill" data-range="custom">Tuỳ chọn...</div>
+        </div>
+        <div id="bookExportCustomRange" style="display:none;gap:8px;margin-bottom:10px">
+          <div style="flex:1">
+            <label class="fl" style="font-size:11px;margin-bottom:4px">Từ ngày</label>
+            <input type="date" id="bookExportFrom" class="in">
+          </div>
+          <div style="flex:1">
+            <label class="fl" style="font-size:11px;margin-bottom:4px">Đến ngày</label>
+            <input type="date" id="bookExportTo" class="in">
+          </div>
+        </div>
+        <label class="fl" style="margin-top:8px">Báo cáo trong đợt (chưa chốt chia tiền)</label>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button id="bookExportHTML" class="btn btn-secondary" style="display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-width:90px">
             <span data-icon="download" style="display:inline-flex;width:18px;height:18px"></span>

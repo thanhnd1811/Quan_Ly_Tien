@@ -2334,15 +2334,24 @@ const App = {
     $('#bookSave').onclick = () => this.saveBook();
     $('#bookDelete').onclick = () => this.deleteBook();
     const photosOpt = () => !!$('#bookExportPhotos')?.checked;
+    // Wire period pills cho "trong đợt" export range
+    document.querySelectorAll('#bookExportRangePills .pill').forEach(el => {
+      el.onclick = () => {
+        document.querySelectorAll('#bookExportRangePills .pill').forEach(x => x.classList.remove('on'));
+        el.classList.add('on');
+        const customWrap = $('#bookExportCustomRange');
+        if (customWrap) customWrap.style.display = el.dataset.range === 'custom' ? 'flex' : 'none';
+      };
+    });
     $('#bookExportHTML').onclick = () => {
-      if (this.state.editingBook?.id) this.exportBookHTML(this.state.editingBook.id, false, photosOpt());
+      if (this.state.editingBook?.id) this.exportBookHTML(this.state.editingBook.id, false, photosOpt(), this._resolveExportRange());
     };
     const exportPDFBtn = $('#bookExportPDF');
     if (exportPDFBtn) exportPDFBtn.onclick = () => {
-      if (this.state.editingBook?.id) this.exportBookPDF(this.state.editingBook.id, false, photosOpt());
+      if (this.state.editingBook?.id) this.exportBookPDF(this.state.editingBook.id, false, photosOpt(), this._resolveExportRange());
     };
     $('#bookExportCSV').onclick = () => {
-      if (this.state.editingBook?.id) this.exportBookCSV(this.state.editingBook.id, false);
+      if (this.state.editingBook?.id) this.exportBookCSV(this.state.editingBook.id, false, this._resolveExportRange());
     };
     $('#bookFinalHTML').onclick = () => this.exportFinal('html');
     $('#bookFinalPDF').onclick = () => this.exportFinal('pdf');
@@ -16928,8 +16937,42 @@ const App = {
   // ============ EXPORT BOOK ============
   // Tạo và tải PDF trực tiếp bằng html2pdf.js (lazy-load CDN ~150KB)
   // → user nhận file .pdf thực sự, không phụ thuộc Print dialog của WebView
-  async exportBookPDF(bookId, includeSettlement = false, includePhotos = false) {
-    const html = await this._buildBookReportHTML(bookId, includeSettlement, includePhotos);
+  // Đọc pill đang chọn + custom date inputs → { from, to, label } hoặc null (= all).
+  // from/to dạng 'YYYY-MM-DD' inclusive. Dùng local date (không UTC) để tránh
+  // bug múi giờ +7.
+  _resolveExportRange() {
+    const pill = document.querySelector('#bookExportRangePills .pill.on');
+    const mode = pill?.dataset.range || 'all';
+    if (mode === 'all') return null;
+    const now = new Date();
+    const ymdLocal = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const todayStr = ymdLocal(now);
+    if (mode === 'month') {
+      const ym = todayStr.slice(0, 7);
+      return { from: ym + '-01', to: todayStr, label: 'Tháng ' + ym };
+    }
+    if (mode === 'last-month') {
+      const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const last = new Date(now.getFullYear(), now.getMonth(), 0); // ngày cuối tháng trước
+      const fromS = ymdLocal(d);
+      const toS = ymdLocal(last);
+      return { from: fromS, to: toS, label: 'Tháng ' + fromS.slice(0, 7) };
+    }
+    if (mode === 'last-7') {
+      const d = new Date(now); d.setDate(d.getDate() - 6);
+      return { from: ymdLocal(d), to: todayStr, label: '7 ngày qua' };
+    }
+    if (mode === 'custom') {
+      const from = $('#bookExportFrom')?.value || '';
+      const to = $('#bookExportTo')?.value || '';
+      if (!from && !to) return null;
+      return { from: from || '0000-01-01', to: to || '9999-12-31', label: `${from || '...'} → ${to || '...'}` };
+    }
+    return null;
+  },
+
+  async exportBookPDF(bookId, includeSettlement = false, includePhotos = false, range = null) {
+    const html = await this._buildBookReportHTML(bookId, includeSettlement, includePhotos, range);
     if (!html) return;
 
     // Lazy-load html2pdf.js
@@ -17028,24 +17071,28 @@ const App = {
     }
   },
 
-  async exportBookHTML(bookId, includeSettlement = false, includePhotos = false) {
+  async exportBookHTML(bookId, includeSettlement = false, includePhotos = false, range = null) {
     const book = this.state.books.find(b => b.id === bookId);
     if (!book) return null;
-    const html = await this._buildBookReportHTML(bookId, includeSettlement, includePhotos);
+    const html = await this._buildBookReportHTML(bookId, includeSettlement, includePhotos, range);
     if (!html) return null;
     const suffix = includeSettlement ? 'ket-thuc' : 'trong-dot';
     this._download(html, `qlt-${this._safe(book.name)}-${suffix}-${today()}.html`, 'text/html;charset=utf-8');
     return html;
   },
 
-  async _buildBookReportHTML(bookId, includeSettlement = false, includePhotos = false) {
+  async _buildBookReportHTML(bookId, includeSettlement = false, includePhotos = false, range = null) {
     const book = this.state.books.find(b => b.id === bookId);
     if (!book) return;
-    const allTxs = (await window.QLT_Store.getAll('transactions')).filter(t => t.bookId === bookId);
+    const rawTxs = (await window.QLT_Store.getAll('transactions')).filter(t => t.bookId === bookId);
     const allCats = (await window.QLT_Store.getAll('categories')).filter(c => c.bookId === bookId);
     const allAccs = (await window.QLT_Store.getAll('accounts')).filter(a => a.bookId === bookId);
     const cat = id => allCats.find(c => c.id === id) || {};
     const acc = id => allAccs.find(a => a.id === id) || {};
+
+    // Filter theo khoảng thời gian (nếu user chọn range trong export modal)
+    const inRange = t => !range || (t.date >= range.from && t.date <= range.to);
+    const allTxs = rawTxs.filter(inRange);
 
     const totIn = allTxs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
     const totOut = allTxs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
@@ -17189,7 +17236,10 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
   <header>
     <h1>${esc(book.name)}</h1>
     <div class="meta">Báo cáo xuất ${exportedAt} · ${allTxs.length} giao dịch</div>
-    <div class="meta" style="margin-top:6px;display:inline-block;background:rgba(255,255,255,.18);padding:3px 10px;border-radius:12px;font-weight:600;font-size:11px;letter-spacing:.5px">${reportType}</div>
+    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <span class="meta" style="display:inline-block;background:rgba(255,255,255,.18);padding:3px 10px;border-radius:12px;font-weight:600;font-size:11px;letter-spacing:.5px">${reportType}</span>
+      ${range ? `<span class="meta" style="display:inline-block;background:rgba(255,255,255,.18);padding:3px 10px;border-radius:12px;font-weight:600;font-size:11px;letter-spacing:.5px">📅 ${esc(range.label || (range.from + ' → ' + range.to))}</span>` : ''}
+    </div>
   </header>
   <section>
     <div class="summary">
@@ -17287,10 +17337,12 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
     return html;
   },
 
-  async exportBookCSV(bookId, includeSettlement = false) {
+  async exportBookCSV(bookId, includeSettlement = false, range = null) {
     const book = this.state.books.find(b => b.id === bookId);
     if (!book) return;
-    const txs = (await window.QLT_Store.getAll('transactions')).filter(t => t.bookId === bookId);
+    const rawTxs = (await window.QLT_Store.getAll('transactions')).filter(t => t.bookId === bookId);
+    // Filter theo khoảng thời gian (nếu user chọn range)
+    const txs = range ? rawTxs.filter(t => t.date >= range.from && t.date <= range.to) : rawTxs;
     const cats = (await window.QLT_Store.getAll('categories')).filter(c => c.bookId === bookId);
     const accs = (await window.QLT_Store.getAll('accounts')).filter(a => a.bookId === bookId);
 
