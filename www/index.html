@@ -279,6 +279,75 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .stat-lbl{font-size:11.5px;opacity:.88;font-weight:500;letter-spacing:0.1px}
 .stat-val{font-size:18px;font-weight:700;margin-top:4px;letter-spacing:-0.3px}
 
+/* =================================================================
+   HOME V2 — compact pro dashboard (mockup-home-redesign.html)
+   ================================================================= */
+/* Compact balance card — thay block balance-hero tím to cũ */
+.home-hero-v2{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin:14px 14px 12px;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+.home-hv2-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.home-hv2-lbl{font-size:11px;color:var(--text2);font-weight:500;text-transform:uppercase;letter-spacing:.5px}
+.home-hv2-eye{background:transparent;border:none;color:var(--text3);font-size:14px;cursor:pointer;padding:2px 4px;opacity:.6}
+.home-hv2-eye:active{opacity:1}
+.home-hv2-amount{font-size:26px;font-weight:800;letter-spacing:-.5px;color:var(--text);line-height:1.15}
+.home-hv2-unit{font-size:13px;font-weight:600;color:var(--text3);margin-left:2px}
+.home-hv2-delta{font-size:11.5px;font-weight:600;margin-top:4px;color:var(--text2);display:flex;align-items:center;gap:5px;min-height:16px}
+.home-hv2-delta.pos{color:#2d8659}
+.home-hv2-delta.neg{color:#e63946}
+.home-hv2-delta .arrow{font-size:10px}
+.home-hv2-savings{margin-top:6px;display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--accent);font-weight:600;cursor:pointer;text-decoration:none}
+/* Sparkline 7-day mini bars */
+.home-hv2-spark{display:flex;align-items:flex-end;gap:2.5px;height:18px;margin-top:7px}
+.home-hv2-spark-bar{flex:1;background:var(--acl);border-radius:1.5px;min-height:2px;transition:height .3s ease}
+.home-hv2-spark-bar.high{background:var(--accent);opacity:.85}
+
+/* 2×2 insight cards grid */
+.home-insights{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 14px 12px}
+.home-icard{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:11px 12px;box-shadow:0 1px 3px rgba(0,0,0,.03);min-height:78px;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease}
+.home-icard:active{transform:scale(.98)}
+.home-icard-head{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.home-icard-emoji{font-size:13px}
+.home-icard-title{font-size:10.5px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.4px}
+.home-icard-main{font-size:15px;font-weight:800;color:var(--text);letter-spacing:-.3px;line-height:1.1}
+.home-icard-sub{font-size:10.5px;color:var(--text2);margin-top:3px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.home-icard-sub .neg{color:#e63946;font-weight:600}
+.home-icard-sub .pos{color:#2d8659;font-weight:600}
+.home-icard-sub .warn{color:#b8860b;font-weight:600}
+.home-icard-progress{height:3px;background:var(--border);border-radius:2px;margin-top:7px;overflow:hidden}
+.home-icard-progress-fill{height:100%;border-radius:2px;background:#52b788;transition:width .35s ease}
+.home-icard-progress-fill.warn{background:#f59e0b}
+.home-icard-progress-fill.danger{background:#e63946}
+
+/* Section headers compact */
+.home-section{margin:0 0 12px}
+.home-sec-head{display:flex;align-items:center;justify-content:space-between;padding:0 16px 6px}
+.home-sec-title{font-size:13px;font-weight:700;color:var(--text);letter-spacing:-.1px}
+.home-sec-ct{font-size:10.5px;color:var(--text3);font-weight:500;margin-left:6px}
+.home-sec-act{font-size:11.5px;color:var(--accent);font-weight:600;cursor:pointer}
+.home-sec-act:active{opacity:.6}
+
+/* Wallets horizontal carousel */
+#homeWallets{display:flex;gap:8px;overflow-x:auto;padding:2px 14px 8px;margin:0;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
+#homeWallets::-webkit-scrollbar{display:none}
+.home-wallet-chip{flex-shrink:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 12px 11px;min-width:130px;box-shadow:0 1px 2px rgba(0,0,0,.03);scroll-snap-align:start;cursor:pointer;transition:transform .15s ease}
+.home-wallet-chip:active{transform:scale(.96)}
+.home-wallet-chip-top{display:flex;align-items:center;gap:7px;margin-bottom:5px}
+.home-wallet-chip-ico{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;overflow:hidden;flex-shrink:0}
+.home-wallet-chip-ico svg{width:14px;height:14px}
+.home-wallet-chip-ico .bank-logo{width:18px;height:18px;object-fit:contain}
+.home-wallet-chip-nm{font-size:10.5px;font-weight:600;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px}
+.home-wallet-chip-amt{font-size:14px;font-weight:800;color:var(--text);letter-spacing:-.3px;line-height:1.1}
+.home-wallet-chip-trend{font-size:9.5px;color:var(--text3);margin-top:2px;font-weight:500}
+.home-wallet-chip-trend .down{color:#e63946;font-weight:600}
+.home-wallet-chip-trend .up{color:#2d8659;font-weight:600}
+
+/* Recent tx grouped by day */
+.home-tx-group{margin-bottom:8px}
+.home-tx-day-head{display:flex;align-items:center;justify-content:space-between;padding:6px 16px 5px;background:transparent}
+.home-tx-day-lbl{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px}
+.home-tx-day-sum{font-size:10.5px;color:var(--text3);font-weight:500;display:flex;gap:8px}
+.home-tx-day-sum .neg{color:#e63946;font-weight:600}
+.home-tx-day-sum .pos{color:#2d8659;font-weight:600}
+
 /* Tx item — premium row design với spacing rộng rãi */
 .tx-item{display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s ease}
 .tx-item:active{background:var(--surface2)}
@@ -1528,55 +1597,70 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
     <span class="ptr-indicator-icon">🔄</span>
   </div>
   <div class="scroll-body" data-ptr="home">
-    <div class="balance-hero">
-      <div class="balance-label">Tổng số dư (tiền dùng được) <button id="homeEyeBtn" class="balance-eye" title="Ẩn / hiện số tiền">👁</button></div>
-      <div class="balance-amount" id="homeBalance">0 đ</div>
-      <div class="balance-month" id="homeMonth">Tháng này</div>
-      <div class="balance-hero-extra" id="homeSavingsLink" style="display:none" onclick="QLT_App.scrollToSavings()"></div>
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-lbl">Thu nhập</div>
-          <div class="stat-val" id="homeIncome">0 đ</div>
+
+    <!-- NEW: Compact balance hero (v2) — thay block tím to cũ -->
+    <div class="home-hero-v2">
+      <div class="home-hv2-top">
+        <span class="home-hv2-lbl">Tổng tài sản</span>
+        <button id="homeEyeBtn" class="balance-eye home-hv2-eye" title="Ẩn / hiện số tiền">👁</button>
+      </div>
+      <div class="home-hv2-amount">
+        <span id="homeBalance">0</span><span class="home-hv2-unit"> đ</span>
+      </div>
+      <div id="homeHv2Delta" class="home-hv2-delta"></div>
+      <div id="homeHv2Spark" class="home-hv2-spark"></div>
+      <div id="homeSavingsLink" class="home-hv2-savings" style="display:none" onclick="QLT_App.scrollToSavings()"></div>
+    </div>
+
+    <!-- NEW: 2×2 insight cards — Chi tháng / Ngân sách / Tiết kiệm / Mục tiêu -->
+    <div class="home-insights">
+      <div class="home-icard" id="homeICardExpense"></div>
+      <div class="home-icard" id="homeICardBudget"></div>
+      <div class="home-icard" id="homeICardSavings"></div>
+      <div class="home-icard" id="homeICardGoals"></div>
+    </div>
+
+    <!-- Banners (giữ nguyên — conditional) -->
+    <div id="homeUpdateBanner" style="display:none"></div>
+    <div id="homeBalanceMismatchBanner" style="display:none"></div>
+    <div id="homeSubscriptionsBanner" style="display:none"></div>
+
+    <!-- Ví của bạn — horizontal carousel -->
+    <div data-home-widget="wallets">
+      <div class="home-section">
+        <div class="home-sec-head">
+          <span class="home-sec-title">Ví của bạn<span id="homeWalletsCt" class="home-sec-ct"></span></span>
+          <span class="home-sec-act" onclick="QLT_App.switchTab('accounts')">Quản lý →</span>
         </div>
-        <div class="stat-card">
-          <div class="stat-lbl">Chi tiêu</div>
-          <div class="stat-val" id="homeExpense">0 đ</div>
-        </div>
+        <div id="homeWallets"></div>
       </div>
     </div>
-    <!-- Update banner — chỉ hiện khi có version mới trên GitHub Releases -->
-    <div id="homeUpdateBanner" style="display:none"></div>
-    <!-- Banner cảnh báo lệch số dư NH vs app — chỉ hiện khi có mismatch -->
-    <div id="homeBalanceMismatchBanner" style="display:none"></div>
-    <!-- Banner phát hiện đăng ký định kỳ — chỉ hiện khi có pattern mới -->
-    <div id="homeSubscriptionsBanner" style="display:none"></div>
+
     <!-- Quick Add Favorites — chips tạo GD nhanh -->
     <div id="homeFavorites"></div>
 
-    <div data-home-widget="wallets">
-      <div class="section">
-        <div class="sec-label">
-          Số dư từng ví
-          <span class="sec-action" onclick="QLT_App.switchTab('accounts')">Quản lý →</span>
-        </div>
-      </div>
-      <div id="homeWallets"></div>
-    </div>
-    <div data-home-widget="savings"><div id="homeSavings" style="display:none"></div></div>
-    <div data-home-widget="goals"><div id="homeGoals" style="display:none"></div></div>
-    <div data-home-widget="forecast"><div id="homeForecast" style="display:none"></div></div>
-    <div data-home-widget="budgets"><div id="homeBudgetWidget" style="display:none"></div></div>
-    <div data-home-widget="loans"><div id="homeLoanShortcut" style="display:none"></div></div>
-    <div data-home-widget="insights"><div id="homeInsights" style="display:none"></div></div>
+    <!-- Recent tx — group by day -->
     <div data-home-widget="recent">
-      <div class="section">
-        <div class="sec-label">
-          Giao dịch gần đây
-          <span class="sec-action" onclick="QLT_App.switchTab('transactions')">Xem tất cả</span>
+      <div class="home-section">
+        <div class="home-sec-head">
+          <span class="home-sec-title">Giao dịch gần đây</span>
+          <span class="home-sec-act" onclick="QLT_App.switchTab('transactions')">Xem tất cả →</span>
         </div>
+        <div id="homeRecent"></div>
       </div>
-      <div id="homeRecent"></div>
     </div>
+
+    <!-- DEPRECATED widgets — giữ DOM hooks để các renderer cũ không null-error,
+         nhưng ẩn hoàn toàn vì insight cards đã thay thế. -->
+    <span id="homeIncome" style="display:none"></span>
+    <span id="homeExpense" style="display:none"></span>
+    <span id="homeMonth" style="display:none"></span>
+    <div data-home-widget="savings" style="display:none"><div id="homeSavings"></div></div>
+    <div data-home-widget="goals" style="display:none"><div id="homeGoals"></div></div>
+    <div data-home-widget="forecast" style="display:none"><div id="homeForecast"></div></div>
+    <div data-home-widget="budgets" style="display:none"><div id="homeBudgetWidget"></div></div>
+    <div data-home-widget="loans" style="display:none"><div id="homeLoanShortcut"></div></div>
+    <div data-home-widget="insights" style="display:none"><div id="homeInsights"></div></div>
   </div>
 </div>
 

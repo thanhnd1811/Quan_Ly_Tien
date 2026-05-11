@@ -164,6 +164,9 @@ const QLT_UI = (() => {
 window.QLT_UI = QLT_UI;
 const fmt = n => (n || 0).toLocaleString('vi-VN');
 const today = () => new Date().toISOString().slice(0, 10);
+// Local date YYYY-MM-DD (KHÔNG UTC) — dùng trong renderHome/insight cards/export
+// để tránh bug VN timezone (xem ai-chat.js commit 182910b).
+const ymdLocal = (d = new Date()) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
 // Haptic feedback — wrapper navigator.vibrate với các pattern chuẩn
 // User có thể tắt qua localStorage 'qlt_haptic_off' = '1'
@@ -2963,18 +2966,22 @@ const App = {
   },
 
   renderHome() {
-    // Áp dụng prefs widget — ẩn cả wrapper data-home-widget tương ứng
+    // Áp dụng prefs widget — ẩn cả wrapper data-home-widget tương ứng.
+    // (Insight cards mới = 1 grid duy nhất, không split per-widget)
     document.querySelectorAll('[data-home-widget]').forEach(el => {
-      el.style.display = this.isHomeWidgetOn(el.dataset.homeWidget) ? '' : 'none';
+      const w = el.dataset.homeWidget;
+      // Các widget cũ (savings/goals/forecast/budgets/loans/insights) đã được
+      // absorb vào insight cards → luôn ẩn (giữ DOM cho null-safe của renderer cũ).
+      if (['savings','goals','forecast','budgets','loans','insights'].includes(w)) {
+        el.style.display = 'none';
+      } else {
+        el.style.display = this.isHomeWidgetOn(w) ? '' : 'none';
+      }
     });
 
-    // Update banner — async, không block render
     this.renderHomeUpdateBanner();
-    // Balance mismatch banner — hiện cảnh báo nếu có lệch số dư NH vs app
     this.renderHomeBalanceMismatch();
-    // Quick Add Favorites — chips tạo GD nhanh
     this.renderHomeFavorites();
-    // Subscription detection banner — chỉ hiện nếu user chưa snooze (7 ngày)
     {
       const snoozeUntil = parseInt(localStorage.getItem('qlt_subs_banner_snooze') || '0', 10);
       if (Date.now() > snoozeUntil) {
@@ -2984,110 +2991,142 @@ const App = {
         if (w) w.style.display = 'none';
       }
     }
-    // AI chat FAB — chỉ hiện khi đã setup API key
     this.renderAiChatFab();
 
-    // Tổng số dư = CHỈ tính ví thanh toán (tiền dùng được)
     const paymentAccs = this.state.accounts.filter(a => this.isPayment(a));
     const savingsAccs = this.state.accounts.filter(a => this.isActiveSavings(a));
     const totalBalance = paymentAccs.reduce((s, a) => s + (a.balance || 0), 0);
     const totalSavings = savingsAccs.reduce((s, a) => s + (a.balance || 0), 0);
+
+    // ===== Compact balance card (v2) =====
     if (isAmountHidden()) {
-      $('#homeBalance').textContent = fmtBal(totalBalance);
+      $('#homeBalance').textContent = fmtBal(totalBalance).replace(' đ', '');
       $('#homeBalance').classList.add('amount-hidden');
       $('#homeBalance').dataset._lastValue = String(totalBalance);
     } else {
       $('#homeBalance').classList.remove('amount-hidden');
-      animateNumber($('#homeBalance'), totalBalance);
+      animateNumber($('#homeBalance'), totalBalance, { suffix: '' });
     }
 
-    // Hint sổ tiết kiệm dưới hero
+    // Hint sổ tiết kiệm
     const savingsLink = $('#homeSavingsLink');
     if (savingsLink) {
       if (totalSavings > 0) {
         savingsLink.style.display = 'inline-flex';
-        savingsLink.innerHTML = `+ ${fmtBal(totalSavings).replace(' đ', '')} đ trong tiết kiệm <span style="font-size:14px">→</span>`;
+        savingsLink.innerHTML = `+ ${fmtBal(totalSavings).replace(' đ', '')} đ tiết kiệm →`;
       } else {
         savingsLink.style.display = 'none';
       }
     }
 
-    // Tổng thu/chi tháng hiện tại + thay đổi số dư từng ví trong tháng
+    // Compute month totals + accChange + delta MoM + sparkline data
     const now = new Date();
-    const ym = now.toISOString().slice(0, 7);
-    let inc = 0, exp = 0;
+    const ym = ymdLocal(now).slice(0, 7);
+    const lastMonthD = new Date(now.getFullYear(), now.getMonth() - 1, 15);
+    const lastYm = ymdLocal(lastMonthD).slice(0, 7);
+
+    let inc = 0, exp = 0, lastExp = 0;
     const accChange = {};
     for (const a of this.state.accounts) accChange[a.id] = 0;
+    const today7 = []; // 7 days ago → today
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now); d.setDate(d.getDate() - i);
+      today7.push({ date: ymdLocal(d), exp: 0 });
+    }
+    const today7Map = Object.fromEntries(today7.map(d => [d.date, d]));
+
     for (const t of this.state.transactions) {
-      if (!t.date.startsWith(ym)) continue;
-      // BỎ giao dịch _adjustment (Điều chỉnh số dư) khỏi CẢ tổng Thu/Chi
-      // VÀ accChange (thay đổi từng ví trong tháng).
-      // Lý do: user dùng nút "⚖️ Điều chỉnh" để fix sai lệch / set initial,
-      // không phải cash flow thật. Nếu cộng vào sẽ inflate cả Thu nhập tháng
-      // VÀ chỉ báo "↑ N đ" trên ví → gây nhầm lẫn.
       if (t._adjustment) continue;
-      if (t.type === 'income') {
-        inc += t.amount;
-        accChange[t.accountId] = (accChange[t.accountId] || 0) + t.amount;
-      } else if (t.type === 'expense') {
-        exp += t.amount;
-        accChange[t.accountId] = (accChange[t.accountId] || 0) - t.amount;
-      } else if (t.type === 'transfer') {
-        accChange[t.accountId] = (accChange[t.accountId] || 0) - t.amount;
-        accChange[t.toAccountId] = (accChange[t.toAccountId] || 0) + t.amount;
+      const isThis = t.date.startsWith(ym);
+      const isLast = t.date.startsWith(lastYm);
+      if (isThis) {
+        if (t.type === 'income') {
+          inc += t.amount;
+          accChange[t.accountId] = (accChange[t.accountId] || 0) + t.amount;
+        } else if (t.type === 'expense') {
+          exp += t.amount;
+          accChange[t.accountId] = (accChange[t.accountId] || 0) - t.amount;
+        } else if (t.type === 'transfer') {
+          accChange[t.accountId] = (accChange[t.accountId] || 0) - t.amount;
+          accChange[t.toAccountId] = (accChange[t.toAccountId] || 0) + t.amount;
+        }
+      } else if (isLast && t.type === 'expense') {
+        lastExp += t.amount;
+      }
+      // Sparkline: chi tiêu 7 ngày qua
+      if (t.type === 'expense' && today7Map[t.date]) today7Map[t.date].exp += t.amount;
+    }
+
+    // Delta MoM — so tổng chi tháng này vs tháng trước
+    const deltaEl = $('#homeHv2Delta');
+    if (deltaEl) {
+      if (lastExp > 0) {
+        const deltaPct = Math.round((exp - lastExp) / lastExp * 100);
+        const isUp = deltaPct > 0;
+        // Chi tăng = tệ, chi giảm = tốt
+        deltaEl.className = 'home-hv2-delta ' + (isUp ? 'neg' : 'pos');
+        deltaEl.innerHTML = `<span class="arrow">${isUp ? '▲' : '▼'}</span> ${Math.abs(deltaPct)}% chi tiêu vs tháng trước · ${paymentAccs.length} ví`;
+      } else if (exp > 0) {
+        deltaEl.className = 'home-hv2-delta';
+        deltaEl.innerHTML = `${paymentAccs.length} ví · chi tháng này ${fmtBal(exp).replace(' đ', '')} đ`;
+      } else {
+        deltaEl.className = 'home-hv2-delta';
+        deltaEl.innerHTML = `${paymentAccs.length} ví đang hoạt động`;
       }
     }
-    // Animate income/expense numbers (Polish D — consistency với homeBalance)
-    animateNumber($('#homeIncome'), inc, { suffix: '' });
-    animateNumber($('#homeExpense'), exp, { suffix: '' });
-    // Streak badge (nếu ≥3 ngày liên tiếp)
-    const streak = this.computeStreak();
-    const streakHtml = streak >= 3 ? `<span class="streak-badge">🔥 ${streak} ngày liên tiếp</span>` : '';
-    $('#homeMonth').innerHTML = `Tháng ${now.getMonth() + 1}/${now.getFullYear()}${streakHtml}`;
 
-    // ----- Số dư từng ví (CHỈ payment) -----
+    // Sparkline 7-day expense bars
+    const sparkEl = $('#homeHv2Spark');
+    if (sparkEl) {
+      const maxE = Math.max(1, ...today7.map(d => d.exp));
+      sparkEl.innerHTML = today7.map(d => {
+        const pct = Math.max(5, Math.round(d.exp / maxE * 100));
+        const cls = d.exp >= maxE * 0.75 ? ' high' : '';
+        return `<div class="home-hv2-spark-bar${cls}" style="height:${pct}%" title="${d.date}: ${fmtBal(d.exp)}"></div>`;
+      }).join('');
+    }
+
+    // Keep deprecated hooks happy (renderers cũ vẫn animate vào hidden spans)
+    const incEl = $('#homeIncome'), expEl = $('#homeExpense'), monthEl = $('#homeMonth');
+    if (incEl) animateNumber(incEl, inc, { suffix: '' });
+    if (expEl) animateNumber(expEl, exp, { suffix: '' });
+    if (monthEl) monthEl.textContent = `Tháng ${now.getMonth() + 1}/${now.getFullYear()}`;
+
+    // ===== 2x2 Insight cards =====
+    this._renderHomeInsightCards({ inc, exp, lastExp, totalSavings, savingsAccs });
+
+    // ===== Wallets — horizontal chips =====
     const walletEl = $('#homeWallets');
-    const accs = paymentAccs;
-    if (!accs.length) {
-      walletEl.innerHTML = this.emptyState({
-        icon: '💼', title: 'Chưa có ví nào',
-        desc: 'Tạo ví để bắt đầu theo dõi thu chi.',
-        ctaLabel: '+ Thêm ví đầu tiên'
-      });
-      this.bindEmptyCTA(walletEl, () => this.switchTab('accounts'));
+    const walletsCt = $('#homeWalletsCt');
+    if (walletsCt) walletsCt.textContent = paymentAccs.length ? ` · ${paymentAccs.length} ví` : '';
+    if (!paymentAccs.length) {
+      walletEl.innerHTML = `<div style="padding:20px 16px;color:var(--text3);font-size:12px;text-align:center;width:100%">Chưa có ví. Tap "Quản lý →" để tạo.</div>`;
     } else {
-      // % của từng ví so với ví số dư lớn nhất → mini bar
-      const maxBal = Math.max(1, ...accs.map(a => Math.abs(a.balance || 0)));
-      walletEl.innerHTML = accs.map(a => {
+      walletEl.innerHTML = paymentAccs.map(a => {
         const bal = a.balance || 0;
         const change = accChange[a.id] || 0;
-        const pct = Math.min(100, Math.round(Math.abs(bal) / maxBal * 100));
         const accentColor = a.color || '#2d6a4f';
-        let changeHtml = '';
-        if (change !== 0) {
-          const cls = change > 0 ? 'pos' : 'neg';
-          const arrow = change > 0 ? '↑' : '↓';
-          changeHtml = `<div class="wallet-change ${cls}">${arrow} ${fmtBal(Math.abs(change))}</div>`;
-        } else {
-          changeHtml = `<div class="wallet-change zero">— Không đổi</div>`;
-        }
+        let trendHtml;
+        if (change > 0) trendHtml = `<span class="up">▲ ${fmtBal(Math.abs(change)).replace(' đ', '')}đ</span> tháng này`;
+        else if (change < 0) trendHtml = `<span class="down">▼ ${fmtBal(Math.abs(change)).replace(' đ', '')}đ</span> tháng này`;
+        else trendHtml = '— Không đổi';
+        // Compact amount: 1.5M, 250k
+        const compact = bal >= 1000000
+          ? (bal / 1000000).toFixed(2).replace(/\.?0+$/, '') + 'M'
+          : bal >= 1000 ? Math.round(bal / 1000) + 'k' : String(bal);
         return `
-          <div class="wallet-row" data-acc="${a.id}">
-            <div class="wallet-icon" style="background:${accentColor}1a;color:${accentColor}">
-              ${svgIcon(a.icon || 'wallet')}
+          <div class="home-wallet-chip" data-acc="${a.id}">
+            <div class="home-wallet-chip-top">
+              <div class="home-wallet-chip-ico" style="background:${accentColor}1a;color:${accentColor}">
+                ${svgIcon(a.icon || 'wallet')}
+              </div>
+              <span class="home-wallet-chip-nm">${this.escapeHtml(a.name)}</span>
             </div>
-            <div class="wallet-info">
-              <div class="wallet-name">${this.escapeHtml(a.name)}</div>
-              <div class="wallet-bar"><div class="wallet-bar-fill" style="width:${pct}%;background:${accentColor}"></div></div>
-            </div>
-            <div class="wallet-amounts">
-              <div class="wallet-bal">${fmtBal(bal)}</div>
-              ${changeHtml}
-            </div>
+            <div class="home-wallet-chip-amt">${isAmountHidden() ? '•••' : compact} đ</div>
+            <div class="home-wallet-chip-trend">${trendHtml}</div>
           </div>
         `;
       }).join('');
-      // Bấm vào ví → sang trang Giao dịch lọc theo ví đó
       walletEl.querySelectorAll('[data-acc]').forEach(el => {
         el.onclick = () => {
           this.state.txAccountFilter = el.dataset.acc;
@@ -3096,28 +3135,18 @@ const App = {
       });
     }
 
-    // ----- Sổ tiết kiệm / Tài sản dài hạn -----
+    // Old widget renderers still called (writes vào hidden containers — không hiện)
     this.renderHomeSavings(totalBalance, totalSavings);
-
-    // ----- Mục tiêu tiết kiệm -----
     this.renderHomeGoals();
-
-    // ----- Forecast cuối tháng -----
     this.renderHomeForecast();
-
-    // ----- Smart insights -----
     this.renderHomeInsights();
-
-    // ----- Budget widget -----
     this.renderHomeBudgets();
-
-    // ----- Loan shortcut card -----
     this.renderHomeLoanShortcut();
 
-    // ----- Giao dịch gần nhất -----
+    // ===== Recent tx — grouped by day =====
     const recent = [...this.state.transactions]
-      .sort((a, b) => (b.date + b._updatedAt).localeCompare(a.date + a._updatedAt))
-      .slice(0, 8);
+      .sort((a, b) => (b.date + (b._updatedAt || '')).localeCompare(a.date + (a._updatedAt || '')))
+      .slice(0, 10);
     const recentEl = $('#homeRecent');
     if (recent.length === 0) {
       recentEl.innerHTML = this.emptyState({
@@ -3125,7 +3154,35 @@ const App = {
         desc: 'Bấm dấu <strong>+</strong> ở dưới để thêm thu/chi đầu tiên.'
       });
     } else {
-      recentEl.innerHTML = recent.map(t => this.renderTxItem(t)).join('');
+      // Group by date
+      const byDate = {};
+      for (const t of recent) (byDate[t.date] = byDate[t.date] || []).push(t);
+      const todayStr = ymdLocal(now);
+      const yest = new Date(now); yest.setDate(yest.getDate() - 1);
+      const yestStr = ymdLocal(yest);
+      const dayLabel = (d) => {
+        if (d === todayStr) return 'Hôm nay · ' + this.formatDate(d);
+        if (d === yestStr) return 'Hôm qua · ' + this.formatDate(d);
+        return this.formatDate(d);
+      };
+      recentEl.innerHTML = Object.keys(byDate).sort().reverse().map(d => {
+        const txs = byDate[d];
+        const inc = txs.filter(t => t.type === 'income' && !t._adjustment).reduce((s, t) => s + t.amount, 0);
+        const expS = txs.filter(t => t.type === 'expense' && !t._adjustment).reduce((s, t) => s + t.amount, 0);
+        const sumHtml = [
+          inc > 0 ? `<span class="pos">+${fmtBal(inc).replace(' đ', '')}đ</span>` : '',
+          expS > 0 ? `<span class="neg">-${fmtBal(expS).replace(' đ', '')}đ</span>` : ''
+        ].filter(Boolean).join(' · ');
+        return `
+          <div class="home-tx-group">
+            <div class="home-tx-day-head">
+              <span class="home-tx-day-lbl">${dayLabel(d)}</span>
+              <span class="home-tx-day-sum">${sumHtml}</span>
+            </div>
+            ${txs.map(t => this.renderTxItem(t)).join('')}
+          </div>
+        `;
+      }).join('');
       recentEl.querySelectorAll('[data-tx]').forEach(el => {
         el.onclick = (e) => {
           const lb = e.target.closest('[data-tx-loc]');
@@ -3133,6 +3190,167 @@ const App = {
           this.openTxModal(el.dataset.tx);
         };
       });
+    }
+  },
+
+  // ===== 4 insight cards: Chi tháng / Ngân sách / Tiết kiệm / Mục tiêu =====
+  _renderHomeInsightCards({ exp, lastExp, totalSavings, savingsAccs }) {
+    const fmtCompact = n => {
+      if (Math.abs(n) >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+      if (Math.abs(n) >= 1000) return Math.round(n / 1000) + 'k';
+      return String(n);
+    };
+    const esc = s => this.escapeHtml(s);
+    const monthLabel = String(new Date().getMonth() + 1).padStart(2, '0');
+
+    // --- Card 1: Chi tháng + delta vs last month ---
+    const c1 = $('#homeICardExpense');
+    if (c1) {
+      let sub;
+      if (lastExp > 0) {
+        const deltaPct = Math.round((exp - lastExp) / lastExp * 100);
+        const cls = deltaPct > 0 ? 'neg' : 'pos';
+        const sign = deltaPct > 0 ? '+' : '';
+        sub = `<span class="${cls}">${sign}${deltaPct}%</span> vs tháng trước (${fmtCompact(lastExp)})`;
+      } else {
+        sub = exp > 0 ? `Tháng trước chưa có dữ liệu` : `Tháng này chưa chi tiêu`;
+      }
+      c1.innerHTML = `
+        <div class="home-icard-head">
+          <span class="home-icard-emoji">💸</span>
+          <span class="home-icard-title">Chi tháng ${monthLabel}</span>
+        </div>
+        <div class="home-icard-main">${isAmountHidden() ? '•••' : '-' + fmtCompact(exp)}</div>
+        <div class="home-icard-sub">${sub}</div>
+      `;
+      c1.onclick = () => this.switchTab('transactions');
+    }
+
+    // --- Card 2: Ngân sách (budget) status ---
+    const c2 = $('#homeICardBudget');
+    if (c2) {
+      const budgets = this.state.budgets || [];
+      if (budgets.length === 0) {
+        c2.innerHTML = `
+          <div class="home-icard-head">
+            <span class="home-icard-emoji">🎯</span>
+            <span class="home-icard-title">Ngân sách</span>
+          </div>
+          <div class="home-icard-main" style="font-size:13px;font-weight:600;color:var(--text2)">Chưa đặt</div>
+          <div class="home-icard-sub"><span class="pos">Tạo ngân sách →</span></div>
+        `;
+        c2.onclick = () => this.switchTab('budgets');
+      } else {
+        const ym = ymdLocal(new Date()).slice(0, 7);
+        const usage = budgets.map(b => {
+          const spent = this.state.transactions.filter(t =>
+            !t._adjustment && t.type === 'expense' && t.categoryId === b.categoryId && t.date.startsWith(ym)
+          ).reduce((s, t) => s + t.amount, 0);
+          const pct = b.amount > 0 ? Math.round(spent / b.amount * 100) : 0;
+          const cat = (this.state.categories || []).find(c => c.id === b.categoryId);
+          return { name: cat?.name || '?', pct, spent, budget: b.amount };
+        });
+        const overOrWarn = usage.filter(u => u.pct >= 80);
+        const okCount = usage.length - overOrWarn.length;
+        // Worst card
+        const worst = usage.sort((a, b) => b.pct - a.pct)[0];
+        const fillCls = worst.pct >= 100 ? 'danger' : worst.pct >= 80 ? 'warn' : '';
+        const subCls = worst.pct >= 100 ? 'neg' : worst.pct >= 80 ? 'warn' : 'pos';
+        const subTxt = worst.pct >= 100
+          ? `${esc(worst.name)} <span class="${subCls}">VƯỢT ${worst.pct}%</span>`
+          : worst.pct >= 80
+          ? `${esc(worst.name)} <span class="${subCls}">${worst.pct}%</span> · sắp vượt`
+          : `${esc(worst.name)} <span class="${subCls}">${worst.pct}%</span> · ổn`;
+        c2.innerHTML = `
+          <div class="home-icard-head">
+            <span class="home-icard-emoji">🎯</span>
+            <span class="home-icard-title">Ngân sách</span>
+          </div>
+          <div class="home-icard-main">${okCount}/${usage.length} OK</div>
+          <div class="home-icard-sub">${subTxt}</div>
+          <div class="home-icard-progress"><div class="home-icard-progress-fill ${fillCls}" style="width:${Math.min(100, worst.pct)}%"></div></div>
+        `;
+        c2.onclick = () => this.switchTab('budgets');
+      }
+    }
+
+    // --- Card 3: Tiết kiệm ---
+    const c3 = $('#homeICardSavings');
+    if (c3) {
+      if (savingsAccs.length === 0) {
+        c3.innerHTML = `
+          <div class="home-icard-head">
+            <span class="home-icard-emoji">💎</span>
+            <span class="home-icard-title">Tiết kiệm</span>
+          </div>
+          <div class="home-icard-main" style="font-size:13px;font-weight:600;color:var(--text2)">0đ</div>
+          <div class="home-icard-sub">Chưa có sổ · <span class="pos">Mở sổ →</span></div>
+        `;
+      } else {
+        const nearest = savingsAccs
+          .filter(a => a.maturityDate)
+          .sort((a, b) => a.maturityDate.localeCompare(b.maturityDate))[0];
+        let sub = `${savingsAccs.length} sổ đang chạy`;
+        if (nearest) {
+          const days = Math.ceil((new Date(nearest.maturityDate) - new Date()) / 86400000);
+          sub = days <= 0 ? `<span class="warn">Đã đáo hạn!</span>` : `Đáo hạn gần nhất: ${days} ngày`;
+        }
+        c3.innerHTML = `
+          <div class="home-icard-head">
+            <span class="home-icard-emoji">💎</span>
+            <span class="home-icard-title">Tiết kiệm</span>
+          </div>
+          <div class="home-icard-main">${isAmountHidden() ? '•••' : fmtCompact(totalSavings)}</div>
+          <div class="home-icard-sub">${sub}</div>
+        `;
+      }
+      c3.onclick = () => this.switchTab('savings');
+    }
+
+    // --- Card 4: Mục tiêu ---
+    const c4 = $('#homeICardGoals');
+    if (c4) {
+      const goals = (this.state.goals || []).filter(g => g.status !== 'cancelled' && g.status !== 'achieved');
+      if (goals.length === 0) {
+        c4.innerHTML = `
+          <div class="home-icard-head">
+            <span class="home-icard-emoji">🏆</span>
+            <span class="home-icard-title">Mục tiêu</span>
+          </div>
+          <div class="home-icard-main" style="font-size:13px;font-weight:600;color:var(--text2)">Chưa có</div>
+          <div class="home-icard-sub"><span class="pos">Đặt mục tiêu →</span></div>
+        `;
+      } else {
+        // Top goal — lấy goal gần đạt nhất
+        const withProgress = goals.map(g => {
+          const cur = this.goalContributed ? this.goalContributed(g) : 0;
+          const tgt = g.targetAmount || 0;
+          return { g, cur, tgt, pct: tgt > 0 ? Math.round(cur / tgt * 100) : 0 };
+        }).sort((a, b) => b.pct - a.pct);
+        const top = withProgress[0];
+        const remaining = Math.max(0, top.tgt - top.cur);
+        let sub = `${esc(top.g.name || 'Mục tiêu')}`;
+        if (top.g.targetDate) {
+          const days = Math.ceil((new Date(top.g.targetDate) - new Date()) / 86400000);
+          if (days > 0 && remaining > 0) {
+            const perDay = Math.round(remaining / days);
+            sub = `Còn ${days} ngày · ${fmtCompact(perDay)}/ngày`;
+          } else if (days <= 0) {
+            sub = `<span class="warn">${esc(top.g.name || '')} · đã hết hạn</span>`;
+          }
+        }
+        const fillCls = top.pct >= 100 ? '' : top.pct >= 50 ? '' : 'warn';
+        c4.innerHTML = `
+          <div class="home-icard-head">
+            <span class="home-icard-emoji">🏆</span>
+            <span class="home-icard-title">${esc((top.g.name || 'Mục tiêu').slice(0, 14))}</span>
+          </div>
+          <div class="home-icard-main">${top.pct}%</div>
+          <div class="home-icard-sub">${sub}</div>
+          <div class="home-icard-progress"><div class="home-icard-progress-fill ${fillCls}" style="width:${Math.min(100, top.pct)}%"></div></div>
+        `;
+      }
+      c4.onclick = () => this.switchTab('goals');
     }
   },
 
