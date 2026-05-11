@@ -17312,7 +17312,12 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
   },
 
   _safe(s) {
-    return String(s || 'so').replace(/[^\w\sÀ-ỹ-]/gi, '').replace(/\s+/g, '-').toLowerCase();
+    // Strip dấu tiếng Việt (đ→d, ê→e, ...) — tránh filename có ký tự non-ASCII bị
+    // Capacitor URL-encode (vd 'tiêu'→'ti%C3%AAu') khi writeFile rồi share plugin
+    // không decode → "Không tìm thấy file" trên Android.
+    return normalizeVi(s || 'so')
+      .replace(/[^\w\s-]/g, '')
+      .replace(/\s+/g, '-');
   },
 
   // Download file — handle cả web (blob+anchor) và Capacitor native (Filesystem)
@@ -17377,7 +17382,12 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
       if (encoding) writeOpts.encoding = encoding;
 
       const result = await FS.writeFile(writeOpts);
-      const fullPath = (result?.uri || '').replace(/^file:\/\//, '');
+      // Capacitor trả về URI dạng file:///... có URL-encode mọi ký tự non-ASCII
+      // (vd 'tiêu' → 'ti%C3%AAu'). Phải decodeURIComponent trước khi truyền cho
+      // share plugin, vì plugin sẽ tìm file theo raw filename UTF-8 trên disk —
+      // không decode lại. Nếu skip bước này, share fail với "Không tìm thấy file".
+      let fullPath = (result?.uri || '').replace(/^file:\/\//, '');
+      try { fullPath = decodeURIComponent(fullPath); } catch (_) { /* malformed → giữ nguyên */ }
 
       if (!fullPath) {
         QLT_UI.alert('Không lấy được đường dẫn file sau khi lưu', { title: 'Lỗi' });
