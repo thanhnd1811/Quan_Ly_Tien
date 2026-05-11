@@ -8602,15 +8602,49 @@ const App = {
   // Tap chip → save tx ngay với date=today + time=now → toast confirm.
 
   getFavorites() {
+    // Favorites scope per book: lưu trong localStorage là 1 flat array với f.bookId.
+    // Render/list chỉ show favs của sổ HIỆN TẠI để tránh chip của sổ A xuất hiện
+    // trên sổ B (cat/acc IDs khác nhau → chip render sai icon/màu).
+    let list = [];
     try {
-      const raw = localStorage.getItem('qlt_favorites');
-      return raw ? JSON.parse(raw) : [];
+      list = JSON.parse(localStorage.getItem('qlt_favorites') || '[]');
+    } catch (_) { return []; }
+    const currentBookId = this.state.currentBookId;
+    // Migrate: favs cũ không có bookId → gán current bookId (1 lần).
+    // KHÔNG dùng saveFavorites() vì nó merge logic (treat list = current book's
+    // only) → sẽ duplicate favs sổ khác. Ghi thẳng full list.
+    let migrated = false;
+    for (const f of list) {
+      if (!f.bookId && currentBookId) {
+        f.bookId = currentBookId;
+        migrated = true;
+      }
+    }
+    if (migrated) {
+      try {
+        localStorage.setItem('qlt_favorites', JSON.stringify(list));
+      } catch (e) { console.warn('migrate favorites lỗi:', e); }
+    }
+    return list.filter(f => f.bookId === currentBookId);
+  },
+
+  // Đọc TẤT CẢ favs (không filter book) — dùng cho backup/export
+  getAllFavorites() {
+    try {
+      return JSON.parse(localStorage.getItem('qlt_favorites') || '[]');
     } catch (_) { return []; }
   },
 
   saveFavorites(list) {
+    // list = favs của SỔ HIỆN TẠI. Merge với favs sổ khác đang có trong storage
+    // để KHÔNG mất chúng. Auto-gán bookId cho fav nào còn thiếu (phòng caller
+    // quên set khi tạo fav mới).
+    const currentBookId = this.state.currentBookId;
+    const others = this.getAllFavorites().filter(f => f.bookId && f.bookId !== currentBookId);
+    const safeList = (list || []).map(f => ({ ...f, bookId: f.bookId || currentBookId }));
+    const merged = [...others, ...safeList];
     try {
-      localStorage.setItem('qlt_favorites', JSON.stringify(list || []));
+      localStorage.setItem('qlt_favorites', JSON.stringify(merged));
     } catch (e) { console.warn('saveFavorites lỗi:', e); }
   },
 

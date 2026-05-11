@@ -1119,6 +1119,9 @@ html[data-theme="dark"] .rec-type-pill.on{
 .ai-chat-fab:hover svg{filter:drop-shadow(0 3px 10px rgba(99,102,241,.6)) drop-shadow(0 1px 3px rgba(236,72,153,.4))}
 @keyframes aiSparkleFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 .ai-chat-fab.hidden{display:none}
+/* Ẩn AI FAB khi có modal/drawer mở — tránh đè nút edit/close trong bottom sheet */
+body:has(.modal.open) .ai-chat-fab,
+body:has(.drawer.open) .ai-chat-fab{display:none !important}
 
 /* AI Chat modal — popup chatbot style (KHÔNG fullscreen)
    Kiểu Intercom/Zendesk: 1 cửa sổ nhỏ ở góc dưới phải, không có backdrop
