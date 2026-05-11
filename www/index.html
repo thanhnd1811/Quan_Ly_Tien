@@ -282,8 +282,8 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 /* =================================================================
    HOME V2 — compact pro dashboard (mockup-home-redesign.html)
    ================================================================= */
-/* Compact balance card — gradient overlay + accent stripe + decorative ₫ watermark.
-   Dùng pseudo ::before cho gradient (tránh color-mix() — chưa support trên WebView cũ). */
+/* Balance card — gradient nền + accent stripe + ₫ watermark + SHIMMER sweep
+   ánh sáng quét ngang (premium credit-card feel) + soft glow trên số tiền */
 .home-hero-v2{
   background:var(--surface);
   border:1px solid var(--border);
@@ -294,17 +294,18 @@ button{border:none;background:none;cursor:pointer;color:inherit}
   box-shadow:0 4px 14px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.04);
   position:relative;
   overflow:hidden;
-  animation:heroFadeIn .5s cubic-bezier(.2,.8,.3,1.1) backwards;
+  isolation:isolate;
 }
-/* Gradient overlay subtle — accent tint phía dưới phải */
+/* Layer 1: gradient nền chéo subtle */
 .home-hero-v2::before{
   content:'';
   position:absolute;inset:0;
   background:linear-gradient(135deg, transparent 0%, var(--book-accent) 100%);
-  opacity:.08;
+  opacity:.09;
   pointer-events:none;
+  z-index:0;
 }
-/* Decorative ₫ symbol in corner — subtle watermark */
+/* Layer 2: ₫ watermark góc dưới-phải */
 .home-hero-v2::after{
   content:'₫';
   position:absolute;
@@ -317,48 +318,44 @@ button{border:none;background:none;cursor:pointer;color:inherit}
   line-height:1;
   pointer-events:none;
   font-family:Georgia,serif;
+  z-index:0;
 }
-.home-hv2-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;position:relative;z-index:1}
+/* Layer 3: SHIMMER — dải sáng quét ngang khi card mount + lặp định kỳ */
+.home-hv2-shine{
+  position:absolute;inset:0;
+  background:linear-gradient(115deg, transparent 35%, rgba(255,255,255,.55) 50%, transparent 65%);
+  transform:translateX(-110%);
+  pointer-events:none;
+  z-index:1;
+  animation:heroShimmer 5s cubic-bezier(.4,0,.2,1) .6s infinite;
+}
+@keyframes heroShimmer{
+  0%, 70%{transform:translateX(-110%)}
+  100%{transform:translateX(110%)}
+}
+.home-hv2-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;position:relative;z-index:2}
 .home-hv2-lbl{font-size:11px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:.6px}
 .home-hv2-eye{background:transparent;border:none;color:var(--text3);font-size:14px;cursor:pointer;padding:2px 4px;opacity:.6}
 .home-hv2-eye:active{opacity:1}
-.home-hv2-amount{font-size:28px;font-weight:800;letter-spacing:-.6px;color:var(--book-accent);line-height:1.1;position:relative;z-index:1}
+/* Số tiền: text-shadow soft glow theo accent — sang trọng */
+.home-hv2-amount{
+  font-size:28px;font-weight:800;letter-spacing:-.6px;
+  color:var(--text);line-height:1.1;
+  position:relative;z-index:2;
+  text-shadow:0 1px 2px rgba(0,0,0,.06);
+}
 .home-hv2-unit{font-size:13px;font-weight:600;color:var(--text3);margin-left:2px}
-.home-hv2-delta{font-size:11.5px;font-weight:600;margin-top:5px;color:var(--text2);display:flex;align-items:center;gap:5px;min-height:16px;position:relative;z-index:1}
+.home-hv2-delta{font-size:11.5px;font-weight:600;margin-top:5px;color:var(--text2);display:flex;align-items:center;gap:5px;min-height:16px;position:relative;z-index:2}
 .home-hv2-delta.pos{color:#2d8659}
 .home-hv2-delta.neg{color:#e63946}
 .home-hv2-delta .arrow{font-size:10px}
-.home-hv2-savings{margin-top:6px;display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--accent);font-weight:600;cursor:pointer;text-decoration:none;position:relative;z-index:1}
-/* Sparkline 7-day — luôn hiển thị (bar có data đậm, không data mờ nhưng vẫn thấy) */
-.home-hv2-spark{display:flex;align-items:flex-end;gap:2.5px;height:22px;margin-top:8px;position:relative;z-index:1}
-.home-hv2-spark-bar{
-  flex:1;
-  background:var(--border);
-  border-radius:1.5px;
-  min-height:3px;
-  transition:height .35s cubic-bezier(.2,.8,.3,1);
-  animation:sparkGrow .5s cubic-bezier(.2,.8,.3,1) backwards;
-}
-.home-hv2-spark-bar.low{background:var(--border);opacity:.5}
-.home-hv2-spark-bar.mid{background:var(--book-accent);opacity:.45}
-.home-hv2-spark-bar.high{background:var(--book-accent)}
-.home-hv2-spark-bar:nth-child(1){animation-delay:.15s}
-.home-hv2-spark-bar:nth-child(2){animation-delay:.2s}
-.home-hv2-spark-bar:nth-child(3){animation-delay:.25s}
-.home-hv2-spark-bar:nth-child(4){animation-delay:.3s}
-.home-hv2-spark-bar:nth-child(5){animation-delay:.35s}
-.home-hv2-spark-bar:nth-child(6){animation-delay:.4s}
-.home-hv2-spark-bar:nth-child(7){animation-delay:.45s}
+.home-hv2-savings{margin-top:6px;display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--accent);font-weight:600;cursor:pointer;text-decoration:none;position:relative;z-index:2}
+/* Sparkline 7-day expense bars — simple, không tier */
+.home-hv2-spark{display:flex;align-items:flex-end;gap:2.5px;height:18px;margin-top:7px;position:relative;z-index:2}
+.home-hv2-spark-bar{flex:1;background:var(--book-accent);opacity:.35;border-radius:1.5px;min-height:2px;transition:height .3s ease}
+.home-hv2-spark-bar.high{opacity:.9}
 
-@keyframes heroFadeIn{
-  from{opacity:0;transform:translateY(-8px)}
-  to{opacity:1;transform:translateY(0)}
-}
-@keyframes sparkGrow{
-  from{height:3px !important}
-}
-
-/* 2×2 insight cards grid — stagger fade-in animation */
+/* 2×2 insight cards grid — simple, không fade-in stagger */
 .home-insights{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 14px 12px}
 .home-icard{
   background:var(--surface);
@@ -368,21 +365,11 @@ button{border:none;background:none;cursor:pointer;color:inherit}
   box-shadow:0 1px 3px rgba(0,0,0,.03);
   min-height:78px;
   cursor:pointer;
-  transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
-  animation:cardFadeIn .45s cubic-bezier(.2,.8,.3,1.1) backwards;
+  transition:transform .15s ease;
   position:relative;
   overflow:hidden;
 }
 .home-icard:active{transform:scale(.97)}
-.home-icard:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);border-color:var(--book-accent)}
-.home-icard:nth-child(1){animation-delay:.1s}
-.home-icard:nth-child(2){animation-delay:.15s}
-.home-icard:nth-child(3){animation-delay:.2s}
-.home-icard:nth-child(4){animation-delay:.25s}
-@keyframes cardFadeIn{
-  from{opacity:0;transform:translateY(8px)}
-  to{opacity:1;transform:translateY(0)}
-}
 .home-icard-head{display:flex;align-items:center;gap:6px;margin-bottom:5px}
 .home-icard-emoji{font-size:13px}
 .home-icard-title{font-size:10.5px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.4px}
@@ -412,36 +399,25 @@ button{border:none;background:none;cursor:pointer;color:inherit}
   background:var(--surface);
   border:1px solid var(--border);
   border-radius:12px;
-  padding:11px 13px 12px;
-  min-width:142px;
-  box-shadow:0 1px 3px rgba(0,0,0,.04);
+  padding:10px 12px 11px;
+  min-width:130px;
+  box-shadow:0 1px 2px rgba(0,0,0,.03);
   scroll-snap-align:start;
   cursor:pointer;
-  transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
-  animation:chipFadeIn .4s cubic-bezier(.2,.8,.3,1.1) backwards;
+  transition:transform .15s ease;
 }
 .home-wallet-chip:active{transform:scale(.96)}
-.home-wallet-chip:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);border-color:var(--book-accent)}
-.home-wallet-chip:nth-child(1){animation-delay:.3s}
-.home-wallet-chip:nth-child(2){animation-delay:.35s}
-.home-wallet-chip:nth-child(3){animation-delay:.4s}
-.home-wallet-chip:nth-child(4){animation-delay:.45s}
-.home-wallet-chip:nth-child(5){animation-delay:.5s}
-.home-wallet-chip-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.home-wallet-chip-top{display:flex;align-items:center;gap:7px;margin-bottom:5px}
 /* Icon container TO hơn — 32px để logo PNG (cash/VCB/MB) đủ presence,
    tránh trông tí xíu so với chip text. */
-.home-wallet-chip-ico{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;overflow:hidden;flex-shrink:0}
-.home-wallet-chip-ico svg{width:18px;height:18px}
-.home-wallet-chip-ico .bank-logo{width:26px;height:26px;object-fit:contain}
-.home-wallet-chip-nm{font-size:11px;font-weight:600;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px}
-.home-wallet-chip-amt{font-size:15px;font-weight:800;color:var(--text);letter-spacing:-.3px;line-height:1.1}
-.home-wallet-chip-trend{font-size:10px;color:var(--text3);margin-top:3px;font-weight:500}
+.home-wallet-chip-ico{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;overflow:hidden;flex-shrink:0}
+.home-wallet-chip-ico svg{width:14px;height:14px}
+.home-wallet-chip-ico .bank-logo{width:18px;height:18px;object-fit:contain}
+.home-wallet-chip-nm{font-size:10.5px;font-weight:600;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px}
+.home-wallet-chip-amt{font-size:14px;font-weight:800;color:var(--text);letter-spacing:-.3px;line-height:1.1}
+.home-wallet-chip-trend{font-size:9.5px;color:var(--text3);margin-top:2px;font-weight:500}
 .home-wallet-chip-trend .down{color:#e63946;font-weight:600}
 .home-wallet-chip-trend .up{color:#2d8659;font-weight:600}
-@keyframes chipFadeIn{
-  from{opacity:0;transform:translateY(6px) scale(.98)}
-  to{opacity:1;transform:translateY(0) scale(1)}
-}
 
 /* Recent tx grouped by day */
 .home-tx-group{margin-bottom:8px}
@@ -1701,8 +1677,9 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
   </div>
   <div class="scroll-body" data-ptr="home">
 
-    <!-- NEW: Compact balance hero (v2) — thay block tím to cũ -->
+    <!-- NEW: Compact balance hero (v2) — gradient + shimmer light sweep + ₫ watermark -->
     <div class="home-hero-v2">
+      <div class="home-hv2-shine"></div>
       <div class="home-hv2-top">
         <span class="home-hv2-lbl">Tổng tài sản</span>
         <button id="homeEyeBtn" class="balance-eye home-hv2-eye" title="Ẩn / hiện số tiền">👁</button>

@@ -3075,16 +3075,14 @@ const App = {
       }
     }
 
-    // Sparkline 7-day expense bars — luôn hiển thị 7 cột (low/mid/high theo amount)
+    // Sparkline 7-day expense bars — simple: data → bar cao, no data → bar thấp mờ
     const sparkEl = $('#homeHv2Spark');
     if (sparkEl) {
       const maxE = Math.max(1, ...today7.map(d => d.exp));
       sparkEl.innerHTML = today7.map(d => {
-        let pct, cls;
-        if (d.exp <= 0) { pct = 18; cls = 'low'; }
-        else if (d.exp >= maxE * 0.75) { pct = Math.round(d.exp / maxE * 100); cls = 'high'; }
-        else { pct = Math.max(28, Math.round(d.exp / maxE * 100)); cls = 'mid'; }
-        return `<div class="home-hv2-spark-bar ${cls}" style="height:${pct}%" title="${d.date}: ${fmtBal(d.exp)}"></div>`;
+        const pct = Math.max(5, Math.round(d.exp / maxE * 100));
+        const cls = d.exp >= maxE * 0.75 ? ' high' : '';
+        return `<div class="home-hv2-spark-bar${cls}" style="height:${pct}%" title="${d.date}: ${fmtBal(d.exp)}"></div>`;
       }).join('');
     }
 
