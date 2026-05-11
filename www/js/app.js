@@ -10702,15 +10702,8 @@ const App = {
       const typeLabel = p.type === 'income' ? '🟢 Thu' : '🔴 Chi';
       const sign = p.type === 'income' ? '+' : '-';
 
-      // Suggest ví: account có name match bank, hoặc suffix khớp
-      let suggestedAcc = null;
-      if (p.accountSuffix) {
-        suggestedAcc = accounts.find(a => (a.accountNumber || '').endsWith(p.accountSuffix));
-      }
-      if (!suggestedAcc) {
-        const bankRegex = new RegExp(p.bank, 'i');
-        suggestedAcc = accounts.find(a => bankRegex.test(a.name) || bankRegex.test(a.bank || ''));
-      }
+      // Suggest ví: dùng helper chung — suffix → icon bank-XXX → alias normalize
+      const suggestedAcc = this._findAccountForBank(accounts, p.bank, p.accountSuffix);
 
       let statusBadge = '';
       if (p.status === 'saved') statusBadge = '<span style="color:var(--pos);font-size:11px;font-weight:600">✅ Đã lưu</span>';
@@ -10786,19 +10779,47 @@ const App = {
     });
   },
 
+  // Helper: tìm ví khớp với bank code từ parser. Ưu tiên thứ tự:
+  //   1. accountNumber.endsWith(suffix) — chính xác nhất nếu user đã điền số TK
+  //   2. account.icon === 'bank-<code>' — user chọn logo bank trong picker (vd 'bank-vcb')
+  //   3. Alias match: normalize tên ví (lowercase, bỏ dấu, bỏ space/chấm) rồi check
+  //      includes bất kỳ alias nào (vd 'vietcombank', 'vcb', 'ngoaithuong' cho code 'vcb')
+  //   4. Field a.bank cũng được match bằng alias (compat)
+  // Trả null nếu không tìm thấy — caller fallback ví payment đầu tiên / hiện modal.
+  // Bug cũ: dùng `new RegExp(bankCode, 'i').test(name)` — 'vcb' KHÔNG match 'Vietcombank'.
+  _findAccountForBank(accounts, bankCode, accountSuffix) {
+    if (!accounts || !accounts.length || !bankCode) return null;
+
+    // (1) Match số TK suffix — chính xác cao nhất
+    if (accountSuffix) {
+      const bySuffix = accounts.find(a => (a.accountNumber || '').endsWith(accountSuffix));
+      if (bySuffix) return bySuffix;
+    }
+
+    // (2) Match icon = 'bank-<code>' (vd icon 'bank-vcb' → bank 'vcb')
+    const iconCode = `bank-${bankCode}`;
+    const byIcon = accounts.find(a => a.icon === iconCode);
+    if (byIcon) return byIcon;
+
+    // (3+4) Alias match — dùng normalizeVi() có sẵn + bỏ thêm space/dấu/chấm
+    const norm = s => normalizeVi(s).replace(/[^a-z0-9]/g, '');
+    const aliases = (window.QLT_SmsBankParser?.BANK_ALIASES?.[bankCode]) || [bankCode];
+    const byAlias = accounts.find(a => {
+      const name = norm(a.name);
+      const bank = norm(a.bank);
+      return aliases.some(al => name.includes(al) || bank.includes(al));
+    });
+    if (byAlias) return byAlias;
+
+    return null;
+  },
+
   // Save 1 parsed SMS thành transaction
   async _saveSmsAsTx(parsedSms) {
     const accounts = this.state.accounts || [];
 
-    // Find ví: ưu tiên account number suffix, fallback bank name match
-    let acc = null;
-    if (parsedSms.accountSuffix) {
-      acc = accounts.find(a => (a.accountNumber || '').endsWith(parsedSms.accountSuffix));
-    }
-    if (!acc) {
-      const bankRegex = new RegExp(parsedSms.bank, 'i');
-      acc = accounts.find(a => bankRegex.test(a.name) || bankRegex.test(a.bank || ''));
-    }
+    // Find ví: dùng helper chung (suffix → icon bank-XXX → alias normalize)
+    let acc = this._findAccountForBank(accounts, parsedSms.bank, parsedSms.accountSuffix);
     if (!acc) {
       // Last fallback: ví đầu tiên có type 'payment'
       acc = accounts.find(a => (a.accountType || 'payment') === 'payment') || accounts[0];

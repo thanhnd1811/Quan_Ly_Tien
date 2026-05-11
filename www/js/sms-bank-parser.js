@@ -231,10 +231,41 @@
     unknown: 'Ngân hàng (chưa rõ)'
   };
 
+  // Alias để match ví của user — đã normalize (lowercase + bỏ dấu + bỏ space/dấu chấm).
+  // Mỗi bank chứa nhiều biến thể: mã, tên đầy đủ, tên Việt thường gọi.
+  // Khi match: cũng normalize tên ví theo cùng cách rồi check includes.
+  const BANK_ALIASES = {
+    vcb:   ['vcb', 'vietcombank', 'vietcom', 'ngoaithuong', 'nhntvn'],
+    tcb:   ['tcb', 'techcombank', 'techcom'],
+    mb:    ['mb', 'mbbank', 'mbb', 'militarybank', 'quandoi'],
+    acb:   ['acb', 'asiacommercial', 'achau'],
+    bidv:  ['bidv', 'dautuvaphattrien', 'dtpt'],
+    vpb:   ['vpb', 'vpbank', 'vietnamprosperity', 'vnthinhvuong'],
+    agri:  ['agri', 'agribank', 'nongnghiep'],
+    tpb:   ['tpb', 'tpbank', 'tienphong'],
+    sacom: ['sacom', 'sacombank', 'saigonthuongtin', 'stb'],
+    vtb:   ['vtb', 'vietinbank', 'congthuong', 'vietin'],
+    shb:   ['shb', 'saigonhanoi'],
+    hdb:   ['hdb', 'hdbank', 'phattrientphcm', 'hcmcdev'],
+    vib:   ['vib', 'internationalbank', 'quocte'],
+    msb:   ['msb', 'maritimebank', 'hanghai'],
+    ocb:   ['ocb', 'orientcommercial', 'phuongdong'],
+    eib:   ['eib', 'eximbank', 'xuatnhapkhau'],
+    seab:  ['seab', 'seabank', 'dongnama'],
+    pvcom: ['pvcom', 'pvcombank', 'daukhi'],
+    ncb:   ['ncb', 'quocdan', 'navibank'],
+    abb:   ['abb', 'abbank', 'anbinh'],
+    scb:   ['scb', 'saigoncommercial', 'saigonbank'],
+    lpb:   ['lpb', 'lienvietpostbank', 'lienviet'],
+    bab:   ['bab', 'bacabank', 'baca'],
+    bvb:   ['bvb', 'banvietbank', 'banviet', 'vietcapital']
+  };
+
   window.QLT_SmsBankParser = {
     detectBank,
     parseSms,
     BANK_NAMES,
+    BANK_ALIASES,
     bankName: (key) => BANK_NAMES[key] || key
   };
 })();
