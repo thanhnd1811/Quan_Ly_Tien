@@ -2032,20 +2032,38 @@ const App = {
       recentEl.innerHTML = this.skeletonRows(4);
       recentEl.dataset.shown = '1';
     }
-    this.state.books = await window.QLT_Store.getAll('books');
+    // Parallelize tất cả store reads — IndexedDB transactions độc lập có thể chạy
+    // song song. Trước đây 10 await tuần tự = 200-500ms; giờ Promise.all = max của 1.
     this.state.currentBookId = window.QLT_Store.getCurrentBookId();
     const bid = this.state.currentBookId;
     const inBook = arr => arr.filter(x => x.bookId === bid);
-    this.state.accounts = inBook(await window.QLT_Store.getAll('accounts'));
-    this.state.categories = inBook(await window.QLT_Store.getAll('categories'));
-    this.state.transactions = inBook(await window.QLT_Store.getAll('transactions'));
-    this.state.reminders = inBook(await window.QLT_Store.getAll('reminders'));
-    this.state.loans = inBook(await window.QLT_Store.getAll('loans'));
-    this.state.budgets = inBook(await window.QLT_Store.getAll('budgets'));
-    this.state.goals = inBook(await window.QLT_Store.getAll('goals'));
-    this.state.fuelLogs = inBook(await window.QLT_Store.getAll('fuelLogs'));
-    this.state.maintenanceLogs = inBook(await window.QLT_Store.getAll('maintenanceLogs'));
-    this.state.recurringRules = inBook(await window.QLT_Store.getAll('recurringRules'));
+    const [
+      books, accounts, categories, transactions, reminders,
+      loans, budgets, goals, fuelLogs, maintenanceLogs, recurringRules
+    ] = await Promise.all([
+      window.QLT_Store.getAll('books'),
+      window.QLT_Store.getAll('accounts'),
+      window.QLT_Store.getAll('categories'),
+      window.QLT_Store.getAll('transactions'),
+      window.QLT_Store.getAll('reminders'),
+      window.QLT_Store.getAll('loans'),
+      window.QLT_Store.getAll('budgets'),
+      window.QLT_Store.getAll('goals'),
+      window.QLT_Store.getAll('fuelLogs'),
+      window.QLT_Store.getAll('maintenanceLogs'),
+      window.QLT_Store.getAll('recurringRules')
+    ]);
+    this.state.books = books;
+    this.state.accounts = inBook(accounts);
+    this.state.categories = inBook(categories);
+    this.state.transactions = inBook(transactions);
+    this.state.reminders = inBook(reminders);
+    this.state.loans = inBook(loans);
+    this.state.budgets = inBook(budgets);
+    this.state.goals = inBook(goals);
+    this.state.fuelLogs = inBook(fuelLogs);
+    this.state.maintenanceLogs = inBook(maintenanceLogs);
+    this.state.recurringRules = inBook(recurringRules);
 
     // Invalidate subscription detection cache (data có thể đã đổi)
     delete this.state._subsDetectionCache;
@@ -8215,19 +8233,19 @@ const App = {
         try {
           await this.reload();
           if (this.state.currentTab === 'home') this.renderHome();
-          if (window.QLT_Auth?.user) {
-            try { await this.autoSync(); } catch (_) {}
-          }
+          // autoSync() chỉ schedule setTimeout 3s, không cần await — chạy nền sau khi PTR đóng
+          if (window.QLT_Auth?.user) this.autoSync();
           QLT_UI.toast('✅ Đã làm mới', { type: 'success', duration: 1500 });
         } catch (e) {
           QLT_UI.toast('Lỗi làm mới: ' + (e.message || e), { type: 'error' });
         }
+        // Delay nhỏ để indicator có animation rõ rệt, không quá lâu
         setTimeout(() => {
           indicator.classList.remove('refreshing');
           indicator.style.removeProperty('--pull-y');
           indicator.style.removeProperty('--pull-rotate');
           isRefreshing = false;
-        }, 600);
+        }, 250);
       } else {
         // Bounce back — kéo nhưng chưa đủ ngưỡng
         indicator.classList.remove('pulling');
