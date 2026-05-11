@@ -17090,6 +17090,24 @@ const App = {
       const names = t.participantIds.map(id => memById[id]).filter(Boolean).join(', ');
       return `<div style="display:inline-block;background:#fff8e0;border:1px solid #f4d77c;color:#856404;padding:1px 8px;border-radius:10px;font-size:11px;font-style:normal;margin-left:6px" title="${esc(names)}">${t.participantIds.length}/${bookMembers.length} người</div>`;
     };
+    // Truncate location dài (>40 ký tự) để không phá column width
+    const truncLoc = s => (s && s.length > 40) ? s.slice(0, 39) + '…' : (s || '');
+    // Meta dòng phụ trong cell ghi chú — chỉ render khi có time HOẶC location
+    const txMeta = t => {
+      const items = [];
+      if (t.time) items.push(`<span class="meta-time">🕐 ${esc(t.time)}</span>`);
+      const loc = t.location?.address || t.location?.fullAddress;
+      if (loc) items.push(`<span class="meta-loc">📍 ${esc(truncLoc(loc))}</span>`);
+      return items.length ? `<div class="tx-note-meta">${items.join('')}</div>` : '';
+    };
+    // Wrap note text trong div .tx-note-text (chỉ khi có note hoặc partBadge)
+    const noteCell = t => {
+      const noteText = esc(t.note || '');
+      const badge = t.type === 'transfer' ? '' : partBadge(t);
+      const textHtml = (noteText || badge) ? `<div class="tx-note-text">${noteText}${badge}</div>` : '';
+      return textHtml + txMeta(t);
+    };
+
     const txRow = t => {
       if (t.type === 'transfer') {
         const fromN = esc((acc(t.accountId)).name || '');
@@ -17098,7 +17116,7 @@ const App = {
           <tr class="tx-row tx-transfer">
             <td class="tx-cat">↻ Chuyển tiền</td>
             <td class="tx-acc">${fromN} → ${toN}</td>
-            <td class="tx-note">${esc(t.note || '')}</td>
+            <td class="tx-note">${noteCell(t)}</td>
             <td class="tx-amt transfer">${fmt(t.amount)}đ</td>
             ${photoCell(t)}
           </tr>
@@ -17112,7 +17130,7 @@ const App = {
         <tr class="tx-row">
           <td class="tx-cat" style="border-left:4px solid ${esc(c.color || '#888')}">${esc(c.name || '')}</td>
           <td class="tx-acc">${esc(a.name || '')}</td>
-          <td class="tx-note">${esc(t.note || '')}${partBadge(t)}</td>
+          <td class="tx-note">${noteCell(t)}</td>
           <td class="tx-amt ${cls}">${sign}${fmt(t.amount)}đ</td>
           ${photoCell(t)}
         </tr>
@@ -17156,6 +17174,11 @@ table td{padding:10px 8px;border-bottom:1px solid #f0eee8;vertical-align:top}
 .tx-row .tx-note{color:#5e6b62;font-size:12px;font-style:italic}
 .tx-row .tx-amt{text-align:right;font-weight:700;white-space:nowrap}
 .tx-amt.pos{color:#2d8659}.tx-amt.neg{color:#e63946}.tx-amt.transfer{color:#4f86c6}
+/* Meta line trong tx-note cell — giờ + vị trí. Conditional render trong txMeta(). */
+.tx-note-text{display:block}
+.tx-note-meta{display:flex;gap:10px;margin-top:4px;font-size:10.5px;color:#8a948c;font-style:normal;flex-wrap:wrap;align-items:center}
+.tx-note-meta .meta-time{white-space:nowrap;font-weight:500}
+.tx-note-meta .meta-loc{max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tx-photo img{width:50px;height:50px;object-fit:cover;border-radius:6px;border:1px solid #e0e6dc;cursor:zoom-in}
 footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1px solid #e0e6dc}
 @media print{body{background:#fff;padding:0}.report{box-shadow:none}}
@@ -17195,7 +17218,12 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
   <section>
     <h2>Chi tiết giao dịch</h2>
     ${dates.length === 0 ? '<p style="color:#9aa39c;text-align:center;padding:20px">Chưa có giao dịch</p>' : dates.map(d => {
-      const dayTxs = groups[d];
+      // Sort trong day-block: theo time ASC (sáng → tối), tx không có time xuống cuối.
+      // Giữ thứ tự DB cho tx cùng time (stable sort).
+      const dayTxs = [...groups[d]].sort((a, b) => {
+        const ta = a.time || '99:99', tb = b.time || '99:99';
+        return ta.localeCompare(tb);
+      });
       const dIn = dayTxs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
       const dOut = dayTxs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
       return `
@@ -17268,8 +17296,14 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
 
     const bookMembers = (book.members || []).filter(m => m.name && m.name.trim());
     const memById = Object.fromEntries(bookMembers.map(m => [m.id, m.name]));
-    const rows = [['Ngày', 'Loại', 'Số tiền (VND)', 'Tài khoản', 'Đến tài khoản', 'Danh mục', 'Ghi chú', 'Người tham gia']];
-    for (const t of [...txs].filter(x => !x.memberId).sort((a, b) => a.date.localeCompare(b.date))) {
+    const rows = [['Ngày', 'Giờ', 'Loại', 'Số tiền (VND)', 'Tài khoản', 'Đến tài khoản', 'Danh mục', 'Ghi chú', 'Vị trí', 'Người tham gia']];
+    // Sort: ngày ASC, trong ngày theo time ASC (tx không time xuống cuối)
+    const sortedTxs = [...txs].filter(x => !x.memberId).sort((a, b) => {
+      const d = a.date.localeCompare(b.date);
+      if (d !== 0) return d;
+      return (a.time || '99:99').localeCompare(b.time || '99:99');
+    });
+    for (const t of sortedTxs) {
       const c = cats.find(x => x.id === t.categoryId);
       const a = accs.find(x => x.id === t.accountId);
       const ta = accs.find(x => x.id === t.toAccountId);
@@ -17279,14 +17313,17 @@ footer{padding:16px;color:#9aa39c;font-size:11px;text-align:center;border-top:1p
           ? t.participantIds.map(id => memById[id]).filter(Boolean).join('; ')
           : 'Cả nhóm';
       }
+      const loc = t.location?.address || t.location?.fullAddress || '';
       rows.push([
         t.date,
+        t.time || '',
         t.type === 'expense' ? 'Chi phí' : t.type === 'income' ? 'Thu nhập' : 'Chuyển khoản',
         t.amount,
         a?.name || '',
         ta?.name || '',
         c?.name || '',
         t.note || '',
+        loc,
         parts
       ]);
     }
