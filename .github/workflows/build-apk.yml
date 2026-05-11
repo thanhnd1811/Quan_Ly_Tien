@@ -21,31 +21,59 @@ jobs:
         run: |
           COUNT=$(git rev-list --count HEAD)
           SHA=$(git rev-parse --short=7 HEAD)
-          MSG=$(git log -1 --pretty=%s | head -c 100)
+          # Truncate theo KÝ TỰ (Python) — `head -c 100` cắt theo byte có thể
+          # chia đôi UTF-8 multi-byte (→, —, diacritics) → JSON parse hỏng.
+          MSG=$(git log -1 --pretty=%s | python3 -c "import sys; print(sys.stdin.read()[:100], end='')")
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           VERSION="b${COUNT}.${SHA}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=v$VERSION" >> $GITHUB_OUTPUT
-          echo "msg=$MSG" >> $GITHUB_OUTPUT
+          # Multi-line safe cho msg (delimiter syntax) — phòng commit message có ký tự lạ.
+          {
+            echo "msg<<MSGEOF"
+            echo "$MSG"
+            echo "MSGEOF"
+          } >> $GITHUB_OUTPUT
           echo "date=$DATE" >> $GITHUB_OUTPUT
           echo "commit_count=$COUNT" >> $GITHUB_OUTPUT
           echo "Build version: $VERSION ($MSG)"
 
       - name: Inject build version into app
+        env:
+          # Pass via env để Python tự escape an toàn (commit message có thể chứa
+          # `"`, `\`, `${}` — heredoc cũ không escape → JS syntax error → app fallback DEV).
+          # Bug đã gặp: commit 23d2353 có chữ "Vietcombank" trong message → bể inject.
+          QLT_VER: ${{ steps.ver.outputs.version }}
+          QLT_TAG: ${{ steps.ver.outputs.tag }}
+          QLT_COUNT: ${{ steps.ver.outputs.commit_count }}
+          QLT_DATE: ${{ steps.ver.outputs.date }}
+          QLT_MSG: ${{ steps.ver.outputs.msg }}
         run: |
-          cat > www/js/app-version.js <<EOF
-          // AUTO-GENERATED bởi GitHub Actions — KHÔNG sửa thủ công
-          window.QLT_BUILD = {
-            version: "${{ steps.ver.outputs.version }}",
-            tag: "${{ steps.ver.outputs.tag }}",
-            commitCount: ${{ steps.ver.outputs.commit_count }},
-            sha: "$(git rev-parse --short=7 HEAD)",
-            buildDate: "${{ steps.ver.outputs.date }}",
-            commitMsg: "${{ steps.ver.outputs.msg }}"
-          };
-          EOF
-          echo "--- app-version.js content:"
-          cat www/js/app-version.js
+          SHA=$(git rev-parse --short=7 HEAD)
+          QLT_SHA="$SHA" python3 <<'PYINJECT'
+          import json, os
+          fields = {
+              'version':     os.environ['QLT_VER'],
+              'tag':         os.environ['QLT_TAG'],
+              'commitCount': int(os.environ['QLT_COUNT']),
+              'sha':         os.environ['QLT_SHA'],
+              'buildDate':   os.environ['QLT_DATE'],
+              'commitMsg':   os.environ['QLT_MSG'],
+          }
+          # json.dumps đảm bảo escape `"`, `\`, control chars… safe cho JS string
+          body_lines = [f'  {k}: {json.dumps(v, ensure_ascii=False)}'
+                        for k, v in fields.items()]
+          content = (
+              '// AUTO-GENERATED bởi GitHub Actions — KHÔNG sửa thủ công\n'
+              'window.QLT_BUILD = {\n'
+              + ',\n'.join(body_lines) + '\n'
+              '};\n'
+          )
+          with open('www/js/app-version.js', 'w', encoding='utf-8') as f:
+              f.write(content)
+          print('--- app-version.js content:')
+          print(content)
+          PYINJECT
 
       - name: Setup Node
         uses: actions/setup-node@v4
