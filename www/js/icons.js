@@ -101,7 +101,9 @@ window.QLT_ICONS = {
 
   // ============ TIỀN - VÍ ============
   wallet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v12a2 2 0 002 2h14a2 2 0 002-2v-9H7a2 2 0 010-4h13"/><circle cx="17" cy="14" r="1"/></svg>',
-  cash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg>',
+  // Tiền mặt — dùng ảnh PNG 2 cọc 500k VND thay vì SVG generic.
+  // Dùng class .bank-logo để được CSS size 70% trong wallet/tx icon (không tràn vòng tròn).
+  cash: '<img src="img/cash-vnd.png" alt="Tiền mặt" class="bank-logo">',
   bank: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M3 10h18M5 10V21M19 10V21M9 14v4M15 14v4M12 3l9 5H3z"/></svg>',
   card: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg>',
   piggy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8.5 3.6 2 5l-1 5h3l1-2c1 .5 2 .5 3 .5s2 0 3-.5l1 2h3l-1-5c1-1 2-2 2-4l1-2h-1l-1.5-2c.5-1 .5-2 .5-3z"/><circle cx="16" cy="10" r="0.5" fill="currentColor"/></svg>',
