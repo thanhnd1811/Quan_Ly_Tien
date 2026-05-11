@@ -16956,14 +16956,22 @@ const App = {
     const stylesHtml = Array.from(doc.querySelectorAll('style')).map(s => s.outerHTML).join('');
     const bodyHtml = doc.body.innerHTML;
 
+    // FIX BUG PDF blank trên Capacitor WebView:
+    //   Trước đây dùng opacity:.01 để giấu container → html2canvas đọc CSS
+    //   computed và render canvas cũng gần trong suốt → PDF trắng 3KB.
+    //   Trước nữa dùng left:-9999px → Capacitor WebView không capture được
+    //   off-screen → cũng blank.
+    //   Fix mới: wrapper 0×0 overflow:hidden — user không thấy gì, nhưng
+    //   container CON bên trong có full layout (794px, opacity 1) →
+    //   html2canvas walk DOM trực tiếp lấy đầy đủ.
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;overflow:hidden;pointer-events:none;z-index:-1';
     const container = document.createElement('div');
+    container.id = '_pdfRenderRoot';
     container.innerHTML = stylesHtml + bodyHtml;
-    // FIX BUG PDF trắng: KHÔNG dùng left:-9999px (Capacitor WebView ko
-    // capture được off-screen content via html2canvas → canvas trống → PDF
-    // trắng). Đặt on-screen với opacity 0.01 + pointer-events none + z-index
-    // ngầm để render đúng nhưng user không thấy.
-    container.style.cssText = 'position:fixed;left:0;top:0;width:794px;background:#fff;color:#000;font-family:DM Sans,sans-serif;opacity:.01;pointer-events:none;z-index:1';
-    document.body.appendChild(container);
+    container.style.cssText = 'width:794px;background:#fff;color:#000;font-family:"DM Sans",Roboto,Arial,sans-serif;font-size:13px;line-height:1.5';
+    wrapper.appendChild(container);
+    document.body.appendChild(wrapper);
 
     const book = this.state.books.find(b => b.id === bookId);
     const suffix = includeSettlement ? 'ket-thuc' : 'trong-dot';
@@ -16977,7 +16985,27 @@ const App = {
         margin: [10, 10, 12, 10],
         filename,
         image: { type: 'jpeg', quality: 0.85 },
-        html2canvas: { scale: 1.3, useCORS: true, logging: false, letterRendering: true },
+        html2canvas: {
+          scale: 1.3,
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+          letterRendering: true,
+          backgroundColor: '#ffffff',  // luôn nền trắng (Android WebView đôi khi để transparent → JPEG render đen/trắng lẫn lộn)
+          windowWidth: 794,             // hint width cho html2canvas tính layout đúng kể cả khi container nằm trong wrapper 0×0
+          onclone: (clonedDoc) => {
+            // Safety: trong cloned doc dùng để render, force visibility cho root container.
+            // Nếu wrapper bị clone luôn → cũng remove overflow:hidden để chắc chắn.
+            const c = clonedDoc.getElementById('_pdfRenderRoot');
+            if (c) {
+              c.style.opacity = '1';
+              c.style.visibility = 'visible';
+              if (c.parentElement) {
+                c.parentElement.style.cssText = 'position:absolute;left:0;top:0;width:794px;height:auto;overflow:visible;background:#fff';
+              }
+            }
+          }
+        },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
         pagebreak: { mode: ['css', 'legacy'] }
       }).from(container);
@@ -16995,7 +17023,7 @@ const App = {
       console.error('PDF gen lỗi:', e);
       QLT_UI.alert('Lỗi tạo PDF: ' + (e?.message || e) + '\n\nBấm "HTML" để tải file thay thế.', { title: 'Lỗi PDF' });
     } finally {
-      container.remove();
+      wrapper.remove();
     }
   },
 
