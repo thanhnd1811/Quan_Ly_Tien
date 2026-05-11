@@ -10352,10 +10352,35 @@ const App = {
         const bankName = parsed ? Parser.bankName(parsed.bank) : '❌ Không nhận diện';
         if (parsed) bankCount++;
 
+        // Reconcile preview: match ví + so balance NH vs app
+        let reconcileBox = '';
+        if (parsed && parsed.balance) {
+          const matchedAcc = this._findAccountForBank(this.state.accounts || [], parsed.bank, parsed.accountSuffix);
+          if (matchedAcc) {
+            const appBal = matchedAcc.balance || 0;
+            const diff = appBal - parsed.balance;
+            const okColor = Math.abs(diff) < 1000 ? 'var(--pos)' : '#f59e0b';
+            const okIcon = Math.abs(diff) < 1000 ? '✅' : '⚠️';
+            const okText = Math.abs(diff) < 1000 ? 'Khớp số dư' : `Lệch ${diff > 0 ? '+' : ''}${fmt(diff)}đ`;
+            reconcileBox = `
+              <div style="font-size:11px;margin-top:4px;padding:6px 8px;background:rgba(245,158,11,.06);border-radius:6px;line-height:1.6">
+                🏦 Ví match: <strong>${this.escapeHtml(matchedAcc.name)}</strong> · App: ${fmt(appBal)}đ vs NH: ${fmt(parsed.balance)}đ<br>
+                <span style="color:${okColor};font-weight:600">${okIcon} ${okText}</span>
+              </div>
+            `;
+          } else {
+            reconcileBox = `
+              <div style="font-size:11px;color:var(--text3);margin-top:4px">
+                ⚠️ NH báo SDC ${fmt(parsed.balance)}đ — nhưng app chưa tìm thấy ví khớp để so sánh
+              </div>
+            `;
+          }
+        }
+
         const parsedBox = parsed
           ? `<div style="font-size:11px;color:var(--pos);margin-top:6px;font-weight:600">
-               ✅ Parse OK: ${parsed.type === 'income' ? '+' : '-'}${fmt(parsed.amount)}đ${parsed.balance ? ' · SDC ' + fmt(parsed.balance) + 'đ' : ''}
-             </div>`
+               ✅ Parse OK: ${parsed.type === 'income' ? '+' : '-'}${fmt(parsed.amount)}đ${parsed.balance ? ' · 💰 NH báo SDC ' + fmt(parsed.balance) + 'đ' : ' · ⚠️ Không bắt được số dư'}
+             </div>${reconcileBox}`
           : `<div style="font-size:11px;color:var(--text3);margin-top:6px">⚠️ Không parse được (regex chưa match format này)</div>`;
 
         const bgColor = parsed ? 'rgba(34,197,94,.04)' : 'rgba(245,158,11,.04)';

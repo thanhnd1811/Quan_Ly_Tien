@@ -71,6 +71,38 @@
     return 'expense';
   }
 
+  // ===== Shared helper: extract balance — lenient cho mọi biến thể NH dùng =====
+  // Coverage: SDC/SDCK (VCB), SD (BIDV), "So du" (MB/TCB), "Số dư" có dấu,
+  //   "Số dư mới/còn lại/khả dụng/hiện tại", "Balance", "Number".
+  // Currency: VND, VNĐ, đ, d (lazy). Separator: dấu phẩy hoặc dấu chấm.
+  // Bug cũ: mỗi parser viết regex riêng, miss case có dấu / dùng "đ" / cụm dài.
+  function extractBalance(body) {
+    if (!body) return null;
+    // Normalize: bỏ dấu tiếng Việt (NFD + strip combining marks) → match dễ hơn
+    const bN = body.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const patterns = [
+      // "So du mới / con lai / kha dung / hien tai / cuoi" + variants
+      /(?:so du(?:\s+(?:moi|con lai|kha dung|hien tai|cuoi|sau gd|sau cùng))?)\s*[:=]?\s*([\d,.]+)\s*(?:VND|VNĐ|đ|d)\b/i,
+      // SDC, SDCK (Vietcombank)
+      /\bSDC[K]?\s*[:=]?\s*([\d,.]+)\s*(?:VND|VNĐ|đ|d)\b/i,
+      // SD (BIDV), nhưng tránh bắt "TK 12345 SD..." khi SD đứng cạnh số TK
+      /(?:^|[^A-Z])SD\s*[:=]?\s*([\d,.]+)\s*(?:VND|VNĐ|đ|d)\b/i,
+      // Balance (English fallback)
+      /\bBalance\s*[:=]?\s*([\d,.]+)\s*(?:VND|VNĐ|đ|d)\b/i,
+      // "Available", "Avail balance"
+      /\bAvail(?:able)?(?:\s+balance)?\s*[:=]?\s*([\d,.]+)\s*(?:VND|VNĐ|đ|d)\b/i
+    ];
+    for (const p of patterns) {
+      const m = bN.match(p);
+      if (m) {
+        const n = parseAmount(m[1]);
+        // Sanity: balance phải > 0 và có vẻ hợp lý (> 100đ — tránh nhầm số TK)
+        if (n != null && n >= 100) return n;
+      }
+    }
+    return null;
+  }
+
   // ===== Parsers cho từng bank =====
   // Mỗi function nhận body string, return { amount, type, accountSuffix, balance, note, raw } | null
 
@@ -86,9 +118,7 @@
     // Account suffix: "TK ...8842" hoặc "TK 8842"
     const accMatch = body.match(/TK\s*\.{0,3}(\d{3,5})/i);
     const accountSuffix = accMatch ? accMatch[1] : null;
-    // Balance: "SDC: 1,234,000 VND" hoặc "SDCK: ..."
-    const balMatch = body.match(/SDC[K]?\s*:\s*([\d,.]+)\s*(?:VND|đ)/i);
-    const balance = balMatch ? parseAmount(balMatch[1]) : null;
+    const balance = extractBalance(body);
     // Nội dung: sau "Noi dung:" hoặc "ND:" hoặc "Mo ta:"
     const noteMatch = body.match(/(?:Noi dung|ND|Mo ta|Description)[:\s]+([^\n.]+)/i);
     const note = noteMatch ? noteMatch[1].trim() : null;
@@ -104,8 +134,7 @@
     const type = detectType(body, amtMatch[1]);
     const accMatch = body.match(/TK\s*(\d{4,})/i);
     const accountSuffix = accMatch ? accMatch[1].slice(-4) : null;
-    const balMatch = body.match(/(?:SD|so du|sodu)\s*[:=]?\s*([\d,.]+)\s*VND/i);
-    const balance = balMatch ? parseAmount(balMatch[1]) : null;
+    const balance = extractBalance(body);
     const noteMatch = body.match(/(?:ND|Noi dung|Mo ta)[:\s]+([^\n.]+)/i);
     const note = noteMatch ? noteMatch[1].trim() : null;
     return { amount, type, accountSuffix, balance, note, bank: 'tcb' };
@@ -121,8 +150,7 @@
     const type = detectType(body, amtMatch[1]);
     const accMatch = body.match(/TK\s*[*x]*(\d{3,5})/i);
     const accountSuffix = accMatch ? accMatch[1] : null;
-    const balMatch = body.match(/So du\s*[:=]?\s*([\d,.]+)\s*VND/i);
-    const balance = balMatch ? parseAmount(balMatch[1]) : null;
+    const balance = extractBalance(body);
     const noteMatch = body.match(/(?:ND|Noi dung)[:\s]+([^\n.]+)/i);
     const note = noteMatch ? noteMatch[1].trim() : null;
     return { amount, type, accountSuffix, balance, note, bank: 'mb' };
@@ -137,8 +165,7 @@
     const type = detectType(body, amtMatch[1]);
     const accMatch = body.match(/TK\s*\.{0,3}(\d{3,5})/i);
     const accountSuffix = accMatch ? accMatch[1] : null;
-    const balMatch = body.match(/SDC[K]?\s*([\d,.]+)\s*VND/i);
-    const balance = balMatch ? parseAmount(balMatch[1]) : null;
+    const balance = extractBalance(body);
     const noteMatch = body.match(/(?:ND|Noi dung|Mo ta)[:\s]+([^\n.]+)/i);
     const note = noteMatch ? noteMatch[1].trim() : null;
     return { amount, type, accountSuffix, balance, note, bank: 'acb' };
@@ -153,8 +180,7 @@
     const type = detectType(body, amtMatch[1]);
     const accMatch = body.match(/TK\s*(\d{4,})/i);
     const accountSuffix = accMatch ? accMatch[1].slice(-4) : null;
-    const balMatch = body.match(/(?:SD|so du)\s*[:=]?\s*([\d,.]+)\s*VND/i);
-    const balance = balMatch ? parseAmount(balMatch[1]) : null;
+    const balance = extractBalance(body);
     const noteMatch = body.match(/(?:ND|Noi dung|Mo ta)[:\s]+([^\n.]+)/i);
     const note = noteMatch ? noteMatch[1].trim() : null;
     return { amount, type, accountSuffix, balance, note, bank: 'bidv' };
@@ -170,8 +196,7 @@
     const type = detectType(body, amtMatch[1]);
     const accMatch = body.match(/TK\s*[*x]*(\d{3,5})/i);
     const accountSuffix = accMatch ? accMatch[1] : null;
-    const balMatch = body.match(/(?:SDC[K]?|SD|so du|sodu)\s*[:=]?\s*([\d,.]+)\s*(?:VND|VNĐ|đ)/i);
-    const balance = balMatch ? parseAmount(balMatch[1]) : null;
+    const balance = extractBalance(body);
     const noteMatch = body.match(/(?:ND|Noi dung|Mo ta|Memo)[:\s]+([^\n.]+)/i);
     const note = noteMatch ? noteMatch[1].trim() : null;
     return { amount, type, accountSuffix, balance, note, bank };
