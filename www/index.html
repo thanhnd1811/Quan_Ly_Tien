@@ -459,9 +459,12 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .home-wallet-chip-top{display:flex;align-items:center;gap:7px;margin-bottom:5px}
 /* Icon container TO hơn — 32px để logo PNG (cash/VCB/MB) đủ presence,
    tránh trông tí xíu so với chip text. */
-.home-wallet-chip-ico{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;overflow:hidden;flex-shrink:0}
-.home-wallet-chip-ico svg{width:14px;height:14px}
-.home-wallet-chip-ico .bank-logo{width:18px;height:18px;object-fit:contain}
+/* Icon container 32px — đủ chỗ cho photo logo (cash 3D, VCB, MB) hiển thị rõ.
+   Cash polymer note có nhiều chi tiết (text, shadow, color) → cần ≥24px mới nhận
+   ra "cọc tiền"; ở 18px thành blob mờ. */
+.home-wallet-chip-ico{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;overflow:hidden;flex-shrink:0}
+.home-wallet-chip-ico svg{width:18px;height:18px}
+.home-wallet-chip-ico .bank-logo{width:28px;height:28px;object-fit:contain}
 .home-wallet-chip-nm{font-size:10.5px;font-weight:600;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px}
 .home-wallet-chip-amt{font-size:14px;font-weight:800;color:var(--text);letter-spacing:-.3px;line-height:1.1}
 .home-wallet-chip-trend{font-size:9.5px;color:var(--text3);margin-top:2px;font-weight:500}
