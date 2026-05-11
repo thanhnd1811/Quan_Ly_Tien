@@ -14139,11 +14139,12 @@ const App = {
       if (found) activeGroup = found.key;
     }
 
-    // Logo có sẵn (SVG màu, nền trong suốt) — đọc từ QLT_ICON_LIB lọc theo group đặc biệt
+    // Logo / Ảnh thật (PNG từ user) — đọc từ QLT_ICON_LIB lọc theo group đặc biệt.
+    // Hiện gồm: Tiền mặt VND, Vietcombank, MB Bank. Có thể add thêm bank/ảnh khác.
     const SVG_LOGO_ITEMS = (window.QLT_ICON_LIB || []).filter(x => x.group === 'Ngân hàng');
     const svgLogoSectionHtml = SVG_LOGO_ITEMS.length ? `
       <div class="icon-svg-section">
-        <div class="icon-svg-label">Logo ngân hàng</div>
+        <div class="icon-svg-label">Logo / Ảnh tiền</div>
         <div class="icon-svg-grid">
           ${SVG_LOGO_ITEMS.map(it => `
             <div class="icon-svg-pick ${it.name === opts.currentIcon ? 'on' : ''}" data-svg="${it.name}" title="${this.escapeHtml(it.label)}">

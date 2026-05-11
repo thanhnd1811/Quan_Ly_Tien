@@ -248,13 +248,14 @@ window.QLT_ICON_LIB = [
   { name: 'bitcoin', label: 'Crypto', group: 'Thu nhập', kw: 'crypto bitcoin coin' },
   // Tiền - Ví (cho tài khoản và cả danh mục liên quan tiền)
   { name: 'wallet', label: 'Ví', group: 'Tiền - Ví', kw: 'vi wallet' },
-  { name: 'cash', label: 'Tiền mặt', group: 'Tiền - Ví', kw: 'tien mat cash' },
   { name: 'bank', label: 'Ngân hàng', group: 'Tiền - Ví', kw: 'ngan hang bank' },
   { name: 'card', label: 'Thẻ tín dụng', group: 'Tiền - Ví', kw: 'the tin dung card credit' },
   { name: 'piggy', label: 'Heo đất', group: 'Tiền - Ví', kw: 'heo dat piggy save' },
   { name: 'coins', label: 'Tiết kiệm', group: 'Tiền - Ví', kw: 'tiet kiem coins save' },
   { name: 'coin', label: 'Đồng xu', group: 'Tiền - Ví', kw: 'coin xu' },
-  // Ngân hàng — PNG nền trong suốt từ user
+  // Logo / Ảnh thật — PNG nền trong suốt từ user. Show ở section đầu picker
+  // để dễ chọn cho ví (đồng bộ với bank logos).
+  { name: 'cash', label: 'Tiền mặt VND', group: 'Ngân hàng', kw: 'tien mat cash vnd 500k polymer' },
   { name: 'bank-vcb', label: 'Vietcombank', group: 'Ngân hàng', kw: 'vietcombank vcb ngan hang ngoai thuong viet nam' },
   { name: 'bank-mb', label: 'MB Bank', group: 'Ngân hàng', kw: 'mb bank mbbank quan doi military' },
   // Khác
