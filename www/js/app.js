@@ -16956,20 +16956,19 @@ const App = {
     const stylesHtml = Array.from(doc.querySelectorAll('style')).map(s => s.outerHTML).join('');
     const bodyHtml = doc.body.innerHTML;
 
-    // FIX BUG PDF blank trên Capacitor WebView:
-    //   Trước đây dùng opacity:.01 để giấu container → html2canvas đọc CSS
-    //   computed và render canvas cũng gần trong suốt → PDF trắng 3KB.
-    //   Trước nữa dùng left:-9999px → Capacitor WebView không capture được
-    //   off-screen → cũng blank.
-    //   Fix mới: wrapper 0×0 overflow:hidden — user không thấy gì, nhưng
-    //   container CON bên trong có full layout (794px, opacity 1) →
-    //   html2canvas walk DOM trực tiếp lấy đầy đủ.
+    // Container width = PDF content area (A4 - 2×10mm margin) ở 96dpi:
+    //   190mm / 25.4 * 96 ≈ 718px.
+    // Trước đây để 794px (full A4 width) → tràn 76px ra ngoài margin → cột
+    // 4 trong summary cards bị cắt mất ('Số dư ví hiện tại' → '30.393.1').
+    // Wrapper 0×0 overflow:hidden hide khỏi user, container con full layout
+    // để html2canvas walk DOM lấy đúng.
+    const PDF_WIDTH_PX = 718;
     const wrapper = document.createElement('div');
     wrapper.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;overflow:hidden;pointer-events:none;z-index:-1';
     const container = document.createElement('div');
     container.id = '_pdfRenderRoot';
     container.innerHTML = stylesHtml + bodyHtml;
-    container.style.cssText = 'width:794px;background:#fff;color:#000;font-family:"DM Sans",Roboto,Arial,sans-serif;font-size:13px;line-height:1.5';
+    container.style.cssText = `width:${PDF_WIDTH_PX}px;background:#fff;color:#000;font-family:"DM Sans",Roboto,Arial,sans-serif;font-size:13px;line-height:1.5`;
     wrapper.appendChild(container);
     document.body.appendChild(wrapper);
 
@@ -16986,28 +16985,30 @@ const App = {
         filename,
         image: { type: 'jpeg', quality: 0.85 },
         html2canvas: {
-          scale: 1.3,
+          scale: 2,                     // 2× cho text crisp trên PDF; canvas = 1436px wide
           useCORS: true,
           allowTaint: true,
           logging: false,
           letterRendering: true,
-          backgroundColor: '#ffffff',  // luôn nền trắng (Android WebView đôi khi để transparent → JPEG render đen/trắng lẫn lộn)
-          windowWidth: 794,             // hint width cho html2canvas tính layout đúng kể cả khi container nằm trong wrapper 0×0
+          backgroundColor: '#ffffff',
+          windowWidth: PDF_WIDTH_PX,    // hint viewport width khớp container — html2pdf scale theo đúng
           onclone: (clonedDoc) => {
-            // Safety: trong cloned doc dùng để render, force visibility cho root container.
-            // Nếu wrapper bị clone luôn → cũng remove overflow:hidden để chắc chắn.
+            // Defense-in-depth: trong cloned doc render, force visibility cho root
+            // và remove overflow:hidden trên wrapper (phòng html2canvas clone cả wrapper).
             const c = clonedDoc.getElementById('_pdfRenderRoot');
             if (c) {
               c.style.opacity = '1';
               c.style.visibility = 'visible';
               if (c.parentElement) {
-                c.parentElement.style.cssText = 'position:absolute;left:0;top:0;width:794px;height:auto;overflow:visible;background:#fff';
+                c.parentElement.style.cssText = `position:absolute;left:0;top:0;width:${PDF_WIDTH_PX}px;height:auto;overflow:visible;background:#fff`;
               }
             }
           }
         },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
-        pagebreak: { mode: ['css', 'legacy'] }
+        // CSS-only mode — KHÔNG dùng 'legacy' vì gây whitespace lạ ở đầu trang
+        // và auto-scale không đúng trên doc dài. CSS mode tôn trọng page-break-*.
+        pagebreak: { mode: 'css', before: '.page-break-before', avoid: '.day-block,tr,.card' }
       }).from(container);
 
       if (isNative) {
