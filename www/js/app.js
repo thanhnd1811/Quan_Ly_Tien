@@ -7398,14 +7398,102 @@ const App = {
   // ============================================================
   // FAB hiện ở APP-LEVEL — không gắn với tab Home, hiện mọi nơi khi đã setup API key
   async renderAiChatFab() {
+    // FAB cũ ở bottom-right ĐÃ DEPRECATED — luôn ẩn. AI button mới sống trong
+    // topbar (xem _renderAITopbarButtons) để không che các nút + của
+    // screen-goals/loans/budgets/savings/recurring/fuel.
     const fab = $('#homeAiChatFab');
-    if (!fab) return;
+    if (fab) fab.style.display = 'none';
+
     const hasKey = window.QLT_AI && await window.QLT_AI.hasApiKey();
-    fab.style.display = hasKey ? 'flex' : 'none';
-    if (hasKey && !fab._bound) {
-      fab._bound = true;
-      fab.onclick = () => this.openAiChatModal();
-    }
+    this._renderAITopbarButtons(hasKey);
+
+    // Chào hỏi user 1 lần/ngày — chỉ khi AI đã setup + user có data thật
+    if (hasKey) this._maybeShowAIGreeting();
+  },
+
+  // Inject AI sparkle button vào TẤT CẢ topbar .tb-row.
+  // Idempotent — gọi nhiều lần OK, mỗi topbar chỉ thêm 1 lần.
+  _renderAITopbarButtons(visible) {
+    document.querySelectorAll('.topbar .tb-row').forEach(row => {
+      let btn = row.querySelector('.ai-chat-topbar-btn');
+      if (!btn) {
+        btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ai-chat-topbar-btn';
+        btn.title = 'Trợ lý AI';
+        btn.setAttribute('aria-label', 'Trợ lý AI');
+        // Sparkle SVG compact — gradient inline để khỏi phụ thuộc defs trong DOM
+        btn.innerHTML = `
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="aiTbGrad${Date.now()}${Math.random().toString(36).slice(2,5)}" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#fde68a"/>
+                <stop offset="50%" stop-color="#fbbf24"/>
+                <stop offset="100%" stop-color="#f59e0b"/>
+              </linearGradient>
+            </defs>
+            <path d="M12 2.5L13.8 8.4L19.5 10.5L13.8 12.6L12 18.5L10.2 12.6L4.5 10.5L10.2 8.4L12 2.5Z" fill="#fde68a"/>
+            <path d="M19.5 14.5L20.3 16.7L22.5 17.5L20.3 18.3L19.5 20.5L18.7 18.3L16.5 17.5L18.7 16.7L19.5 14.5Z" fill="#fde68a" opacity="0.9"/>
+            <path d="M5 17.5L5.6 19.1L7 19.5L5.6 19.9L5 21.5L4.4 19.9L3 19.5L4.4 19.1L5 17.5Z" fill="#fde68a" opacity="0.7"/>
+          </svg>
+        `;
+        btn.onclick = () => this.openAiChatModal();
+        row.appendChild(btn);
+      }
+      btn.classList.toggle('shown', !!visible);
+    });
+  },
+
+  // Hiện speech bubble chào hỏi 1 lần/ngày khi user mở app.
+  // Random 1 trong 6 message, auto dismiss sau 5s, tap bubble = mở chat.
+  _maybeShowAIGreeting() {
+    const todayStr = today();
+    const lastGreet = localStorage.getItem('qlt_ai_last_greeted');
+    if (lastGreet === todayStr) return;
+
+    // Skip nếu chưa có data thật (user mới cài) — để họ explore trước
+    const txCount = (this.state.transactions || []).length;
+    if (txCount === 0) return;
+
+    // Skip nếu đã có bubble hiện
+    if (document.querySelector('.ai-chat-greet')) return;
+
+    const greetings = [
+      '👋 Chào bạn! Cần mình giúp gì hôm nay?',
+      '✨ Mình đây! Hỏi mình về chi tiêu nhé.',
+      '💸 Tháng này thế nào? Tap mình xem!',
+      '🌟 Có gì cần phân tích không?',
+      '☕ Chào! Mình sẵn sàng hỗ trợ rồi đây.',
+      '📊 Mình có thể tóm tắt chi tiêu cho bạn — tap thử!'
+    ];
+    // Pick greeting dựa trên giờ + random
+    const hour = new Date().getHours();
+    let msg;
+    if (hour < 11) msg = '☀️ Chào buổi sáng! Mình có thể giúp gì?';
+    else if (hour >= 19) msg = '🌙 Tối rồi! Xem lại chi tiêu hôm nay nhé?';
+    else msg = greetings[Math.floor(Math.random() * greetings.length)];
+
+    // Delay nhỏ để render xong trang home
+    setTimeout(() => {
+      const bubble = document.createElement('div');
+      bubble.className = 'ai-chat-greet';
+      bubble.textContent = msg;
+      bubble.onclick = () => {
+        bubble.classList.add('dismiss');
+        setTimeout(() => bubble.remove(), 300);
+        this.openAiChatModal();
+      };
+      document.body.appendChild(bubble);
+      // Auto dismiss sau 5s
+      setTimeout(() => {
+        if (bubble.isConnected) {
+          bubble.classList.add('dismiss');
+          setTimeout(() => bubble.remove(), 350);
+        }
+      }, 5000);
+    }, 1200);
+
+    localStorage.setItem('qlt_ai_last_greeted', todayStr);
   },
 
   // Persistent notification — hiện trên thanh thông báo (cả lock screen)

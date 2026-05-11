@@ -1119,9 +1119,83 @@ html[data-theme="dark"] .rec-type-pill.on{
 .ai-chat-fab:hover svg{filter:drop-shadow(0 3px 10px rgba(99,102,241,.6)) drop-shadow(0 1px 3px rgba(236,72,153,.4))}
 @keyframes aiSparkleFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 .ai-chat-fab.hidden{display:none}
-/* Ẩn AI FAB khi có modal/drawer mở — tránh đè nút edit/close trong bottom sheet */
+/* AI FAB cũ KHÔNG dùng nữa — đã chuyển lên topbar (xem .ai-chat-topbar-btn).
+   Ẩn vĩnh viễn để khỏi vướng. CSS bên dưới giữ lại để rollback dễ. */
+.ai-chat-fab{display:none !important}
 body:has(.modal.open) .ai-chat-fab,
 body:has(.drawer.open) .ai-chat-fab{display:none !important}
+
+/* ====== AI BUTTON TRONG TOPBAR ======
+   Sparkle nhỏ ở góc phải topbar — thay thế FAB bottom-right cũ.
+   Có ở tất cả screens (home + savings + budgets + goals + loans + recurring + fuel + ...)
+   → không bao giờ che nút + ở góc dưới-phải của các screen đó. */
+.ai-chat-topbar-btn{
+  width:34px;height:34px;
+  background:rgba(255,255,255,.14);
+  border:1px solid rgba(255,255,255,.18);
+  border-radius:50%;
+  cursor:pointer;flex-shrink:0;
+  display:none;
+  align-items:center;justify-content:center;
+  padding:0;margin-left:4px;
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .18s ease, background .18s ease;
+}
+.ai-chat-topbar-btn.shown{display:inline-flex}
+.ai-chat-topbar-btn:active{transform:scale(.88) rotate(-6deg)}
+.ai-chat-topbar-btn:hover{background:rgba(255,255,255,.22)}
+.ai-chat-topbar-btn svg{
+  width:22px;height:22px;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.2));
+  animation:aiTbSparkle 2.6s ease-in-out infinite;
+}
+@keyframes aiTbSparkle{
+  0%,100%{transform:scale(1) rotate(0deg);opacity:1}
+  50%{transform:scale(1.1) rotate(5deg);opacity:.85}
+}
+
+/* Speech bubble chào hỏi — hiện 1 lần/ngày khi user mở app */
+.ai-chat-greet{
+  position:fixed;
+  top:54px;
+  right:14px;
+  background:linear-gradient(135deg,#6366f1,#a855f7,#ec4899);
+  color:#fff;
+  padding:10px 14px;
+  border-radius:16px 16px 4px 16px;
+  font-size:12.5px;font-weight:500;
+  box-shadow:0 8px 24px rgba(168,85,247,.45), 0 2px 6px rgba(0,0,0,.1);
+  z-index:200;
+  max-width:240px;
+  line-height:1.4;
+  cursor:pointer;
+  user-select:none;
+  -webkit-tap-highlight-color:transparent;
+  animation:greetIn .4s cubic-bezier(.2,.8,.3,1.2), greetPulse 2s ease 1s infinite;
+}
+.ai-chat-greet::after{
+  content:'';
+  position:absolute;
+  top:-7px;
+  right:20px;
+  width:0;height:0;
+  border:7px solid transparent;
+  border-bottom-color:#6366f1;
+  border-top:0;
+}
+.ai-chat-greet:active{transform:scale(.97)}
+.ai-chat-greet.dismiss{animation:greetOut .35s ease forwards}
+@keyframes greetIn{
+  from{opacity:0;transform:translateY(-12px) scale(.85)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes greetPulse{
+  0%,100%{box-shadow:0 8px 24px rgba(168,85,247,.45), 0 2px 6px rgba(0,0,0,.1)}
+  50%{box-shadow:0 10px 32px rgba(168,85,247,.7), 0 2px 6px rgba(0,0,0,.1)}
+}
+@keyframes greetOut{
+  to{opacity:0;transform:translateY(-10px) scale(.85);pointer-events:none}
+}
 
 /* AI Chat modal — popup chatbot style (KHÔNG fullscreen)
    Kiểu Intercom/Zendesk: 1 cửa sổ nhỏ ở góc dưới phải, không có backdrop
