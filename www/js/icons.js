@@ -109,8 +109,10 @@ window.QLT_ICONS = {
   coins: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1110.34 18M7 6h1v4M16.71 13.88l.7.71-2.82 2.82"/></svg>',
 
   // ============ LOGO NGÂN HÀNG (PNG file thật từ user — không tự vẽ) ============
-  'bank-vcb': '<img src="img/bank-vcb.png" alt="Vietcombank" style="width:100%;height:100%;object-fit:contain;display:block">',
-  'bank-mb': '<img src="img/bank-mb.png" alt="MB Bank" style="width:100%;height:100%;object-fit:contain;display:block">',
+  // Dùng class .bank-logo (CSS trong index.html) để size theo từng context
+  // — tránh PNG bị căng đè qua vành ngoài vòng tròn xám.
+  'bank-vcb': '<img src="img/bank-vcb.png" alt="Vietcombank" class="bank-logo">',
+  'bank-mb': '<img src="img/bank-mb.png" alt="MB Bank" class="bank-logo">',
 
   // ============ KHÁC ============
   other: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="17" r="0.5" fill="currentColor"/><path d="M9.1 9a3 3 0 015.83 1c0 2-3 3-3 3"/></svg>',
