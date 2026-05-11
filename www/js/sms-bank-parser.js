@@ -182,7 +182,9 @@
   // output: { amount, type, accountSuffix, balance, note, bank, address, body, date, smsId } | null
   function parseSms(sms) {
     if (!sms?.body) return null;
-    const bank = detectBank(sms.address);
+    // Ưu tiên bankHint (vd: từ pkg name của notif — chắc chắn 100%).
+    // Fallback: detectBank regex từ address text (cho SMS sender, hoặc pkg unknown).
+    const bank = sms.bankHint || detectBank(sms.address);
     if (!bank) return null;
 
     let parsed;
@@ -261,11 +263,47 @@
     bvb:   ['bvb', 'banvietbank', 'banviet', 'vietcapital']
   };
 
+  // Map TRỰC TIẾP package name của app NH → bank code.
+  // Nguồn chân lý cho notif: nếu pkg ở đây → bank code chắc chắn 100%, không phụ thuộc regex text.
+  // Để thêm bank mới: chỉ cần thêm pkg vào đây + BANK_PACKAGES whitelist trong NotificationReaderService.
+  const PKG_TO_BANK = {
+    'com.VCB': 'vcb',
+    'com.vcb.digibank': 'vcb',
+    'vn.com.vcb.digibank': 'vcb',
+    'com.mbmobile': 'mb',
+    'com.mbbank.app': 'mb',
+    'com.techcombank.bb.app': 'tcb',
+    'vn.com.techcombank.app': 'tcb',
+    'mobile.acb.com.vn': 'acb',
+    'com.acb.bank': 'acb',
+    'com.vnpay.bidv': 'bidv',
+    'com.bidv.smartbanking': 'bidv',
+    'com.vpbank.mobiletest': 'vpb',
+    'com.vpb.mobilebanking': 'vpb',
+    'com.vpbank.neo': 'vpb',
+    'vn.com.tpbank.tpbmb': 'tpb',
+    'com.tpb.app': 'tpb',
+    'com.sacombank.ewallet': 'sacom',
+    'com.sacombank.spbb': 'sacom',
+    'com.vietinbank.ipay': 'vtb',
+    'vn.com.vietinbank.efast': 'vtb',
+    'com.vnpay.agribankplus': 'agri',
+    'vn.agribank.emobilebanking': 'agri',
+    'com.shb.mb': 'shb',
+    'com.hdbank.fintech': 'hdb',
+    'com.vib.app': 'vib',
+    'com.msb.smartmb': 'msb',
+    'com.ocbnews.cbs': 'ocb'
+  };
+
   window.QLT_SmsBankParser = {
     detectBank,
     parseSms,
     BANK_NAMES,
     BANK_ALIASES,
-    bankName: (key) => BANK_NAMES[key] || key
+    PKG_TO_BANK,
+    bankName: (key) => BANK_NAMES[key] || key,
+    // Lookup bank code từ pkg name. Trả null nếu pkg không known (caller fallback regex detect).
+    bankFromPackage: (pkg) => PKG_TO_BANK[pkg] || null
   };
 })();

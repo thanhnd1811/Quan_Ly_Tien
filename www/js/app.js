@@ -10341,10 +10341,11 @@ const App = {
           day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
         });
         const address = `${n.pkg} ${n.title || ''}`;
+        const bankHint = Parser?.bankFromPackage(n.pkg);
         let parsed = null;
         try {
           parsed = Parser?.parseSms({
-            address, body: n.body, date: n.postTime, id: n.sbnKey
+            address, body: n.body, date: n.postTime, id: n.sbnKey, bankHint
           });
         } catch (_) {}
 
@@ -10440,16 +10441,16 @@ const App = {
     const autoSaveEnabled = localStorage.getItem('qlt_notif_autosave') !== 'off';
 
     for (const notif of notifs) {
-      // Address để parser detect bank: thử PKG_TO_ADDRESS map trước (known),
-      // fallback combine pkg + title (catch unknown packages).
-      // VD: pkg "com.unknownbank.app" + title "Bank XYZ" → detectBank thấy "BANK"
-      const address = PKG_TO_ADDRESS[notif.pkg]
-        || `${notif.pkg} ${notif.title}`;
+      // Bank detection: ưu tiên DIRECT lookup từ pkg name (chắc chắn 100%).
+      // Fallback: dùng address text + detectBank regex (cho pkg unknown — vd bank mới).
+      const bankHint = Parser.bankFromPackage(notif.pkg);
+      const address = PKG_TO_ADDRESS[notif.pkg] || `${notif.pkg} ${notif.title}`;
       const parsed = Parser.parseSms({
         address,
         body: notif.body,
         date: notif.postTime,
-        id: notif.sbnKey
+        id: notif.sbnKey,
+        bankHint  // pkg-based hint, ưu tiên hơn detectBank
       });
       if (!parsed) {
         sbnKeysSeen.push(notif.sbnKey);
