@@ -3075,14 +3075,19 @@ const App = {
       }
     }
 
-    // Sparkline 7-day expense bars — simple: data → bar cao, no data → bar thấp mờ
+    // Sparkline 7-day expense bars — 3 tier opacity (low/mid/high) + today highlight.
+    // Cọc cuối (index 6) = hôm nay → có dot pulse + glow.
     const sparkEl = $('#homeHv2Spark');
     if (sparkEl) {
       const maxE = Math.max(1, ...today7.map(d => d.exp));
-      sparkEl.innerHTML = today7.map(d => {
-        const pct = Math.max(5, Math.round(d.exp / maxE * 100));
-        const cls = d.exp >= maxE * 0.75 ? ' high' : '';
-        return `<div class="home-hv2-spark-bar${cls}" style="height:${pct}%" title="${d.date}: ${fmtBal(d.exp)}"></div>`;
+      sparkEl.innerHTML = today7.map((d, i) => {
+        const isToday = i === today7.length - 1;
+        let pct, cls;
+        if (d.exp <= 0) { pct = 15; cls = ''; }
+        else if (d.exp >= maxE * 0.75) { pct = Math.round(d.exp / maxE * 100); cls = 'high'; }
+        else { pct = Math.max(28, Math.round(d.exp / maxE * 100)); cls = 'mid'; }
+        if (isToday) cls = (cls + ' today').trim();
+        return `<div class="home-hv2-spark-bar ${cls}" style="height:${pct}%" title="${d.date}: ${fmtBal(d.exp)}"></div>`;
       }).join('');
     }
 

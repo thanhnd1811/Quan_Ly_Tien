@@ -350,10 +350,59 @@ button{border:none;background:none;cursor:pointer;color:inherit}
 .home-hv2-delta.neg{color:#e63946}
 .home-hv2-delta .arrow{font-size:10px}
 .home-hv2-savings{margin-top:6px;display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--accent);font-weight:600;cursor:pointer;text-decoration:none;position:relative;z-index:2}
-/* Sparkline 7-day expense bars — simple, không tier */
-.home-hv2-spark{display:flex;align-items:flex-end;gap:2.5px;height:18px;margin-top:7px;position:relative;z-index:2}
-.home-hv2-spark-bar{flex:1;background:var(--book-accent);opacity:.35;border-radius:1.5px;min-height:2px;transition:height .3s ease}
-.home-hv2-spark-bar.high{opacity:.9}
+/* Sparkline 7-day expense bars — bo tròn top, gap rộng, today highlight */
+.home-hv2-spark-wrap{margin-top:10px;position:relative;z-index:2}
+.home-hv2-spark-lbl{
+  font-size:9.5px;
+  font-weight:600;
+  color:var(--text3);
+  letter-spacing:.4px;
+  text-transform:uppercase;
+  margin-bottom:5px;
+  display:flex;align-items:center;gap:5px;
+  opacity:.75;
+}
+.home-hv2-spark{
+  display:flex;align-items:flex-end;
+  gap:5px;
+  height:26px;
+  position:relative;
+  /* Subtle baseline at bottom */
+  padding-bottom:1px;
+  border-bottom:1px dashed var(--border);
+}
+.home-hv2-spark-bar{
+  flex:1;
+  background:var(--book-accent);
+  border-radius:3px 3px 1px 1px;
+  min-height:4px;
+  opacity:.25;
+  position:relative;
+  transition:opacity .3s ease, transform .3s ease;
+}
+.home-hv2-spark-bar.mid{opacity:.55}
+.home-hv2-spark-bar.high{opacity:.92}
+/* Cọc hôm nay (last bar) — dot indicator + glow */
+.home-hv2-spark-bar.today{
+  opacity:1;
+  filter:drop-shadow(0 2px 6px var(--book-accent));
+}
+.home-hv2-spark-bar.today::before{
+  content:'';
+  position:absolute;
+  top:-6px;
+  left:50%;
+  transform:translateX(-50%);
+  width:5px;height:5px;
+  border-radius:50%;
+  background:var(--book-accent);
+  box-shadow:0 0 6px var(--book-accent), 0 0 0 2px var(--surface);
+  animation:todayDotPulse 2.4s ease-in-out infinite;
+}
+@keyframes todayDotPulse{
+  0%,100%{box-shadow:0 0 4px var(--book-accent), 0 0 0 2px var(--surface)}
+  50%{box-shadow:0 0 10px var(--book-accent), 0 0 0 2px var(--surface)}
+}
 
 /* 2×2 insight cards grid — simple, không fade-in stagger */
 .home-insights{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 14px 12px}
@@ -1688,7 +1737,10 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
         <span id="homeBalance">0</span><span class="home-hv2-unit"> đ</span>
       </div>
       <div id="homeHv2Delta" class="home-hv2-delta"></div>
-      <div id="homeHv2Spark" class="home-hv2-spark"></div>
+      <div class="home-hv2-spark-wrap">
+        <div class="home-hv2-spark-lbl">📊 Chi 7 ngày qua</div>
+        <div id="homeHv2Spark" class="home-hv2-spark"></div>
+      </div>
       <div id="homeSavingsLink" class="home-hv2-savings" style="display:none" onclick="QLT_App.scrollToSavings()"></div>
     </div>
 
