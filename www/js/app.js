@@ -4560,17 +4560,19 @@ const App = {
       </div>
     `;
 
-    // Bind nav buttons
+    // Bind nav buttons — dùng ymdLocal() thay toISOString() để tránh bug TZ +7:
+    //   new Date(2026, 3, 1).toISOString() ở VN = '2026-03-31T17:00Z' → slice = '2026-03'
+    //   → prev click lùi 2 tháng, next click không advance.
     wrap.querySelector('[data-nav="prev"]').onclick = () => {
-      const d = new Date(year, month - 2, 1);
-      this.state._heatmapMonth = d.toISOString().slice(0, 7);
+      const d = new Date(year, month - 2, 1); // month 1-indexed → JS prev = month-2
+      this.state._heatmapMonth = ymdLocal(d).slice(0, 7);
       this.renderSpendingHeatmap();
     };
     const nextBtn = wrap.querySelector('[data-nav="next"]');
     if (!isCurrentMonth) {
       nextBtn.onclick = () => {
-        const d = new Date(year, month, 1);
-        const nextYm = d.toISOString().slice(0, 7);
+        const d = new Date(year, month, 1); // next month: JS 0-indexed = current 1-indexed
+        const nextYm = ymdLocal(d).slice(0, 7);
         if (nextYm > todayStr.slice(0, 7)) return; // không cho qua tháng tương lai
         this.state._heatmapMonth = nextYm;
         this.renderSpendingHeatmap();
