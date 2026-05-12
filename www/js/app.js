@@ -3143,6 +3143,9 @@ const App = {
       });
     }
 
+    // ===== Forecast cuối tháng =====
+    this._renderHomeForecastV2(totalBalance, exp);
+
     // Keep deprecated hooks happy (renderers cũ vẫn animate vào hidden spans)
     const incEl = $('#homeIncome'), expEl = $('#homeExpense'), monthEl = $('#homeMonth');
     if (incEl) animateNumber(incEl, inc, { suffix: '' });
@@ -3248,6 +3251,108 @@ const App = {
         };
       });
     }
+  },
+
+  // Tìm GD đã có có thể trùng với newTx (cùng ngày + amount + account + type).
+  // Use case chính: bank SMS auto-tạo tx, user cũng nhập tay → check trước khi save.
+  _findPotentialDuplicate(newTx) {
+    if (!newTx.amount || !newTx.accountId || !newTx.date) return null;
+    return (this.state.transactions || []).find(t => {
+      if (newTx.id && t.id === newTx.id) return false;
+      if (t.amount !== newTx.amount) return false;
+      if (t.accountId !== newTx.accountId) return false;
+      if (t.type !== newTx.type) return false;
+      if (t.date !== newTx.date) return false;
+      if (t._adjustment) return false;
+      return true;
+    }) || null;
+  },
+
+  // ===== Forecast cuối tháng =====
+  // Dự báo balance cuối tháng = current + upcoming_recurring - avg_daily_spend × days_left
+  // Cảnh báo nếu predicted âm → user kịp điều chỉnh.
+  _renderHomeForecastV2(currentBalance, expSoFar) {
+    const el = $('#homeHv2Forecast');
+    if (!el) return;
+    const now = new Date();
+    const dayOfMonth = now.getDate();
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const daysLeft = Math.max(0, lastDay - dayOfMonth);
+
+    // Avg daily spend (this month so far) — dùng để extrapolate
+    const avgDaily = dayOfMonth > 0 ? expSoFar / dayOfMonth : 0;
+    const projectedSpend = Math.round(avgDaily * daysLeft);
+
+    // Upcoming recurring trong tháng (sau hôm nay) — chỉ tính rule active monthly có dayOfMonth.
+    // (Frequency khác — weekly/biweekly/quarterly — skip cho compute đơn giản; có thể bổ sung sau.)
+    let upcomingIn = 0, upcomingOut = 0;
+    for (const r of (this.state.recurringRules || [])) {
+      if (!r.active) continue;
+      if (r.frequency === 'monthly' && r.dayOfMonth) {
+        const d = parseInt(r.dayOfMonth, 10);
+        if (d > dayOfMonth && d <= lastDay) {
+          if (r.type === 'income') upcomingIn += (r.amount || 0);
+          else if (r.type === 'expense') upcomingOut += (r.amount || 0);
+        }
+      }
+    }
+
+    // Skip nếu cuối tháng rồi (0-1 ngày còn lại — predict không meaningful)
+    if (daysLeft < 2) {
+      el.style.display = 'none';
+      return;
+    }
+
+    const predicted = Math.round(currentBalance + upcomingIn - upcomingOut - projectedSpend);
+    const fmtCompact = n => {
+      const abs = Math.abs(n);
+      if (abs >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+      if (abs >= 1000) return Math.round(n / 1000) + 'k';
+      return String(n);
+    };
+
+    // Cảnh báo tier:
+    //  - neg: predicted âm hoặc < 5% current balance → đỏ (rủi ro)
+    //  - warn: predicted < 30% current balance → vàng (chú ý)
+    //  - pos: ok
+    let cls, icon, label;
+    if (predicted < 0) {
+      cls = 'neg'; icon = '⚠️';
+      label = `Có thể âm <span class="fc-amt">${fmtCompact(predicted)}đ</span> cuối tháng`;
+    } else if (predicted < currentBalance * 0.05) {
+      cls = 'neg'; icon = '⚠️';
+      label = `Dự báo còn <span class="fc-amt">${fmtCompact(predicted)}đ</span> — quá thấp!`;
+    } else if (predicted < currentBalance * 0.3) {
+      cls = 'warn'; icon = '⚡';
+      label = `Dự báo cuối tháng còn <span class="fc-amt">${fmtCompact(predicted)}đ</span>`;
+    } else {
+      cls = 'pos'; icon = '💡';
+      label = `Dự báo cuối tháng còn <span class="fc-amt">${fmtCompact(predicted)}đ</span>`;
+    }
+
+    el.className = `home-hv2-forecast ${cls}`;
+    el.style.display = 'flex';
+    el.innerHTML = `
+      <span>${icon}</span>
+      <span style="flex:1">${label}</span>
+      <span class="fc-detail">${daysLeft} ngày →</span>
+    `;
+    el.onclick = () => {
+      const lines = [
+        `📊 Dự báo cuối tháng`,
+        ``,
+        `Số dư hiện tại: ${fmtBal(currentBalance)}`,
+        `Còn ${daysLeft} ngày trong tháng`,
+        ``,
+        `Đã chi tháng này: -${fmtBal(expSoFar)}`,
+        `Trung bình/ngày: ${fmtBal(Math.round(avgDaily))}`,
+        `Dự kiến chi còn lại: -${fmtBal(projectedSpend)}`,
+      ];
+      if (upcomingIn > 0) lines.push(`Recurring thu sắp tới: +${fmtBal(upcomingIn)}`);
+      if (upcomingOut > 0) lines.push(`Recurring chi sắp tới: -${fmtBal(upcomingOut)}`);
+      lines.push(``, `→ Dự báo cuối tháng: ${fmtBal(predicted)}`);
+      QLT_UI.alert(lines.join('\n'), { title: '💡 Chi tiết dự báo' });
+    };
   },
 
   // ===== 4 insight cards: Chi tháng / Ngân sách / Tiết kiệm / Mục tiêu =====
@@ -12814,6 +12919,22 @@ const App = {
       const allMems = (book?.members || []).filter(m => m.name && m.name.trim()).map(m => m.id);
       if (allMems.length > 0 && allMems.every(id => t.participantIds.includes(id)) && t.participantIds.length === allMems.length) {
         t.participantIds = null;
+      }
+    }
+
+    // Detect duplicate — chỉ check khi TẠO MỚI tx (sửa tx không cần).
+    // Trường hợp thường: SMS bank notif auto-tạo tx, đồng thời user nhập tay → trùng.
+    if (!t.id && t.type !== 'transfer') {
+      const dup = this._findPotentialDuplicate(t);
+      if (dup) {
+        const cat = this.state.categories.find(c => c.id === dup.categoryId);
+        const acc = this.state.accounts.find(a => a.id === dup.accountId);
+        const dupTime = dup.time ? `${this.formatDate(dup.date)} lúc ${dup.time}` : this.formatDate(dup.date);
+        const ok = await QLT_UI.confirm(
+          `🔍 Có thể trùng với GD đã có:\n\n${dupTime}\n${cat?.name || '?'} · ${acc?.name || '?'}\n${dup.amount.toLocaleString('vi-VN')}đ${dup.note ? '\n"' + dup.note + '"' : ''}\n\nVẫn lưu thêm GD này?`,
+          { okLabel: 'Vẫn lưu', cancelLabel: 'Huỷ' }
+        );
+        if (!ok) return;
       }
     }
 
