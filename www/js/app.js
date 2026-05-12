@@ -3108,26 +3108,39 @@ const App = {
       }
     }
 
-    // Sparkline 7-day — SQRT scaling để giãn small values:
-    // Khi ngày max chi rất lớn (14M) vs ngày khác (100k-1M), linear mapping
-    // sẽ làm small days clamp về cùng height ~12% → giống nhau.
-    // Sqrt giãn ratio nhỏ: vd 100k/14M = 0.7% → sqrt=8.4%, 1M/14M = 7% → sqrt=27%
-    // → mỗi ngày height phân biệt rõ.
+    // Sparkline 7-day — LOG10 scaling để xử lý outliers:
+    //   Khi ngày max = 9M và ngày khác 19k-595k → linear/sqrt đều clamp về min.
+    //   Log10: ratio = log(exp) / log(max). Giãn small values rất hiệu quả:
+    //   75k → 70%, 172k → 75%, 595k → 83%, 9M → 100%. Khác biệt rõ.
     const sparkEl = $('#homeHv2Spark');
     if (sparkEl) {
       const maxE = Math.max(1, ...today7.map(d => d.exp));
+      const logM = Math.log10(Math.max(10, maxE));
       sparkEl.innerHTML = today7.map((d, i) => {
         const isToday = i === today7.length - 1;
-        const ratio = maxE > 0 ? Math.min(1, d.exp / maxE) : 0;
-        const sqrtR = Math.sqrt(ratio);
-        // Height: ngày 0 chi = 5% (mờ nhạt rõ rệt khác có chi).
-        // Có chi: min 18%, tối đa 100% theo sqrt scale → small days vẫn show rõ.
-        const pct = d.exp <= 0 ? 5 : Math.max(18, Math.round(sqrtR * 100));
-        // Opacity: 0 chi = 0.2 (gần mất tích). Có chi: 0.4 base + 0.6 * sqrt → tách rõ tier.
-        const opacity = d.exp <= 0 ? 0.2 : (0.4 + 0.6 * sqrtR).toFixed(2);
+        let pct, opacity;
+        if (d.exp <= 0) {
+          pct = 5; opacity = 0.2;  // không chi → cọc tí mờ
+        } else {
+          // Log scale ratio
+          const logE = Math.log10(Math.max(1, d.exp));
+          const ratio = Math.min(1, logE / logM);
+          pct = Math.max(25, Math.round(ratio * 100));
+          opacity = (0.4 + 0.6 * ratio).toFixed(2);
+        }
         const todayCls = isToday ? ' today' : '';
-        return `<div class="home-hv2-spark-bar${todayCls}" style="height:${pct}%;opacity:${opacity}" title="${d.date}: ${fmtBal(d.exp)}"></div>`;
+        return `<div class="home-hv2-spark-bar${todayCls}" data-spark-date="${d.date}" data-spark-exp="${d.exp}" style="height:${pct}%;opacity:${opacity}"></div>`;
       }).join('');
+      // Tap cọc → toast hiện ngày + amount
+      sparkEl.querySelectorAll('[data-spark-date]').forEach(bar => {
+        bar.onclick = () => {
+          const dateStr = bar.dataset.sparkDate;
+          const exp = parseInt(bar.dataset.sparkExp || '0', 10);
+          const niceDate = this.formatDate(dateStr);
+          const niceAmount = exp > 0 ? fmtBal(exp) : '0 đ (không chi)';
+          QLT_UI.toast(`📊 ${niceDate}: ${niceAmount}`, { duration: 2200 });
+        };
+      });
     }
 
     // Keep deprecated hooks happy (renderers cũ vẫn animate vào hidden spans)
