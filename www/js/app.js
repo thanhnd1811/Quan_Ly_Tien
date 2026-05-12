@@ -7221,8 +7221,20 @@ const App = {
     $('#contribCreateTx').checked = true;
     $('#contribFromAccountWrap').style.display = 'block';
     const sourceAccs = this.state.accounts.filter(a => this.isPayment(a) && a.id !== g.linkedAccountId);
+    // Default ví ưu tiên:
+    //   1. Ví user chọn lần trước (localStorage)
+    //   2. Ví có bank logo (bank-vcb, bank-mb, ...) — KHÔNG phải tiền mặt
+    //   3. Ví đầu tiên trong list
+    const lastUsed = localStorage.getItem('qlt_contrib_lastFromAcc');
+    let defaultAccId = null;
+    if (lastUsed && sourceAccs.some(a => a.id === lastUsed)) {
+      defaultAccId = lastUsed;
+    } else {
+      const bankAcc = sourceAccs.find(a => (a.icon || '').startsWith('bank-'));
+      defaultAccId = bankAcc ? bankAcc.id : (sourceAccs[0]?.id || null);
+    }
     $('#contribFromAccount').innerHTML = sourceAccs.map(a =>
-      `<option value="${a.id}">${this.escapeHtml(a.name)} (${fmt(a.balance)} đ)</option>`
+      `<option value="${a.id}"${a.id === defaultAccId ? ' selected' : ''}>${this.escapeHtml(a.name)} (${fmt(a.balance)} đ)</option>`
     ).join('');
     // Update hint text theo có/không linkedAccountId
     const hintEl = $('#contribFromAccountWrap')?.querySelector('div[style*="font-size:11px"]');
@@ -7290,6 +7302,8 @@ const App = {
     if (createTx) {
       const fromId = $('#contribFromAccount').value;
       if (!fromId) { QLT_UI.toast('Chọn ví nguồn', { type: 'error' }); return; }
+      // Nhớ ví user chọn để lần sau default — bạn hay đóng góp từ MB Bank thì lần sau default MB Bank
+      try { localStorage.setItem('qlt_contrib_lastFromAcc', fromId); } catch (_) {}
       let tx;
       if (g.linkedAccountId) {
         tx = {
