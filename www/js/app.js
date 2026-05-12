@@ -1911,6 +1911,11 @@ const App = {
 
       await window.QLT_Store.initDefaults();
       await this.reload();
+
+      // Auto-backup Drive — full smartSync 24h/lần (silent). Defer ~5s sau reload
+      // để không block render UI khi mở app.
+      setTimeout(() => this._maybeAutoFullSync(), 5000);
+
       // Đặt lại notif cho mọi khoản nợ đang mở có hạn trả
       try {
         for (const l of this.state.loans.filter(l => l.status !== 'closed' && l.dueDate)) {
@@ -16308,6 +16313,39 @@ const App = {
     this._syncTimer = setTimeout(async () => {
       try { await window.QLT_Sync.pushNow(); } catch (e) { console.warn('Auto-sync lỗi:', e); }
     }, 3000);
+  },
+
+  // Auto-backup Drive — tự smartSync (push+pull) mỗi 24h khi mở app.
+  // autoSync() chỉ push diff theo realtime. Cần thêm full sync định kỳ để:
+  //   - Đảm bảo backup an toàn nếu mất máy
+  //   - Sync pull data nếu user dùng 2 device
+  // Track localStorage 'qlt_last_full_sync' = timestamp ms.
+  async _maybeAutoFullSync() {
+    if (!window.QLT_Auth?.user) return;
+    const last = parseInt(localStorage.getItem('qlt_last_full_sync') || '0', 10);
+    const AUTO_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
+    if (Date.now() - last < AUTO_INTERVAL_MS) return;
+
+    try {
+      const beforeTxCount = (this.state.transactions || []).length;
+      await window.QLT_Sync.smartSync();
+      localStorage.setItem('qlt_last_full_sync', String(Date.now()));
+      // Reload state vì smartSync có thể pull về data mới
+      await this.reload();
+      const afterTxCount = (this.state.transactions || []).length;
+      const delta = afterTxCount - beforeTxCount;
+      // Silent nếu không pull về gì mới (chỉ push) — không spam toast
+      if (delta > 0) {
+        QLT_UI.toast(`☁️ Auto-backup Drive: pull về ${delta} GD mới`, { duration: 2500 });
+      } else {
+        QLT_UI.toast('☁️ Đã backup Drive (24h)', { duration: 2000 });
+      }
+      // Re-render tab hiện tại
+      if (this.state.currentTab === 'home') this.renderHome();
+    } catch (e) {
+      console.warn('[AutoBackup] Lỗi:', e);
+      // Không toast lỗi — user có thể đang offline, không spam
+    }
   },
 
   async renderStorageInfo() {
