@@ -1863,6 +1863,12 @@ const App = {
 
   async init() {
     try {
+      // Mặc định ẩn số tiền MỖI lần mở app — giống app ngân hàng.
+      // User explicitly tap eye → show trong session đó. Khi mở lại app → ẩn lại.
+      // (Trước đây localStorage persist '0' = show qua session, user feedback muốn
+      // ẩn mặc định kiểu banking app.)
+      try { localStorage.setItem('qlt_hide_amounts', '1'); } catch (_) {}
+
       // Áp theme NGAY khi init để tránh flash trắng
       this.applyTheme();
       // Lắng nghe thay đổi system theme khi đang ở mode 'auto'
