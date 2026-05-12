@@ -3075,19 +3075,22 @@ const App = {
       }
     }
 
-    // Sparkline 7-day expense bars — 3 tier opacity (low/mid/high) + today highlight.
-    // Cọc cuối (index 6) = hôm nay → có dot pulse + glow.
+    // Sparkline 7-day expense bars — continuous linear mapping:
+    //   height % = (dayExp / maxExp) * 100, min 12% nếu có chi tiêu, 5% nếu 0
+    //   opacity = 0.22 (ngày 0 chi) → 1.0 (ngày max). Tỉ lệ thuận với chi tiêu.
+    // → Mỗi ngày có height + opacity duy nhất theo amount, không grouping vào tier.
     const sparkEl = $('#homeHv2Spark');
     if (sparkEl) {
       const maxE = Math.max(1, ...today7.map(d => d.exp));
       sparkEl.innerHTML = today7.map((d, i) => {
         const isToday = i === today7.length - 1;
-        let pct, cls;
-        if (d.exp <= 0) { pct = 15; cls = ''; }
-        else if (d.exp >= maxE * 0.75) { pct = Math.round(d.exp / maxE * 100); cls = 'high'; }
-        else { pct = Math.max(28, Math.round(d.exp / maxE * 100)); cls = 'mid'; }
-        if (isToday) cls = (cls + ' today').trim();
-        return `<div class="home-hv2-spark-bar ${cls}" style="height:${pct}%" title="${d.date}: ${fmtBal(d.exp)}"></div>`;
+        const ratio = maxE > 0 ? Math.min(1, d.exp / maxE) : 0;
+        // Height: ngày 0 chi = 5%, ngày có chi từ 12% → 100% tỉ lệ thuận
+        const pct = d.exp <= 0 ? 5 : Math.max(12, Math.round(ratio * 100));
+        // Opacity: 0.22 (0 chi) → 1.0 (max). 0.3 base + 0.7 scale.
+        const opacity = d.exp <= 0 ? 0.22 : (0.3 + 0.7 * ratio).toFixed(2);
+        const todayCls = isToday ? ' today' : '';
+        return `<div class="home-hv2-spark-bar${todayCls}" style="height:${pct}%;opacity:${opacity}" title="${d.date}: ${fmtBal(d.exp)}"></div>`;
       }).join('');
     }
 
