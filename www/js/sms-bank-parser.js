@@ -161,8 +161,20 @@
     return { amount, type, accountSuffix, balance, note, bank: 'tcb' };
   }
 
-  // MBBank: "TK xxxxxxxx GD: +500,000 VND ... So du: 1,234,567 VND. ND: ..."
+  // MBBank: nhiều format:
+  //   1. SMS cũ: "TK xxxxxxxx GD: +500,000 VND ... So du: 1,234,567 VND. ND: ..."
+  //   2. Notif biến động số dư: "TK 09xxx666|GD: -2,000,000VND ... ND: Mo tien gui so tich luy ..."
+  //   3. Notif mở sổ tiết kiệm (CONFIRMATION — không phải tx mới):
+  //      "Tài khoản tiền gửi: 0323844555813. Số tiền: 2,000,000.00 VND. Kỳ hạn: 6 tháng. Lãi suất: 4.75%/năm"
   function parseMB(body) {
+    // (3) Detect "Mở tiền gửi số tích lũy" confirmation → đây CHỈ là xác nhận, KHÔNG tạo tx
+    // (vì tx debit/credit đã có ở 2 notif trước). Return null để skip.
+    if (/T[àa]i kho[aả]n ti[eề]n g[uưử]i/i.test(body)
+        && /K[yỳ] h[aạ]n/i.test(body)
+        && /L[aã]i su[aấ]t/i.test(body)) {
+      return null;
+    }
+
     const amtMatch = body.match(/(?:GD|TK|PS)[:\s]+([+-]?[\d,.]+)\s*(?:VND|đ)/i)
                   || body.match(/([+-][\d,.]+)\s*(?:VND|đ)/i);
     if (!amtMatch) return null;
@@ -174,7 +186,14 @@
     const balance = extractBalance(body);
     const noteMatch = body.match(/(?:ND|Noi dung)[:\s]+([^\n.]+)/i);
     const note = noteMatch ? noteMatch[1].trim() : null;
-    return { amount, type, accountSuffix, balance, note, bank: 'mb' };
+
+    // Detect savings keyword trong note/body → mark flag
+    const isSavings = /so\s+tich\s+luy|tien\s+gui|tiet\s+kiem|TK\s+TIEN\s+GUI/i.test(body);
+
+    return {
+      amount, type, accountSuffix, balance, note, bank: 'mb',
+      _savings: isSavings  // app sẽ skip tạo tx income nếu _savings + income
+    };
   }
 
   // ACB: "ACB: TK ...1234 GD -200,000 VND. SDCK 1,500,000 VND. ND: ..."

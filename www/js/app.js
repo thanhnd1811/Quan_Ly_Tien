@@ -11684,6 +11684,14 @@ const App = {
   async _saveSmsAsTx(parsedSms) {
     const accounts = this.state.accounts || [];
 
+    // SKIP: SMS gửi tiết kiệm với type=income → đây là credit vào sổ tiết kiệm
+    // sub-account (vd MB Bank "TK TIEN GUI SO TICH LUY"), KHÔNG phải ví chính.
+    // Nếu tạo tx sẽ làm balance ví chính tăng sai → skip, chỉ giữ tx debit từ notif trước.
+    if (parsedSms._savings && parsedSms.type === 'income') {
+      QLT_UI.toast(`💎 Phát hiện gửi tiết kiệm ${fmt(parsedSms.amount)}đ — đã ghi từ giao dịch trừ tiền`, { duration: 3500 });
+      return null;
+    }
+
     // Find ví: dùng helper chung (suffix → icon bank-XXX → alias normalize)
     let acc = this._findAccountForBank(accounts, parsedSms.bank, parsedSms.accountSuffix);
     if (!acc) {
@@ -11706,6 +11714,11 @@ const App = {
     const timeStr = String(notifDate.getHours()).padStart(2, '0') + ':' +
                     String(notifDate.getMinutes()).padStart(2, '0');
 
+    // Note: prefix 💎 nếu là gửi tiết kiệm (type=expense, _savings=true) — giúp user
+    // recognize ngay trong tx list, đồng thời matcher có thể auto-pick cat "Tiết kiệm"
+    const baseNote = parsedSms.note || `SMS ${window.QLT_SmsBankParser.bankName(parsedSms.bank)}`;
+    const finalNote = parsedSms._savings ? `💎 Tiết kiệm · ${baseNote}` : baseNote;
+
     const tx = {
       type: parsedSms.type,
       amount: parsedSms.amount,
@@ -11713,7 +11726,7 @@ const App = {
       time: timeStr, // Giờ chính xác từ NH gửi notif
       accountId: acc.id,
       categoryId,
-      note: (parsedSms.note || `SMS ${window.QLT_SmsBankParser.bankName(parsedSms.bank)}`).slice(0, 200),
+      note: finalNote.slice(0, 200),
       bookId: this.state.currentBookId,
       _smsHash: parsedSms.hash,
       _smsBank: parsedSms.bank,
