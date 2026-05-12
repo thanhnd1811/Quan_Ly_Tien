@@ -1355,15 +1355,34 @@ const App = {
       // Tính tổng chi hôm nay (đến lúc gọi notif sẽ là tổng chi cả ngày)
       const todayStr = today();
       const expToday = this.state.transactions
-        .filter(t => t.type === 'expense' && t.date === todayStr)
+        .filter(t => t.type === 'expense' && t.date === todayStr && !t._adjustment)
         .reduce((s, t) => s + t.amount, 0);
-      const countToday = this.state.transactions.filter(t => t.date === todayStr).length;
+      const countToday = this.state.transactions.filter(t => t.date === todayStr && !t._adjustment).length;
       const name = this._getDisplayName();
 
-      // Cải tiến: khi 0 GD → message thúc giục mạnh hơn, có nhắc tên user
+      // Anomaly detection: so chi hôm nay với trung bình 7 ngày gần nhất (KHÔNG tính hôm nay).
+      // Lấy 7 ngày trước → trung bình daily expense → cảnh báo nếu hôm nay >2× hoặc <0.3× avg.
+      let avgRecent7 = 0;
+      {
+        const now = new Date();
+        let totalRecent = 0;
+        let daysCount = 0;
+        for (let i = 1; i <= 7; i++) {
+          const d = new Date(now); d.setDate(d.getDate() - i);
+          const ds = ymdLocal(d);
+          const dayExp = this.state.transactions
+            .filter(t => t.type === 'expense' && t.date === ds && !t._adjustment)
+            .reduce((s, t) => s + t.amount, 0);
+          totalRecent += dayExp;
+          daysCount++;
+        }
+        avgRecent7 = daysCount > 0 ? totalRecent / daysCount : 0;
+      }
+
+      // Cải tiến: build body theo trạng thái — empty / anomaly high / anomaly low / normal
       let body;
       if (countToday === 0) {
-        // Xoay vòng giữa 3 messages để không nhàm chán (chọn theo ngày)
+        // 0 tx — xoay vòng reminders để không nhàm chán
         const reminders = [
           `🤔 ${name} ơi, hôm nay chưa ghi giao dịch nào. Quên à? Tap để mở app ghi nhanh.`,
           `📝 Hôm nay 0 giao dịch. ${name} có chi tiêu gì mà chưa ghi không?`,
@@ -1371,7 +1390,15 @@ const App = {
         ];
         const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
         body = reminders[dayOfYear % reminders.length];
+      } else if (avgRecent7 > 50000 && expToday > avgRecent7 * 2) {
+        // Anomaly HIGH: hôm nay chi gấp đôi+ trung bình tuần
+        const ratio = (expToday / avgRecent7).toFixed(1);
+        body = `🔥 Hôm nay chi ${fmt(expToday)}đ — gấp ${ratio}× trung bình tuần (${fmt(Math.round(avgRecent7))}đ). ${name} kiểm tra xem nhé!`;
+      } else if (avgRecent7 > 50000 && expToday > 0 && expToday < avgRecent7 * 0.3) {
+        // Anomaly LOW: hôm nay chi rất ít so với thường
+        body = `🎉 Hôm nay chỉ chi ${fmt(expToday)}đ — ít hơn nhiều so với trung bình ${fmt(Math.round(avgRecent7))}đ/ngày. Ngày tiết kiệm!`;
       } else {
+        // Normal: tổng kết thông thường
         body = `Hôm nay đã chi ${fmt(expToday)} đ qua ${countToday} giao dịch. Bấm để xem chi tiết.`;
       }
 
@@ -12969,6 +12996,20 @@ const App = {
         && t.type === vc.type) {
       this.state._voiceContext = null;
       this._maybeLearnKeyword(vc.text, t.categoryId);
+    } else if (isNewTx && t.note && t.note.length >= 4 && t.categoryId && t.type !== 'transfer' && window.QLT_CategoryMatcher) {
+      // Manual entry learning: nếu user có note nhưng matcher CHỌN cat khác với user → hỏi học.
+      // Chỉ trigger khi tạo mới + note đủ dài (≥4 chars để có signal) + không phải transfer.
+      // Throttle: tối đa 1 prompt/15 phút để không spam khi user nhập nhiều tx liên tiếp.
+      const lastAsk = parseInt(localStorage.getItem('qlt_learn_last_ask') || '0', 10);
+      if (Date.now() - lastAsk > 15 * 60 * 1000) {
+        const cats = this.state.categories.filter(c => c.type === t.type && !c.archived);
+        const matched = window.QLT_CategoryMatcher.match(t.note, cats, { type: t.type });
+        if (matched && matched.categoryId && matched.categoryId !== t.categoryId) {
+          // Matcher suggest A, user chọn B → learn note keyword → B
+          localStorage.setItem('qlt_learn_last_ask', String(Date.now()));
+          this._maybeLearnKeyword(t.note, t.categoryId);
+        }
+      }
     }
 
     // Smart insights real-time (chỉ cho tx mới hoặc sửa số tiền/category lớn)
