@@ -3509,6 +3509,66 @@ const App = {
     }
   },
 
+  // Tìm tx vừa-tạo có thể là CẶP với newParsed → chuyển khoản giữa 2 ví user.
+  // Điều kiện:
+  //   - Type ngược (existing expense + new income, hoặc ngược lại)
+  //   - Cùng amount
+  //   - Khác account (2 ví khác nhau)
+  //   - Đều là tx auto SMS (_smsHash)
+  //   - Trong cửa sổ 3 phút (notif từ 2 bank thường lệch vài giây)
+  //   - Chưa phải transfer rồi
+  _findTransferPair(parsedSms, newAcc) {
+    const PAIR_WINDOW_MS = 3 * 60 * 1000;
+    const wantedType = parsedSms.type === 'income' ? 'expense' : 'income';
+    const now = Date.now();
+    return (this.state.transactions || []).find(t => {
+      if (t.type !== wantedType) return false;
+      if (t.amount !== parsedSms.amount) return false;
+      if (t.accountId === newAcc.id) return false;
+      if (!t._smsHash) return false; // chỉ pair với tx auto-SMS
+      if (t._pairedTransfer) return false; // đã pair rồi
+      // Check thời gian: parse date+time của existing tx
+      if (!t.date || !t.time) return false;
+      const txMs = new Date(`${t.date}T${t.time}:00`).getTime();
+      if (isNaN(txMs)) return false;
+      if (Math.abs(now - txMs) > PAIR_WINDOW_MS) return false;
+      return true;
+    }) || null;
+  },
+
+  // Upgrade existingTx (expense hoặc income) thành transfer pair với newParsed.
+  // Logic direction:
+  //   - existing.expense + new.income → from existing.account, to newAcc
+  //   - existing.income + new.expense → from newAcc, to existing.account
+  async _mergeIntoTransfer(existingTx, newParsed, newAcc) {
+    // Revert balance của existing tx (sẽ apply lại với type mới)
+    await this.applyBalanceDelta(existingTx, -1);
+
+    let fromAccId, toAccId;
+    if (existingTx.type === 'expense' && newParsed.type === 'income') {
+      fromAccId = existingTx.accountId;
+      toAccId = newAcc.id;
+    } else {
+      fromAccId = newAcc.id;
+      toAccId = existingTx.accountId;
+    }
+
+    existingTx.type = 'transfer';
+    existingTx.accountId = fromAccId;
+    existingTx.toAccountId = toAccId;
+    existingTx.categoryId = null;
+    existingTx._pairedTransfer = true;
+    const fromAcc = this.state.accounts.find(a => a.id === fromAccId);
+    const toAcc = this.state.accounts.find(a => a.id === toAccId);
+    existingTx.note = `🔄 Chuyển ${fromAcc?.name || ''} → ${toAcc?.name || ''}` + (existingTx.note ? ` · ${existingTx.note}` : '');
+
+    await this.applyBalanceDelta(existingTx, +1);
+    await window.QLT_Store.put('transactions', existingTx);
+    await this.reload();
+
+    QLT_UI.toast(`🔄 Đã gộp 2 notif thành 1 chuyển khoản ${fromAcc?.name || ''} → ${toAcc?.name || ''}`, { type: 'success', duration: 3500 });
+  },
+
   // Auto-link tx vào goal contribution nếu account đích khớp linkedAccountId.
   // Trigger: sau saveTx (manual) + sau _createTxFromBankSms (auto SMS notif).
   // Logic:
@@ -11699,6 +11759,17 @@ const App = {
       acc = accounts.find(a => (a.accountType || 'payment') === 'payment') || accounts[0];
     }
     if (!acc) throw new Error('Không tìm thấy ví — tạo ví trước');
+
+    // PAIR DETECTION: 2 notif đến cùng giờ với amount = nhau, type ngược nhau (expense + income)
+    // từ 2 ví khác nhau → đây là CHUYỂN KHOẢN giữa 2 ví user. Merge thành 1 transfer tx
+    // thay vì 2 tx riêng → đỡ lộn xộn + chính xác semantic.
+    if (parsedSms.type !== 'transfer' && !parsedSms._savings) {
+      const pair = this._findTransferPair(parsedSms, acc);
+      if (pair) {
+        await this._mergeIntoTransfer(pair, parsedSms, acc);
+        return null;
+      }
+    }
 
     // Detect category từ note (qua matcher)
     let categoryId = null;
