@@ -7,4 +7,8 @@
     <!-- Quick Settings tile (vuốt xuống từ status bar, kể cả khi lock) -->
     <string name="ai_tile_label">Trợ lý AI</string>
     <string name="ai_tile_desc">Mở chat AI Quản Lý Tiền</string>
+
+    <!-- Balance widget — số dư + 2 nút quick add -->
+    <string name="balance_widget_label">💰 Số dư · Quản Lý Tiền</string>
+    <string name="balance_widget_desc">Hiện số dư + 2 nút thêm thu/chi nhanh</string>
 </resources>

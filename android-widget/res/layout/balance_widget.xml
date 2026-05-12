@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Balance widget layout — 4x2 cell:
+     [TỔNG TÀI SẢN     ]
+     [30.393.174đ      ]
+     [+ Chi]   [+ Thu]
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/balance_widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/balance_widget_bg"
+    android:padding="14dp">
+
+    <!-- Phần trên: balance, click → mở app home -->
+    <LinearLayout
+        android:id="@+id/balance_widget_amt_wrap"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center_vertical"
+        android:clickable="true"
+        android:focusable="true">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="TỔNG TÀI SẢN"
+            android:textSize="10sp"
+            android:textColor="#D1FAE5"
+            android:letterSpacing="0.08" />
+
+        <TextView
+            android:id="@+id/balance_widget_amt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="•••••• đ"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:shadowColor="#40000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="2"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:layout_marginTop="2dp" />
+    </LinearLayout>
+
+    <!-- Phần dưới: 2 nút quick add -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <TextView
+            android:id="@+id/balance_widget_btn_exp"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:text="− Chi"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:gravity="center"
+            android:padding="9dp"
+            android:background="#33FFFFFF"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:id="@+id/balance_widget_btn_inc"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:text="+ Thu"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:gravity="center"
+            android:padding="9dp"
+            android:background="#33FFFFFF"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+
+</LinearLayout>

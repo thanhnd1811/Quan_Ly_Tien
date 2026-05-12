@@ -3074,6 +3074,9 @@ const App = {
     const totalBalance = paymentAccs.reduce((s, a) => s + (a.balance || 0), 0);
     const totalSavings = savingsAccs.reduce((s, a) => s + (a.balance || 0), 0);
 
+    // Đồng bộ balance lên homescreen widget Android (nếu cài)
+    this._updateWidgetBalance(totalBalance);
+
     // ===== Compact balance card (v2) =====
     if (isAmountHidden()) {
       $('#homeBalance').textContent = fmtBal(totalBalance).replace(' đ', '');
@@ -16313,6 +16316,22 @@ const App = {
     this._syncTimer = setTimeout(async () => {
       try { await window.QLT_Sync.pushNow(); } catch (e) { console.warn('Auto-sync lỗi:', e); }
     }, 3000);
+  },
+
+  // Ghi balance vào Capacitor Preferences (= Android SharedPreferences "CapacitorStorage").
+  // Balance widget (BalanceWidgetProvider.java) đọc key "qlt_widget_balance" để display.
+  // Widget tự refresh ~30 phút (Android minimum updatePeriodMillis), KHÔNG instant.
+  // → Để xem balance mới ngay, user mở app (balance trong app realtime).
+  async _updateWidgetBalance(balance) {
+    if (!window.Capacitor?.isNativePlatform?.()) return;
+    const Prefs = window.Capacitor?.Plugins?.Preferences;
+    if (!Prefs) return;
+    try {
+      // Format theo trạng thái ẩn/hiện. Widget không có button toggle nên match
+      // app behavior: ẩn → '••••••', hiện → '30.393.174đ'.
+      const fmtted = isAmountHidden() ? '•••••• đ' : (fmt(balance) + ' đ');
+      await Prefs.set({ key: 'qlt_widget_balance', value: fmtted });
+    } catch (e) { console.warn('[Widget] update balance lỗi:', e); }
   },
 
   // Auto-backup Drive — tự smartSync (push+pull) mỗi 24h khi mở app.

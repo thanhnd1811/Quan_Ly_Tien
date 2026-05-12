@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AppWidget metadata cho 'Balance' widget trên home screen.
+     4x2 cell: balance to + 2 quick add buttons.
+     updatePeriodMillis = 30 phút (Android minimum). App có thể trigger update
+     ngay bằng cách gọi AppWidgetManager.updateAppWidget từ broadcast. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="100dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/balance_widget"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:previewImage="@mipmap/ic_launcher"
+    android:description="@string/balance_widget_desc" />

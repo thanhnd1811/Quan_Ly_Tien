@@ -127,12 +127,18 @@ jobs:
           mkdir -p android/app/src/main/res/values
           mkdir -p android/app/src/main/java/com/thanh/quanlytien
 
-          # Home screen widget
+          # Home screen widget — AI Chat
           cp android-widget/res/xml/ai_chat_widget_info.xml android/app/src/main/res/xml/
           cp android-widget/res/layout/ai_chat_widget.xml android/app/src/main/res/layout/
           cp android-widget/res/drawable/ai_widget_bg.xml android/app/src/main/res/drawable/
           cp android-widget/res/values/strings_widget.xml android/app/src/main/res/values/
           cp android-widget/java/AiChatWidgetProvider.java android/app/src/main/java/com/thanh/quanlytien/
+
+          # Home screen widget — Balance + quick add (Chi/Thu)
+          cp android-widget/res/xml/balance_widget_info.xml android/app/src/main/res/xml/
+          cp android-widget/res/layout/balance_widget.xml android/app/src/main/res/layout/
+          cp android-widget/res/drawable/balance_widget_bg.xml android/app/src/main/res/drawable/
+          cp android-widget/java/BalanceWidgetProvider.java android/app/src/main/java/com/thanh/quanlytien/
 
           # Quick Settings tile
           cp android-widget/res/drawable/ic_ai_tile.xml android/app/src/main/res/drawable/
@@ -261,6 +267,28 @@ jobs:
                   print('OK: AiChatWidgetProvider receiver registered')
               else:
                   print('::error::FAILED to register AiChatWidgetProvider receiver — không tìm thấy </application>')
+                  sys.exit(1)
+
+          # 1b2) AppWidget <receiver> cho Balance home screen widget (số dư + 2 nút quick add)
+          if 'BalanceWidgetProvider' not in m:
+              receiver_tag = (
+                  '        <receiver android:name=".BalanceWidgetProvider"\n'
+                  '            android:exported="true"\n'
+                  '            android:label="@string/balance_widget_label">\n'
+                  '            <intent-filter>\n'
+                  '                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />\n'
+                  '            </intent-filter>\n'
+                  '            <meta-data\n'
+                  '                android:name="android.appwidget.provider"\n'
+                  '                android:resource="@xml/balance_widget_info" />\n'
+                  '        </receiver>\n'
+              )
+              new_m, n = re.subn(r'(\s*</application>)', '\n' + receiver_tag + r'\1', m, count=1)
+              if n > 0:
+                  m = new_m
+                  print('OK: BalanceWidgetProvider receiver registered')
+              else:
+                  print('::error::FAILED to register BalanceWidgetProvider receiver')
                   sys.exit(1)
 
           # 1c) Quick Settings TileService — vuốt status bar xuống, tap tile mở chat
