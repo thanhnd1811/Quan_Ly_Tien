@@ -7214,22 +7214,26 @@ const App = {
     $('#contribDate').value = today();
     $('#contribNote').value = '';
 
-    if (g.linkedAccountId) {
-      $('#contribLinkOptionWrap').style.display = 'block';
-      $('#contribCreateTx').checked = true;
-      $('#contribFromAccountWrap').style.display = 'block';
-      // Ví nguồn: chỉ payment account, không phải ví link
-      const sourceAccs = this.state.accounts.filter(a => this.isPayment(a) && a.id !== g.linkedAccountId);
-      $('#contribFromAccount').innerHTML = sourceAccs.map(a =>
-        `<option value="${a.id}">${this.escapeHtml(a.name)} (${fmt(a.balance)} đ)</option>`
-      ).join('');
-      $('#contribCreateTx').onchange = () => {
-        $('#contribFromAccountWrap').style.display = $('#contribCreateTx').checked ? 'block' : 'none';
-      };
-    } else {
-      $('#contribLinkOptionWrap').style.display = 'none';
-      $('#contribFromAccountWrap').style.display = 'none';
+    // Luôn show option "Tạo GD" (kể cả khi goal CHƯA có linkedAccountId).
+    // Nếu có linkedAccountId → app tạo TRANSFER (ví nguồn → ví link).
+    // Nếu chưa có → app tạo EXPENSE từ ví nguồn (note "Đóng góp: <goal>").
+    $('#contribLinkOptionWrap').style.display = 'block';
+    $('#contribCreateTx').checked = true;
+    $('#contribFromAccountWrap').style.display = 'block';
+    const sourceAccs = this.state.accounts.filter(a => this.isPayment(a) && a.id !== g.linkedAccountId);
+    $('#contribFromAccount').innerHTML = sourceAccs.map(a =>
+      `<option value="${a.id}">${this.escapeHtml(a.name)} (${fmt(a.balance)} đ)</option>`
+    ).join('');
+    // Update hint text theo có/không linkedAccountId
+    const hintEl = $('#contribFromAccountWrap')?.querySelector('div[style*="font-size:11px"]');
+    if (hintEl) {
+      hintEl.textContent = g.linkedAccountId
+        ? 'App sẽ tạo "Chuyển khoản" từ ví này → ví liên kết với mục tiêu.'
+        : 'App sẽ tạo "Chi tiêu" từ ví này. (Đặt "Ví liên kết" trong sửa mục tiêu để tạo chuyển khoản chính xác.)';
     }
+    $('#contribCreateTx').onchange = () => {
+      $('#contribFromAccountWrap').style.display = $('#contribCreateTx').checked ? 'block' : 'none';
+    };
 
     // Lịch sử đóng góp
     this.renderContribHistory(g);
@@ -7279,24 +7283,42 @@ const App = {
       txId: null
     };
 
-    // Nếu link account và user check 'create tx' → tạo transfer + lưu txId
-    const createTx = $('#contribCreateTx').checked && g.linkedAccountId && $('#contribFromAccountWrap').style.display !== 'none';
+    // User check "Tạo GD" → app tạo tx:
+    //   - Có linkedAccountId → TRANSFER (ví nguồn → ví link)
+    //   - Không linkedAccountId → EXPENSE (ví nguồn, category "Tiết kiệm" nếu có)
+    const createTx = $('#contribCreateTx').checked && $('#contribFromAccountWrap').style.display !== 'none';
     if (createTx) {
       const fromId = $('#contribFromAccount').value;
       if (!fromId) { QLT_UI.toast('Chọn ví nguồn', { type: 'error' }); return; }
-      const tx = {
-        type: 'transfer',
-        amount,
-        date,
-        accountId: fromId,
-        toAccountId: g.linkedAccountId,
-        categoryId: null,
-        note: note || `Đóng góp mục tiêu: ${g.name}`,
-        bookId: this.state.currentBookId
-      };
+      let tx;
+      if (g.linkedAccountId) {
+        tx = {
+          type: 'transfer',
+          amount, date,
+          accountId: fromId,
+          toAccountId: g.linkedAccountId,
+          categoryId: null,
+          note: note || `Đóng góp mục tiêu: ${g.name}`,
+          bookId: this.state.currentBookId
+        };
+      } else {
+        // Tìm category "Tiết kiệm" (hoặc tương tự) — fallback: undefined
+        const savingsCat = (this.state.categories || []).find(c =>
+          c.type === 'expense' && !c.archived
+          && /tiet kiem|tiết kiệm|đầu tư|dau tu|tiet|saving/i.test(c.name)
+        );
+        tx = {
+          type: 'expense',
+          amount, date,
+          accountId: fromId,
+          categoryId: savingsCat ? savingsCat.id : null,
+          note: note || `💎 Đóng góp mục tiêu: ${g.name}`,
+          bookId: this.state.currentBookId
+        };
+      }
       await this.applyBalanceDelta(tx, +1);
-      await window.QLT_Store.put('transactions', tx);
-      contribution.txId = tx.id;
+      const saved = await window.QLT_Store.put('transactions', tx);
+      contribution.txId = saved.id || tx.id;
     }
 
     g.contributions = g.contributions || [];
