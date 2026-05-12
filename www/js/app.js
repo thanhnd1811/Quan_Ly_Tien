@@ -2322,6 +2322,11 @@ const App = {
       el.onclick = () => {
         const action = el.dataset.action;
         $('#drawer').classList.remove('open');
+        // Mark badge "đã xem" — sau khi click, badge sẽ hidden cho tới khi
+        // có alert MỚI (count tăng).
+        if (['savings','budgets','goals','loans','reminders'].includes(action)) {
+          this._markDrawerBadgeSeen(action);
+        }
         if (action === 'sync') this.doSync();
         else if (action === 'login') this.doLogin();
         else if (action === 'logout') this.doLogout();
@@ -2706,7 +2711,35 @@ const App = {
   },
 
   // Compute badge counts cho drawer items dựa trên state
+  // Tính count thực — không filter "đã xem".
+  _computeRawDrawerBadges() {
+    return this._computeDrawerBadgesInternal();
+  },
+
+  // Tính count đã filter — KHÔNG hiện badge nếu user đã xem ở cùng count rồi.
   _computeDrawerBadges() {
+    const raw = this._computeDrawerBadgesInternal();
+    const lastSeen = JSON.parse(localStorage.getItem('qlt_badge_seen_count') || '{}');
+    const filtered = {};
+    for (const [action, count] of Object.entries(raw)) {
+      // Chỉ hiện badge nếu count HIỆN > count user đã xem lần trước.
+      // VD: user xem khi 1 budget vượt → lastSeen=1. Lần sau budget đó vẫn vượt
+      // count=1 → 1>1=false → ẨN. Khi budget thứ 2 vượt: count=2>1=true → hiện "1" (delta).
+      const seen = lastSeen[action] || 0;
+      if (count > seen) filtered[action] = count - seen;
+    }
+    return filtered;
+  },
+
+  // Mark badge cho action là đã xem (lưu count hiện tại) — gọi khi user click drawer item.
+  _markDrawerBadgeSeen(action) {
+    const raw = this._computeRawDrawerBadges();
+    const lastSeen = JSON.parse(localStorage.getItem('qlt_badge_seen_count') || '{}');
+    lastSeen[action] = raw[action] || 0;
+    localStorage.setItem('qlt_badge_seen_count', JSON.stringify(lastSeen));
+  },
+
+  _computeDrawerBadgesInternal() {
     const counts = {};
     const todayStr = today();
     const ym = todayStr.slice(0, 7);
@@ -3075,20 +3108,23 @@ const App = {
       }
     }
 
-    // Sparkline 7-day expense bars — continuous linear mapping:
-    //   height % = (dayExp / maxExp) * 100, min 12% nếu có chi tiêu, 5% nếu 0
-    //   opacity = 0.22 (ngày 0 chi) → 1.0 (ngày max). Tỉ lệ thuận với chi tiêu.
-    // → Mỗi ngày có height + opacity duy nhất theo amount, không grouping vào tier.
+    // Sparkline 7-day — SQRT scaling để giãn small values:
+    // Khi ngày max chi rất lớn (14M) vs ngày khác (100k-1M), linear mapping
+    // sẽ làm small days clamp về cùng height ~12% → giống nhau.
+    // Sqrt giãn ratio nhỏ: vd 100k/14M = 0.7% → sqrt=8.4%, 1M/14M = 7% → sqrt=27%
+    // → mỗi ngày height phân biệt rõ.
     const sparkEl = $('#homeHv2Spark');
     if (sparkEl) {
       const maxE = Math.max(1, ...today7.map(d => d.exp));
       sparkEl.innerHTML = today7.map((d, i) => {
         const isToday = i === today7.length - 1;
         const ratio = maxE > 0 ? Math.min(1, d.exp / maxE) : 0;
-        // Height: ngày 0 chi = 5%, ngày có chi từ 12% → 100% tỉ lệ thuận
-        const pct = d.exp <= 0 ? 5 : Math.max(12, Math.round(ratio * 100));
-        // Opacity: 0.22 (0 chi) → 1.0 (max). 0.3 base + 0.7 scale.
-        const opacity = d.exp <= 0 ? 0.22 : (0.3 + 0.7 * ratio).toFixed(2);
+        const sqrtR = Math.sqrt(ratio);
+        // Height: ngày 0 chi = 5% (mờ nhạt rõ rệt khác có chi).
+        // Có chi: min 18%, tối đa 100% theo sqrt scale → small days vẫn show rõ.
+        const pct = d.exp <= 0 ? 5 : Math.max(18, Math.round(sqrtR * 100));
+        // Opacity: 0 chi = 0.2 (gần mất tích). Có chi: 0.4 base + 0.6 * sqrt → tách rõ tier.
+        const opacity = d.exp <= 0 ? 0.2 : (0.4 + 0.6 * sqrtR).toFixed(2);
         const todayCls = isToday ? ' today' : '';
         return `<div class="home-hv2-spark-bar${todayCls}" style="height:${pct}%;opacity:${opacity}" title="${d.date}: ${fmtBal(d.exp)}"></div>`;
       }).join('');
