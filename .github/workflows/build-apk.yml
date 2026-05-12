@@ -98,74 +98,24 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Override launcher icons + adaptive icon (cọc tiền 500k trên nền xanh)
+      - name: Override launcher icons (cọc tiền 500k transparent — hoà mọi nền)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y imagemagick
-          SRC=www/icons/icon-512.png                    # cash stacks transparent (cho legacy <Android 8)
-          FG=www/icons/ic_launcher_foreground.png       # cash stacks safe-zone 66% (cho adaptive)
-          BG=www/icons/ic_launcher_background.png       # solid xanh #2d6a4f (cho adaptive)
-
-          # Generate density-specific PNGs
+          SRC=www/icons/icon-512.png   # cash stacks PNG nền trong suốt — hiện trực tiếp trên wallpaper
+          # Xoá adaptive icon XML để Android KHÔNG bọc icon vào ô vuông/tròn nền màu.
+          # User muốn icon luôn transparent — hiển thị tự nhiên trên mọi context.
+          rm -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml || true
+          rm -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml || true
           for entry in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
             density=${entry%%:*}
             size=${entry##*:}
             DIR=android/app/src/main/res/mipmap-$density
             mkdir -p "$DIR"
-            # Legacy launcher (Android < 8): full icon
             convert "$SRC" -resize ${size}x${size} "$DIR/ic_launcher.png"
             convert "$SRC" -resize ${size}x${size} "$DIR/ic_launcher_round.png"
-            # Adaptive layers (Android 8+ + 12+ splash API)
-            convert "$FG" -resize ${size}x${size} "$DIR/ic_launcher_foreground.png"
-            convert "$BG" -resize ${size}x${size} "$DIR/ic_launcher_background.png"
+            convert "$SRC" -resize ${size}x${size} "$DIR/ic_launcher_foreground.png"
           done
-
-          # Generate adaptive icon XML — Android 8+ dùng combo bg + fg.
-          # Android 12+ splash API auto-pick foreground + render trên background → bỏ ô trắng.
-          mkdir -p android/app/src/main/res/mipmap-anydpi-v26
-          cat > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-              <background android:drawable="@mipmap/ic_launcher_background"/>
-              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
-          </adaptive-icon>
-          EOF
-          cp android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml \
-             android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
-
-          echo "--- Adaptive icon XML:"
-          cat android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
-
-          # Patch styles.xml — set splash screen bg color green (Android 12+ Splash API).
-          # Mặc định bg trắng → kể cả với adaptive icon có bg xanh, vẫn thấy vành trắng quanh.
-          python3 - <<'PY'
-          import re, sys
-          path = 'android/app/src/main/res/values/styles.xml'
-          try:
-              with open(path, 'r') as f:
-                  s = f.read()
-          except FileNotFoundError:
-              print('::warning::styles.xml không tồn tại — skip splash bg patch')
-              sys.exit(0)
-          original = s
-          # Add windowSplashScreenBackground = #2d6a4f vào AppTheme.NoActionBarLaunch
-          if 'windowSplashScreenBackground' not in s:
-              new_s, n = re.subn(
-                  r'(<style name="AppTheme\.NoActionBarLaunch"[^>]*>)(.*?)(</style>)',
-                  r'\1\2    <item name="android:windowSplashScreenBackground">#2d6a4f</item>\n    \3',
-                  s, flags=re.DOTALL, count=1
-              )
-              if n > 0:
-                  s = new_s
-                  print('OK: windowSplashScreenBackground = #2d6a4f đã thêm vào AppTheme.NoActionBarLaunch')
-              else:
-                  print('::warning::Không tìm thấy AppTheme.NoActionBarLaunch — splash bg sẽ default')
-          if s != original:
-              with open(path, 'w') as f:
-                  f.write(s)
-              print('--- styles.xml mới:')
-              print(s)
-          PY
 
       - name: Inject AI Chat widget + Quick Settings tile vào Android project
         run: |
