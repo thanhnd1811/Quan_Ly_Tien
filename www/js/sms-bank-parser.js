@@ -106,22 +106,43 @@
   // ===== Parsers cho từng bank =====
   // Mỗi function nhận body string, return { amount, type, accountSuffix, balance, note, raw } | null
 
-  // Vietcombank: "TK ...8842 -50,000VND lúc HH:mm DD/MM/YYYY. SDC: 1,234,000 VND. Noi dung: ..."
-  // Hoặc: "VCB: GD chuyen khoan ... -1,500,000 VND ... SDCK: 5,000,000 VND. Noi dung: ..."
+  // Vietcombank: nhiều format khác nhau theo nguồn (SMS truyền thống, Banking app notif):
+  //   1. SMS cũ: "TK ...8842 -50,000VND lúc HH:mm DD/MM/YYYY. SDC: 1,234,000 VND. Noi dung: ..."
+  //   2. SMS chuyển khoản: "VCB: GD chuyen khoan ... Noi dung: ..."
+  //   3. App notif: "Số dư TK VCB 0611...170 +18,451,138 VND lúc HH:MM:SS. Số dư N VND. Ref //SAL_CODE//<DESCRIPTION>"
   function parseVCB(body) {
-    // Tìm pattern: -50,000VND hoặc +50,000VND
     const amtMatch = body.match(/([+-]?[\d,.]+)\s*(?:VND|đ)\b/i);
     if (!amtMatch) return null;
     const amount = parseAmount(amtMatch[1]);
     if (!amount) return null;
     const type = detectType(body, amtMatch[1]);
-    // Account suffix: "TK ...8842" hoặc "TK 8842"
     const accMatch = body.match(/TK\s*\.{0,3}(\d{3,5})/i);
     const accountSuffix = accMatch ? accMatch[1] : null;
     const balance = extractBalance(body);
-    // Nội dung: sau "Noi dung:" hoặc "ND:" hoặc "Mo ta:"
-    const noteMatch = body.match(/(?:Noi dung|ND|Mo ta|Description)[:\s]+([^\n.]+)/i);
-    const note = noteMatch ? noteMatch[1].trim() : null;
+
+    // Note extraction — thử nhiều format theo thứ tự ưu tiên:
+    let note = null;
+    // (1) Format SMS cũ: "Noi dung: ABC" / "ND: ABC" / "Mo ta: ABC"
+    let m = body.match(/(?:Noi dung|ND|Mo ta|Description)[:\s]+([^\n.]+)/i);
+    if (m) note = m[1].trim();
+    // (2) Format App notif: "Ref //SAL2026132S069035548002//DHNT CHI TIEN LUONG..."
+    //     Description sau dấu // thứ 2, kéo đến cuối line / cuối string.
+    if (!note) {
+      m = body.match(/Ref\s*\/\/[A-Z0-9]+\/\/(.+?)(?:\s*$|\n)/i);
+      if (m) note = m[1].trim();
+    }
+    // (3) Format chuyển khoản đến/đi: "...|ND: NGUYEN VAN A chuyen tien" hoặc
+    //     "DEN: NGUYEN VAN A - <acc>|ND: <description>". Pipe-separated.
+    if (!note) {
+      m = body.match(/\|\s*ND\s*[:\s]+([^|\n]+)/i);
+      if (m) note = m[1].trim();
+    }
+    // (4) Generic fallback: bất kỳ "//CODE//<text>" pattern (cho format không chuẩn)
+    if (!note) {
+      m = body.match(/\/\/[A-Z0-9]{5,}\/\/(.+?)(?:\s*$|\n|\|)/);
+      if (m) note = m[1].trim();
+    }
+
     return { amount, type, accountSuffix, balance, note, bank: 'vcb' };
   }
 
