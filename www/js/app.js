@@ -2361,6 +2361,7 @@ const App = {
         else if (action === 'import') this.doImport();
         else if (action === 'books') this.openBookList();
         else if (action === 'bookadd') this.openBookEdit(null);
+        else if (action === 'yearreview') this.openYearReview();
         else this.switchTab(action);
       };
     });
@@ -3277,6 +3278,234 @@ const App = {
           this.openTxModal(el.dataset.tx);
         };
       });
+    }
+  },
+
+  // ============================================================
+  // YEAR-END REVIEW — Spotify Wrapped style
+  // ============================================================
+  // Tính stats cho năm (param year, default current). Trả về object để render.
+  _computeYearReview(year) {
+    const txs = (this.state.transactions || []).filter(t =>
+      !t._adjustment && t.date && t.date.startsWith(String(year))
+    );
+    if (txs.length === 0) return null;
+
+    let totalIn = 0, totalOut = 0;
+    const catTotals = {};
+    const dayTotals = {};
+    let biggestTx = null;
+    let txCount = 0;
+
+    for (const t of txs) {
+      if (t.type === 'transfer') continue;
+      txCount++;
+      if (t.type === 'income') totalIn += t.amount;
+      else if (t.type === 'expense') {
+        totalOut += t.amount;
+        if (t.categoryId) catTotals[t.categoryId] = (catTotals[t.categoryId] || 0) + t.amount;
+        if (!biggestTx || t.amount > biggestTx.amount) biggestTx = t;
+      }
+      dayTotals[t.date] = (dayTotals[t.date] || 0) + (t.type === 'expense' ? t.amount : 0);
+    }
+
+    // Top 3 categories
+    const topCats = Object.entries(catTotals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([cid, val]) => {
+        const cat = (this.state.categories || []).find(c => c.id === cid);
+        return { name: cat?.name || '?', value: val, pct: totalOut > 0 ? Math.round(val / totalOut * 100) : 0 };
+      });
+
+    // Busiest day (most txs)
+    const dayCounts = {};
+    for (const t of txs) dayCounts[t.date] = (dayCounts[t.date] || 0) + 1;
+    const busiestDay = Object.entries(dayCounts).sort((a, b) => b[1] - a[1])[0];
+
+    // Days with tx (streak record)
+    const datesWithTx = new Set(txs.map(t => t.date));
+    let maxStreak = 0, curStreak = 0;
+    const sortedDates = [...datesWithTx].sort();
+    for (let i = 0; i < sortedDates.length; i++) {
+      if (i === 0) curStreak = 1;
+      else {
+        const prev = new Date(sortedDates[i - 1]);
+        const cur = new Date(sortedDates[i]);
+        const diff = (cur - prev) / 86400000;
+        if (diff === 1) curStreak++;
+        else curStreak = 1;
+      }
+      if (curStreak > maxStreak) maxStreak = curStreak;
+    }
+
+    const avgDaily = totalOut / Math.max(1, datesWithTx.size);
+    const biggestCat = (this.state.categories || []).find(c => c.id === biggestTx?.categoryId);
+
+    return {
+      year,
+      totalIn, totalOut,
+      surplus: totalIn - totalOut,
+      txCount,
+      topCats,
+      biggestTx: biggestTx ? {
+        amount: biggestTx.amount,
+        date: biggestTx.date,
+        note: biggestTx.note || '',
+        catName: biggestCat?.name || '?'
+      } : null,
+      busiestDay: busiestDay ? { date: busiestDay[0], count: busiestDay[1] } : null,
+      maxStreak,
+      daysActive: datesWithTx.size,
+      avgDaily: Math.round(avgDaily)
+    };
+  },
+
+  openYearReview() {
+    const year = new Date().getFullYear();
+    const data = this._computeYearReview(year);
+    if (!data) {
+      QLT_UI.toast(`📊 Năm ${year} chưa có giao dịch nào để tổng kết`, { duration: 2500 });
+      return;
+    }
+    this.state._yrData = data;
+    this.state._yrSlide = 0;
+    this._renderYearReviewSlide();
+    $('#yearReviewModal').classList.add('open');
+
+    // Wire nav
+    $('#yrPrev').onclick = () => this._navYearReview(-1);
+    $('#yrNext').onclick = () => this._navYearReview(1);
+    // Swipe gesture support
+    const body = $('#yearReviewBody');
+    let startX = 0;
+    body.ontouchstart = (e) => { startX = e.touches[0].clientX; };
+    body.ontouchend = (e) => {
+      const dx = e.changedTouches[0].clientX - startX;
+      if (Math.abs(dx) < 50) return;
+      this._navYearReview(dx > 0 ? -1 : 1);
+    };
+  },
+
+  _navYearReview(dir) {
+    const total = 6;
+    const next = Math.max(0, Math.min(total - 1, (this.state._yrSlide || 0) + dir));
+    if (next === this.state._yrSlide) return;
+    this.state._yrSlide = next;
+    this._renderYearReviewSlide();
+  },
+
+  _renderYearReviewSlide() {
+    const body = $('#yearReviewBody');
+    const dotsEl = $('#yrDots');
+    const data = this.state._yrData;
+    const idx = this.state._yrSlide || 0;
+    const total = 6;
+    if (!body || !data) return;
+
+    const fmtC = n => {
+      const abs = Math.abs(n);
+      if (abs >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'tr';
+      if (abs >= 1000) return Math.round(n / 1000) + 'k';
+      return String(n);
+    };
+    const fmtFull = n => Number(n || 0).toLocaleString('vi-VN');
+
+    const slides = [
+      // Slide 1: intro
+      `<div class="yr-slide">
+        <div class="yr-emoji">🎉</div>
+        <div class="yr-lbl">Tổng kết năm</div>
+        <div class="yr-big">${data.year}</div>
+        <div class="yr-sub">Cùng nhìn lại hành trình tài chính của bạn trong <strong>${data.year}</strong>. Vuốt sang trái để xem ➡️</div>
+      </div>`,
+
+      // Slide 2: total spent
+      `<div class="yr-slide">
+        <div class="yr-emoji">💸</div>
+        <div class="yr-lbl">Tổng chi tiêu cả năm</div>
+        <div class="yr-big">${fmtFull(data.totalOut)}<span style="font-size:24px">đ</span></div>
+        <div class="yr-sub">Qua <strong>${data.txCount}</strong> giao dịch, trên <strong>${data.daysActive}</strong> ngày khác nhau. Trung bình <strong>${fmtFull(data.avgDaily)}đ/ngày</strong>.</div>
+      </div>`,
+
+      // Slide 3: top 3 categories
+      `<div class="yr-slide">
+        <div class="yr-emoji">📊</div>
+        <div class="yr-lbl">Top 3 danh mục chi nhiều</div>
+        <div style="margin:18px 0 8px;text-align:left;width:100%">
+          ${(data.topCats.length ? data.topCats : [{name:'(chưa có)',pct:0,value:0}]).map((c, i) => `
+            <div class="yr-bar" style="--i:${i}">
+              <span class="yr-bar-lbl">${this.escapeHtml(c.name)}</span>
+              <div class="yr-bar-bar"><div class="yr-bar-fill" style="width:${c.pct}%"></div></div>
+              <span class="yr-bar-pct">${c.pct}%</span>
+            </div>
+          `).join('')}
+        </div>
+        <div class="yr-sub" style="margin-top:14px">${data.topCats[0] ? `<strong>${this.escapeHtml(data.topCats[0].name)}</strong> dẫn đầu với <strong>${fmtFull(data.topCats[0].value)}đ</strong>` : ''}</div>
+      </div>`,
+
+      // Slide 4: biggest tx
+      data.biggestTx ? `<div class="yr-slide">
+        <div class="yr-emoji">🏆</div>
+        <div class="yr-lbl">GD chi lớn nhất năm</div>
+        <div class="yr-big small">${fmtFull(data.biggestTx.amount)}đ</div>
+        <div class="yr-sub">
+          <strong>${this.escapeHtml(data.biggestTx.catName)}</strong><br>
+          ${this.formatDate(data.biggestTx.date)}${data.biggestTx.note ? ' — "' + this.escapeHtml(data.biggestTx.note) + '"' : ''}
+        </div>
+      </div>` : `<div class="yr-slide"><div class="yr-emoji">📊</div><div class="yr-sub">Chưa có chi tiêu nào</div></div>`,
+
+      // Slide 5: streak record
+      `<div class="yr-slide">
+        <div class="yr-emoji">🔥</div>
+        <div class="yr-lbl">Streak ghi GD dài nhất</div>
+        <div class="yr-big">${data.maxStreak}</div>
+        <div class="yr-sub">ngày liên tiếp ghi giao dịch! ${data.maxStreak >= 30 ? 'Quá đỉnh 👏' : data.maxStreak >= 14 ? 'Rất kỷ luật ✨' : 'Cố lên năm sau nhé!'}</div>
+      </div>`,
+
+      // Slide 6: surplus + share
+      `<div class="yr-slide">
+        <div class="yr-emoji">${data.surplus >= 0 ? '✨' : '⚠️'}</div>
+        <div class="yr-lbl">Chênh lệch thu - chi năm ${data.year}</div>
+        <div class="yr-big small" style="color:${data.surplus >= 0 ? '#10b981' : '#fca5a5'}">${data.surplus >= 0 ? '+' : ''}${fmtFull(data.surplus)}đ</div>
+        <div class="yr-sub">
+          ${data.surplus >= 0 ? `Thu nhập (${fmtFull(data.totalIn)}đ) > Chi tiêu (${fmtFull(data.totalOut)}đ). Tích lũy tốt!` : `Chi (${fmtFull(data.totalOut)}đ) cao hơn thu (${fmtFull(data.totalIn)}đ). Cân đối lại năm sau nhé.`}
+        </div>
+        <button class="yr-share-btn" id="yrShareBtn">📤 Chia sẻ tổng kết</button>
+      </div>`
+    ];
+
+    body.innerHTML = slides[idx] || '';
+    dotsEl.innerHTML = Array.from({length: total}, (_, i) =>
+      `<span class="yr-dot ${i === idx ? 'active' : ''}"></span>`
+    ).join('');
+    $('#yrPrev').disabled = idx === 0;
+    $('#yrNext').disabled = idx === total - 1;
+
+    // Share button on last slide
+    if (idx === total - 1) {
+      $('#yrShareBtn').onclick = () => {
+        const lines = [
+          `🎉 Tổng kết tài chính ${data.year}`,
+          ``,
+          `💸 Tổng chi: ${fmtFull(data.totalOut)}đ`,
+          `💰 Tổng thu: ${fmtFull(data.totalIn)}đ`,
+          `${data.surplus >= 0 ? '✨' : '⚠️'} Chênh lệch: ${data.surplus >= 0 ? '+' : ''}${fmtFull(data.surplus)}đ`,
+          `📊 ${data.txCount} giao dịch · ${data.daysActive} ngày active`,
+          data.topCats[0] ? `🏆 Top cat: ${data.topCats[0].name} (${data.topCats[0].pct}%)` : '',
+          `🔥 Streak dài nhất: ${data.maxStreak} ngày`,
+          ``,
+          `— Quản Lý Tiền app`
+        ].filter(Boolean).join('\n');
+        // Native share nếu có, fallback copy clipboard
+        if (navigator.share) {
+          navigator.share({ title: `Tổng kết ${data.year}`, text: lines }).catch(() => {});
+        } else if (navigator.clipboard) {
+          navigator.clipboard.writeText(lines).then(() => {
+            QLT_UI.toast('📋 Đã copy! Paste vào Zalo/Facebook để chia sẻ', { duration: 3000 });
+          });
+        }
+      };
     }
   },
 
