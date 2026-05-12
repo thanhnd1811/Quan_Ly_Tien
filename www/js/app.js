@@ -3509,6 +3509,59 @@ const App = {
     }
   },
 
+  // Auto-link tx vào goal contribution nếu account đích khớp linkedAccountId.
+  // Trigger: sau saveTx (manual) + sau _createTxFromBankSms (auto SMS notif).
+  // Logic:
+  //  - Chỉ apply cho income hoặc transfer (có dòng tiền VÀO 1 account)
+  //  - Tìm goal active có linkedAccountId = account đích
+  //  - Nhiều goal match → skip (ambiguous, user manual hơn an toàn)
+  //  - Tránh duplicate: check existing contribution.txId
+  async _maybeLinkTxToGoal(tx) {
+    if (!tx || !tx.id) return;
+    if (tx.type !== 'transfer' && tx.type !== 'income') return;
+    const destAccId = tx.type === 'transfer' ? tx.toAccountId : tx.accountId;
+    if (!destAccId) return;
+
+    const activeGoals = (this.state.goals || []).filter(g =>
+      g.linkedAccountId === destAccId
+      && g.status !== 'achieved'
+      && g.status !== 'cancelled'
+    );
+    if (activeGoals.length === 0) return;
+
+    // Bỏ goal đã có contribution với txId này
+    const eligible = activeGoals.filter(g =>
+      !(g.contributions || []).some(c => c.txId === tx.id)
+    );
+    if (eligible.length === 0) return;
+    if (eligible.length > 1) {
+      QLT_UI.toast(`💡 ${eligible.length} mục tiêu cùng link ví này — vào "Mục tiêu" để ghi đóng góp thủ công`, { duration: 3000 });
+      return;
+    }
+
+    const goal = eligible[0];
+    const contribution = {
+      id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      date: tx.date,
+      amount: tx.amount,
+      note: tx.note || 'Tự ghi từ giao dịch',
+      txId: tx.id,
+      _autoLinked: true
+    };
+    goal.contributions = goal.contributions || [];
+    goal.contributions.push(contribution);
+
+    // Check achieved
+    if (this.goalContributed(goal) >= (goal.targetAmount || 0) && goal.status !== 'achieved') {
+      goal.status = 'achieved';
+      QLT_UI.toast(`🎉 Đã đạt mục tiêu "${goal.name}"!`, { type: 'success', duration: 4000 });
+    } else {
+      QLT_UI.toast(`✨ Đã ghi ${fmt(tx.amount)}đ vào mục tiêu "${goal.name}"`, { type: 'success', duration: 3000 });
+    }
+
+    await window.QLT_Store.put('goals', goal);
+  },
+
   // Tìm GD đã có có thể trùng với newTx (cùng ngày + amount + account + type).
   // Use case chính: bank SMS auto-tạo tx, user cũng nhập tay → check trước khi save.
   _findPotentialDuplicate(newTx) {
@@ -11685,6 +11738,10 @@ const App = {
     await this.applyBalanceDelta(tx, +1);
     const saved = await window.QLT_Store.put('transactions', tx);
 
+    // Auto-link vào mục tiêu tiết kiệm nếu account đích khớp linkedAccountId
+    // (vd: SMS chuyển tiền vào MB Bank, có goal link MB Bank → tự ghi đóng góp)
+    if (saved?.id) this._maybeLinkTxToGoal({ ...tx, id: saved.id });
+
     // Reverse geocode async sau save — không block UX
     if (tx.location?.lat && saved?.id) {
       window.QLT_Geo.reverseGeocode(tx.location.lat, tx.location.lng).then(async (geo) => {
@@ -13243,6 +13300,9 @@ const App = {
 
     // Smart insights real-time (chỉ cho tx mới hoặc sửa số tiền/category lớn)
     setTimeout(() => this._showRealtimeInsight(t, oldTxSnap, isNewTx), 350);
+
+    // Auto-link vào mục tiêu tiết kiệm nếu account đích khớp linkedAccountId
+    if (isNewTx) this._maybeLinkTxToGoal(t);
 
     haptic('success');
     this.autoSync();
