@@ -1640,6 +1640,9 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
 .qlt-dialog-body{padding:26px 22px 20px;text-align:center}
 .qlt-dialog-title{font-size:17px;font-weight:700;color:var(--text);margin-bottom:10px;letter-spacing:-0.2px}
 .qlt-dialog-msg{font-size:14px;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-word}
+/* Khi alert html mode → tắt pre-wrap để HTML kiểm soát layout (tránh leading
+   whitespace của template literal làm vỡ form, vd bảng "Lệch số dư") */
+.qlt-dialog-msg.html-mode{white-space:normal;text-align:left}
 .qlt-dialog-actions{display:flex;border-top:1px solid var(--border)}
 .qlt-dialog-btn{flex:1;padding:15px;background:var(--surface);border:none;font-size:15px;font-weight:600;color:var(--text);cursor:pointer;transition:background .15s ease}
 .qlt-dialog-btn:active{background:var(--surface2)}

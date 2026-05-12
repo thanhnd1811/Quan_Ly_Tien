@@ -30,7 +30,11 @@ const QLT_UI = (() => {
 
       document.getElementById('qltDialogTitle').innerHTML = title ? escapeText(title) : '';
       document.getElementById('qltDialogTitle').style.display = title ? 'block' : 'none';
-      document.getElementById('qltDialogMsg').innerHTML = html ? message : escapeText(message);
+      const msgEl = document.getElementById('qltDialogMsg');
+      msgEl.innerHTML = html ? message : escapeText(message);
+      // Toggle html-mode class: tắt pre-wrap để HTML control layout (tránh leading
+      // whitespace của template literal phá vỡ form, vd bảng "Lệch số dư").
+      msgEl.classList.toggle('html-mode', !!html);
 
       const actions = document.getElementById('qltDialogActions');
       actions.innerHTML = '';
