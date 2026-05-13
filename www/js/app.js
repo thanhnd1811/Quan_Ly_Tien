@@ -1960,6 +1960,9 @@ const App = {
       // Auto backup hằng tuần lên Drive (nếu đã đăng nhập + chưa sync trong 7 ngày)
       try { await this.autoWeeklyBackup(); } catch (_) {}
 
+      // Auto popup tổng kết năm (1 lần/năm trong cửa sổ 20/12 → 15/01)
+      try { this._maybeAutoYearReview(); } catch (_) {}
+
       // Schedule daily summary notification (8h tối) nếu user cho phép
       try { await this.scheduleDailySummaryNotif(); } catch (_) {}
       // Schedule morning greeting (8h sáng) nếu user cho phép
@@ -3057,6 +3060,7 @@ const App = {
 
     this.renderHomeUpdateBanner();
     this.renderHomeBalanceMismatch();
+    this.renderHomeYearReviewBanner();
     this.renderHomeFavorites();
     {
       const snoozeUntil = parseInt(localStorage.getItem('qlt_subs_banner_snooze') || '0', 10);
@@ -3379,8 +3383,59 @@ const App = {
     };
   },
 
-  openYearReview() {
-    const year = new Date().getFullYear();
+  // Trả về { active, year } cho cửa sổ tổng kết năm (20/12 → 15/01).
+  // active=true → đang trong cửa sổ; year = năm cần tổng kết
+  // (tháng 12 → năm hiện tại, tháng 1 → năm trước).
+  _yearReviewWindow() {
+    const now = new Date();
+    const m = now.getMonth() + 1;
+    const d = now.getDate();
+    const inWindow = (m === 12 && d >= 20) || (m === 1 && d <= 15);
+    const year = m === 1 ? now.getFullYear() - 1 : now.getFullYear();
+    return { active: inWindow, year };
+  },
+
+  // Auto popup tổng kết năm 1 lần khi vào cửa sổ cuối năm.
+  // Gọi sau khi app render xong (init() / switchTab home).
+  _maybeAutoYearReview() {
+    const w = this._yearReviewWindow();
+    if (!w.active) return;
+    const shownKey = `qlt_year_review_${w.year}_shown`;
+    if (localStorage.getItem(shownKey)) return;
+    // Verify có data để tổng kết (tránh popup rỗng)
+    const data = this._computeYearReview(w.year);
+    if (!data) return;
+    localStorage.setItem(shownKey, '1');
+    // Delay 1.5s để app render xong + tránh đè lock screen
+    setTimeout(() => {
+      if (document.getElementById('lockScreen')?.classList.contains('open')) return;
+      this.openYearReview(w.year);
+    }, 1500);
+  },
+
+  // Banner trên home tab — chỉ hiện trong cửa sổ 20/12 → 15/01.
+  // Cho phép user xem lại nếu popup auto đã đóng / chưa xem.
+  renderHomeYearReviewBanner() {
+    const wrap = document.getElementById('homeYearReviewBanner');
+    if (!wrap) return;
+    const w = this._yearReviewWindow();
+    if (!w.active) { wrap.style.display = 'none'; return; }
+    const data = this._computeYearReview(w.year);
+    if (!data) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    wrap.innerHTML = `
+      <div onclick="QLT_App.openYearReview(${w.year})" style="margin:8px 16px;padding:12px 14px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border-radius:12px;cursor:pointer;display:flex;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(99,102,241,.25)">
+        <div style="font-size:22px">🎉</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:14px">Tổng kết năm ${w.year}</div>
+          <div style="font-size:11px;opacity:.9;margin-top:2px">Tap để xem hành trình tài chính của bạn</div>
+        </div>
+        <div style="font-size:18px">→</div>
+      </div>`;
+  },
+
+  openYearReview(year) {
+    if (!year) year = new Date().getFullYear();
     const data = this._computeYearReview(year);
     if (!data) {
       QLT_UI.toast(`📊 Năm ${year} chưa có giao dịch nào để tổng kết`, { duration: 2500 });
