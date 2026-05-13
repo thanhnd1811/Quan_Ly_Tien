@@ -833,12 +833,14 @@ canvas#goalProgressCanvas, canvas#chartNetWorthCanvas{animation:chartFadeIn .55s
 .budget-item-status{font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;flex-shrink:0}
 .budget-item-status.ok{background:#d1fae5;color:#047857}
 .budget-item-status.warn{background:#fef3c7;color:#b45309}
+.budget-item-status.full{background:#ffedd5;color:#c2410c}
 .budget-item-status.over{background:#fee2e2;color:#b91c1c}
 .budget-item-meta{font-size:11px;color:var(--text3);margin-top:3px;display:flex;justify-content:space-between}
 .budget-item-bar{height:6px;background:var(--border);border-radius:3px;margin-top:6px;overflow:hidden}
 .budget-item-bar-fill{height:100%;border-radius:3px;transition:width .3s}
 .budget-item-bar-fill.ok{background:var(--accent-light)}
 .budget-item-bar-fill.warn{background:#f59e0b}
+.budget-item-bar-fill.full{background:#ea580c}
 .budget-item-bar-fill.over{background:var(--danger)}
 .home-budget-list{margin:0 16px;display:flex;flex-direction:column;gap:8px}
 .home-budget-row{background:var(--surface);border:1px solid var(--border);border-radius:var(--rsm);padding:10px 12px;cursor:pointer}
@@ -849,6 +851,7 @@ canvas#goalProgressCanvas, canvas#chartNetWorthCanvas{animation:chartFadeIn .55s
 .home-budget-row-bar-fill{height:100%;border-radius:3px}
 .home-budget-row-bar-fill.ok{background:var(--accent-light)}
 .home-budget-row-bar-fill.warn{background:#f59e0b}
+.home-budget-row-bar-fill.full{background:#ea580c}
 .home-budget-row-bar-fill.over{background:var(--danger)}
 .tx-budget-hint{font-size:11px;color:var(--text2);margin-top:6px;padding:6px 10px;background:var(--surface2);border-radius:8px;border-left:3px solid var(--accent)}
 .tx-budget-hint.warn{border-left-color:#f59e0b;color:#b45309}

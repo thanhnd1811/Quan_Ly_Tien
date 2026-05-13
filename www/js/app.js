@@ -6066,7 +6066,8 @@ const App = {
     const pct = limit > 0 ? Math.round(spent / limit * 100) : 0;
     const remain = limit - spent;
     let status = 'ok', label = 'Còn dư';
-    if (pct >= 100) { status = 'over'; label = 'Đã vượt'; }
+    if (pct > 100) { status = 'over'; label = 'Đã vượt'; }
+    else if (pct === 100) { status = 'full'; label = 'Đã hết'; }
     else if (pct >= 80) { status = 'warn'; label = 'Sắp vượt'; }
     return { pct, status, remain, spent, limit, label };
   },
@@ -6531,7 +6532,7 @@ const App = {
             <div class="home-budget-row" onclick="QLT_App.switchTab('budgets')">
               <div class="home-budget-row-top">
                 <span>${this.escapeHtml(cat.name || 'Không rõ')}</span>
-                <span style="font-size:12px;color:${st.status === 'over' ? 'var(--danger)' : (st.status === 'warn' ? '#b45309' : 'var(--text2)')}">${st.pct}%</span>
+                <span style="font-size:12px;color:${st.status === 'over' ? 'var(--danger)' : (st.status === 'full' ? '#c2410c' : (st.status === 'warn' ? '#b45309' : 'var(--text2)'))}">${st.pct}%</span>
               </div>
               <div class="home-budget-row-bar"><div class="home-budget-row-bar-fill ${st.status}" style="width:${barW}%"></div></div>
               <div class="home-budget-row-amts">
@@ -6702,10 +6703,18 @@ const App = {
     const stats = this._budgetAvgSpending(catId);
     this._drawBudgetTrendChart($('#budgetTrendChart'), stats);
 
-    // Description
-    const desc = stats.avg > 0
-      ? `Xu hướng chi <strong>${this.escapeHtml(cat.name)}</strong> 6 tháng gần đây`
-      : `Bạn chưa có giao dịch <strong>${this.escapeHtml(cat.name)}</strong> trong 6 tháng. Hãy đặt mức bạn muốn giữ.`;
+    // Description — phân biệt 3 case:
+    //   - Có avg 5 tháng trc > 0  → show xu hướng
+    //   - Avg = 0 nhưng tháng này có chi  → show "chỉ mới có" + số tháng này
+    //   - Hoàn toàn chưa chi gì  → show "chưa có"
+    let desc;
+    if (stats.avg > 0) {
+      desc = `Xu hướng chi <strong>${this.escapeHtml(cat.name)}</strong> 6 tháng gần đây`;
+    } else if (stats.currentMonth > 0) {
+      desc = `Tháng này bạn chi <strong>${fmt(stats.currentMonth)} đ</strong> cho ${this.escapeHtml(cat.name)} — chưa có lịch sử 5 tháng trước để tham chiếu.`;
+    } else {
+      desc = `Bạn chưa có giao dịch <strong>${this.escapeHtml(cat.name)}</strong> trong 6 tháng. Hãy đặt mức bạn muốn giữ.`;
+    }
     $('#budgetTrendDesc').innerHTML = desc;
   },
 
