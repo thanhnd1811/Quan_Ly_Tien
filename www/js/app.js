@@ -10282,7 +10282,7 @@ const App = {
         if (seenDates.has(nextStr)) {
           const d = new Date(cursorStr + 'T00:00:00');
           d.setDate(d.getDate() + 1);
-          const newCursor = d.toISOString().slice(0, 10);
+          const newCursor = ymdLocal(d);
           if (newCursor === cursorStr || newCursor > endStr) break;
           cursorStr = newCursor;
           continue;
@@ -10293,7 +10293,7 @@ const App = {
         if (nextStr < todayStr) {
           const d = new Date(nextStr + 'T00:00:00');
           d.setDate(d.getDate() + 1);
-          cursorStr = d.toISOString().slice(0, 10);
+          cursorStr = ymdLocal(d);
           continue;
         }
 
@@ -10313,7 +10313,7 @@ const App = {
 
         const d = new Date(nextStr + 'T00:00:00');
         d.setDate(d.getDate() + 1);
-        cursorStr = d.toISOString().slice(0, 10);
+        cursorStr = ymdLocal(d);
       }
     }
 
@@ -16572,7 +16572,10 @@ const App = {
   },
 
   // ============ GIAO DỊCH ĐỊNH KỲ ============
-  // Tính ngày NEXT của rule sau ngày 'fromDate' (YYYY-MM-DD), inclusive
+  // Tính ngày NEXT của rule sau ngày 'fromDate' (YYYY-MM-DD), inclusive.
+  // LƯU Ý TZ: dùng ymdLocal() — KHÔNG dùng toISOString().slice(0,10) vì
+  // new Date(YYYY-MM-DDTHH:mm:ss) parse là LOCAL → toISOString trả UTC →
+  // ở VN +7 sẽ lùi 1 ngày → tạo lệch ngày cho tx + dup khi loop dedup.
   recurringNextDate(rule, fromDate) {
     const from = new Date(fromDate + 'T00:00:00');
     if (rule.frequency === 'daily') return fromDate;
@@ -16581,7 +16584,7 @@ const App = {
       const d = new Date(from);
       const diff = (dow - d.getDay() + 7) % 7;
       d.setDate(d.getDate() + diff);
-      return d.toISOString().slice(0, 10);
+      return ymdLocal(d);
     }
     // Biweekly (mỗi 2 tuần) — cần startDate để tính chu kỳ
     if (rule.frequency === 'biweekly') {
@@ -16592,7 +16595,7 @@ const App = {
       const remainder = ((diffDays % 14) + 14) % 14;
       const d = new Date(from);
       if (remainder !== 0) d.setDate(d.getDate() + (14 - remainder));
-      return d.toISOString().slice(0, 10);
+      return ymdLocal(d);
     }
     if (rule.frequency === 'monthly') {
       const dom = rule.dayOfMonth === 'last' ? null : parseInt(rule.dayOfMonth, 10);
@@ -16610,7 +16613,7 @@ const App = {
       };
       let cand = tryDate(from.getFullYear(), from.getMonth());
       if (cand < from) cand = tryDate(from.getFullYear(), from.getMonth() + 1);
-      return cand.toISOString().slice(0, 10);
+      return ymdLocal(cand);
     }
     // Quarterly (mỗi 3 tháng) — dùng startDate để mark anchor
     if (rule.frequency === 'quarterly') {
@@ -16628,7 +16631,7 @@ const App = {
       if (cand.getDate() !== startDay) {
         cand = new Date(cand.getFullYear(), cand.getMonth() + 1, 0); // last day of month
       }
-      return cand.toISOString().slice(0, 10);
+      return ymdLocal(cand);
     }
     if (rule.frequency === 'yearly') {
       const start = rule.startDate
@@ -16636,7 +16639,7 @@ const App = {
         : from;
       const cand = new Date(from.getFullYear(), start.getMonth(), start.getDate());
       if (cand < from) cand.setFullYear(from.getFullYear() + 1);
-      return cand.toISOString().slice(0, 10);
+      return ymdLocal(cand);
     }
     // SAFETY: frequency không recognized → return null thay vì fromDate.
     // Caller (runRecurringRules + cashflow projection) phải handle null → break.
@@ -16645,66 +16648,107 @@ const App = {
     return null;
   },
 
-  // Chạy các rule active: tạo giao dịch cho mỗi lần đáo hạn từ lastRunDate → today
+  // Chạy các rule active: tạo giao dịch cho mỗi lần đáo hạn từ lastRunDate → today.
+  // Idempotent: check tx tồn tại (cùng _recurringRuleId + date) trước khi tạo →
+  // an toàn khi gọi nhiều lần / sau khi sync pull về data cũ.
   async runRecurringRules() {
-    const today_ = today();
-    const rules = await window.QLT_Store.getAll('recurringRules');
-    let created = 0;
-    for (const rule of rules) {
-      if (!rule.active) continue;
-      const startDate = rule.startDate || today_;
-      let cursor = rule.lastRunDate
-        ? new Date(rule.lastRunDate + 'T00:00:00')
-        : new Date(startDate + 'T00:00:00');
-      if (rule.lastRunDate) cursor.setDate(cursor.getDate() + 1);
+    // Mutex: tránh race giữa init() + saveRecurring() (cả 2 đều gọi hàm này).
+    // Concurrent run có thể đọc lastRunDate cũ trước khi bản kia kịp save → dup tx.
+    if (this._runRecurringRulesLock) return 0;
+    this._runRecurringRulesLock = true;
 
-      // SAFETY: dedup + cap để tránh runaway loop nếu recurringNextDate
-      // returns same date hoặc invalid (vd frequency lạ).
-      const seenDates = new Set();
-      const MAX_TX_PER_RUN = 24; // 1 rule chỉ tạo tối đa 24 tx mỗi run
-      let txAdded = 0;
+    try {
+      const today_ = today();
+      const rules = await window.QLT_Store.getAll('recurringRules');
 
-      for (let i = 0; i < 40; i++) {
-        if (txAdded >= MAX_TX_PER_RUN) break;
-        const cursorStr = cursor.toISOString().slice(0, 10);
-        const nextStr = this.recurringNextDate(rule, cursorStr);
-        // Validate nextStr — null = unknown frequency, break
-        if (!nextStr || typeof nextStr !== 'string'
-            || !/^\d{4}-\d{2}-\d{2}$/.test(nextStr)) break;
-        if (nextStr > today_) break;
-        if (rule.endDate && nextStr > rule.endDate) break;
-        // Dedup: nếu nextStr đã thấy → recurringNextDate stuck → force advance
-        if (seenDates.has(nextStr)) {
-          cursor = new Date(cursorStr + 'T00:00:00');
-          cursor.setDate(cursor.getDate() + 1);
-          const newCursor = cursor.toISOString().slice(0, 10);
-          if (newCursor === cursorStr) break; // still stuck → safety break
-          continue;
+      // Idempotent guard: dựng set existing tx by _recurringRuleId + date.
+      // Bảo vệ chống dup khi: (a) hàm chạy nhiều lần trong 1 session,
+      // (b) sync pull về data cũ (tx có nhưng rule.lastRunDate reset),
+      // (c) crash giữa chừng làm lastRunDate chưa kịp save.
+      const allTx = await window.QLT_Store.getAll('transactions');
+      const existingKeys = new Set();
+      for (const t of allTx) {
+        if (t._recurringRuleId && t.date) {
+          existingKeys.add(t._recurringRuleId + '|' + t.date);
         }
-        seenDates.add(nextStr);
-
-        const tx = {
-          type: rule.type,
-          amount: rule.amount,
-          date: nextStr,
-          accountId: rule.accountId,
-          toAccountId: rule.type === 'transfer' ? rule.toAccountId : null,
-          categoryId: rule.type !== 'transfer' ? rule.categoryId : null,
-          note: rule.note || rule.name,
-          bookId: rule.bookId,
-          _recurringRuleId: rule.id
-        };
-        await this.applyBalanceDelta(tx, +1);
-        await window.QLT_Store.put('transactions', tx);
-        created++;
-        txAdded++;
-        rule.lastRunDate = nextStr;
-        cursor = new Date(nextStr + 'T00:00:00');
-        cursor.setDate(cursor.getDate() + 1);
       }
-      await window.QLT_Store.put('recurringRules', rule);
+
+      let created = 0;
+      for (const rule of rules) {
+        if (!rule.active) continue;
+        const startDate = rule.startDate || today_;
+        let cursor = rule.lastRunDate
+          ? new Date(rule.lastRunDate + 'T00:00:00')
+          : new Date(startDate + 'T00:00:00');
+        if (rule.lastRunDate) cursor.setDate(cursor.getDate() + 1);
+
+        // SAFETY: dedup + cap để tránh runaway loop nếu recurringNextDate
+        // returns same date hoặc invalid (vd frequency lạ).
+        const seenDates = new Set();
+        const MAX_TX_PER_RUN = 24; // 1 rule chỉ tạo tối đa 24 tx mỗi run
+        let txAdded = 0;
+
+        for (let i = 0; i < 40; i++) {
+          if (txAdded >= MAX_TX_PER_RUN) break;
+          const cursorStr = ymdLocal(cursor);
+          const nextStr = this.recurringNextDate(rule, cursorStr);
+          // Validate nextStr — null = unknown frequency, break
+          if (!nextStr || typeof nextStr !== 'string'
+              || !/^\d{4}-\d{2}-\d{2}$/.test(nextStr)) break;
+          if (nextStr > today_) break;
+          if (rule.endDate && nextStr > rule.endDate) break;
+          // Dedup: nếu nextStr đã thấy → recurringNextDate stuck → force advance
+          if (seenDates.has(nextStr)) {
+            cursor = new Date(cursorStr + 'T00:00:00');
+            cursor.setDate(cursor.getDate() + 1);
+            const newCursor = ymdLocal(cursor);
+            if (newCursor === cursorStr) break; // still stuck → safety break
+            continue;
+          }
+          seenDates.add(nextStr);
+
+          // IDEMPOTENT: nếu tx cho rule+ngày này đã tồn tại → skip tạo nhưng vẫn
+          // advance lastRunDate để lần sau khỏi quét lại.
+          const dupKey = rule.id + '|' + nextStr;
+          if (existingKeys.has(dupKey)) {
+            rule.lastRunDate = nextStr;
+            await window.QLT_Store.put('recurringRules', rule);
+            cursor = new Date(nextStr + 'T00:00:00');
+            cursor.setDate(cursor.getDate() + 1);
+            continue;
+          }
+
+          const tx = {
+            type: rule.type,
+            amount: rule.amount,
+            date: nextStr,
+            accountId: rule.accountId,
+            toAccountId: rule.type === 'transfer' ? rule.toAccountId : null,
+            categoryId: rule.type !== 'transfer' ? rule.categoryId : null,
+            note: rule.note || rule.name,
+            bookId: rule.bookId,
+            _recurringRuleId: rule.id
+          };
+          await this.applyBalanceDelta(tx, +1);
+          await window.QLT_Store.put('transactions', tx);
+          existingKeys.add(dupKey);
+          created++;
+          txAdded++;
+          rule.lastRunDate = nextStr;
+          // PERSIST lastRunDate NGAY sau mỗi tx — nếu function bị throw giữa chừng
+          // (vd rule kế tiếp lỗi), tx đã tạo + lastRunDate vẫn được lưu → lần sau
+          // không re-create cùng tx này.
+          await window.QLT_Store.put('recurringRules', rule);
+          cursor = new Date(nextStr + 'T00:00:00');
+          cursor.setDate(cursor.getDate() + 1);
+        }
+        // Final save (an toàn nếu loop break sớm mà chưa kịp save trong loop)
+        await window.QLT_Store.put('recurringRules', rule);
+      }
+      return created;
+    } finally {
+      this._runRecurringRulesLock = false;
     }
-    return created;
   },
 
   renderRecurring() {
