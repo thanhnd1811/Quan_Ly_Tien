@@ -16827,6 +16827,24 @@ const App = {
             continue;
           }
 
+          // DEFENSE-IN-DEPTH: tx cùng rule trong ±1 ngày = off-by-one ghost
+          // từ TZ bug cũ. Áp dụng cho non-daily freq (monthly/weekly/biweekly/
+          // quarterly/yearly không bao giờ fire 2 ngày liền). Coi như đã tạo,
+          // skip + advance lastRunDate.
+          if (rule.frequency !== 'daily') {
+            const nd = new Date(nextStr + 'T00:00:00');
+            const prevDay = ymdLocal(new Date(nd.getTime() - 86400000));
+            const nextDay = ymdLocal(new Date(nd.getTime() + 86400000));
+            if (existingKeys.has(rule.id + '|' + prevDay)
+                || existingKeys.has(rule.id + '|' + nextDay)) {
+              rule.lastRunDate = nextStr;
+              await window.QLT_Store.put('recurringRules', rule);
+              cursor = new Date(nextStr + 'T00:00:00');
+              cursor.setDate(cursor.getDate() + 1);
+              continue;
+            }
+          }
+
           const tx = {
             type: rule.type,
             amount: rule.amount,
