@@ -163,7 +163,7 @@ const QLT_UI = (() => {
     });
   });
 
-  return { alert, confirm, toast, insight };
+  return { alert, confirm, toast, insight, open };
 })();
 window.QLT_UI = QLT_UI;
 const fmt = n => (n || 0).toLocaleString('vi-VN');
@@ -14632,9 +14632,23 @@ const App = {
 
   async scanReceipt() {
     try {
-      const urls = await this.pickPhotos({ camera: false, multi: false, header: 'Chọn ảnh hoá đơn' });
+      // Hỏi user: Camera (1 hoá đơn) hay Thư viện (nhiều hoá đơn cùng lúc)
+      const srcChoice = await QLT_UI.open({
+        title: '📷 Chụp hoá đơn',
+        message: 'Chụp 1 hoá đơn hoặc chọn nhiều hoá đơn từ thư viện (AI sẽ phân tích + gộp tổng tiền).',
+        buttons: [
+          { label: 'Huỷ', value: null },
+          { label: '🖼️ Thư viện (nhiều)', value: 'gallery' },
+          { label: '📷 Chụp 1 hoá đơn', variant: 'primary', value: 'camera' }
+        ]
+      });
+      if (!srcChoice) return;
+      const urls = await this.pickPhotos({
+        camera: srcChoice === 'camera',
+        multi: srcChoice === 'gallery',
+        header: 'Chọn ảnh hoá đơn'
+      });
       if (!urls.length) return;
-      const imageDataUrl = urls[0];
 
       const status = $('#txOcrStatus');
       status.style.display = 'block';
@@ -14642,14 +14656,22 @@ const App = {
       // Quyết định dùng AI hay OCR cũ
       const aiAvailable = window.QLT_AI && await window.QLT_AI.hasApiKey();
 
-      // Tự THÊM ảnh vừa quét vào danh sách minh chứng (làm trước để giữ ảnh nếu OCR/AI fail)
+      // Tự THÊM TẤT CẢ ảnh vừa quét vào danh sách minh chứng (làm trước để giữ ảnh
+      // nếu OCR/AI fail). Multi: nén song song.
       try {
-        const compressed = await this.compressImage(imageDataUrl);
+        const compressedList = await Promise.all(urls.map(u => this.compressImage(u).catch(() => null)));
+        const validCompressed = compressedList.filter(Boolean);
         const t = this.state.editingTx;
-        t.photos = [...this.getTxPhotos(t), compressed];
+        t.photos = [...this.getTxPhotos(t), ...validCompressed];
         delete t.photo;
         this.renderTxPhoto();
       } catch (_) { /* compress lỗi không chặn flow */ }
+
+      // Multi-receipt: parse từng ảnh, gộp kết quả. Single-receipt: flow cũ.
+      if (urls.length > 1) {
+        return await this._scanMultiReceipts(urls, aiAvailable, status);
+      }
+      const imageDataUrl = urls[0];
 
       let result = null;
       let usedAI = false;
@@ -14815,6 +14837,104 @@ const App = {
     }
   },
 
+  // Multi-receipt scan: phân tích song song N hoá đơn, gộp thành 1 GD với amount
+  // tổng + danh sách items chi tiết + tất cả photos làm minh chứng.
+  async _scanMultiReceipts(urls, aiAvailable, status) {
+    if (!aiAvailable) {
+      // OCR cũ không support multi → fallback parse cái đầu tiên
+      status.style.color = '#cc7a4f';
+      status.textContent = '⚠️ Cần bật AI để gộp nhiều hoá đơn. OCR thường chỉ đọc được 1 ảnh.';
+      return;
+    }
+
+    const type = $('#txForm').dataset.type || 'expense';
+    const catList = this.state.categories
+      .filter(c => c.type === type && c.parentId && !c.archived)
+      .map(c => {
+        const parent = this.state.categories.find(x => x.id === c.parentId);
+        return { slug: c.slug || c.id, name: c.name, parentName: parent?.name };
+      });
+
+    status.textContent = `🤖 AI đang phân tích ${urls.length} hoá đơn... (~${urls.length * 15}s)`;
+
+    // Parse song song — tận dụng concurrency của Gemini API
+    const results = await Promise.all(urls.map(async (u, idx) => {
+      try {
+        const r = await window.QLT_AI.analyzeReceiptForTx({
+          imageBase64: u,
+          mimeType: u.match(/^data:([^;]+);/)?.[1] || 'image/jpeg',
+          categoriesList: catList
+        });
+        return { idx, ok: r.ok && r.amount > 0, ...r };
+      } catch (e) {
+        return { idx, ok: false, error: e.message };
+      }
+    }));
+
+    const successes = results.filter(r => r.ok);
+    const failures = results.filter(r => !r.ok);
+
+    if (successes.length === 0) {
+      status.style.color = '#cc7a4f';
+      status.textContent = `⚠️ AI không đọc được hoá đơn nào (${failures.length} lỗi) — nhập tay`;
+      return;
+    }
+
+    // Gộp kết quả:
+    //   - amount: tổng tất cả
+    //   - date: lấy ngày sớm nhất (string YYYY-MM-DD compare an toàn)
+    //   - merchant: gộp distinct, join " + "
+    //   - note: list từng hoá đơn với amount riêng
+    //   - items: gộp hết items từ mọi hoá đơn
+    //   - categorySlug: ưu tiên hoá đơn đầu tiên có gợi ý
+    const totalAmount = successes.reduce((s, r) => s + (r.amount || 0), 0);
+    const dates = successes.map(r => r.date).filter(Boolean).sort();
+    const earliestDate = dates[0] || null;
+    const merchants = [...new Set(successes.map(r => r.merchant).filter(Boolean))];
+    const mergedMerchant = merchants.join(' + ');
+    const categorySlug = successes.find(r => r.categorySlug)?.categorySlug;
+
+    const noteLines = [`Gộp ${successes.length} hoá đơn:`];
+    successes.forEach((r, i) => {
+      noteLines.push(`${i + 1}. ${r.merchant || '?'} — ${fmt(r.amount)} đ${r.date ? ' · ' + r.date : ''}`);
+    });
+    const allItems = [];
+    successes.forEach(r => {
+      if (Array.isArray(r.items)) allItems.push(...r.items);
+    });
+    if (allItems.length > 0) {
+      noteLines.push('');
+      noteLines.push('Chi tiết items:');
+      allItems.forEach(it => noteLines.push(`· ${it.name}: ${fmt(it.amount)} đ`));
+    }
+    if (failures.length > 0) {
+      noteLines.push('');
+      noteLines.push(`⚠️ ${failures.length} hoá đơn AI không đọc được — kiểm tra ảnh minh chứng`);
+    }
+
+    // Auto-fill form
+    $('#txAmount').value = totalAmount.toLocaleString('vi-VN');
+    if (earliestDate) $('#txDate').value = earliestDate;
+    if (mergedMerchant) $('#txNote').value = noteLines.join('\n').slice(0, 500);
+
+    // Category suggestion
+    if (categorySlug) {
+      const cat = this.state.categories.find(c =>
+        (c.slug === categorySlug || c.id === categorySlug) && c.type === type
+      );
+      if (cat && this.state.editingTx) {
+        this.state.editingTx.categoryId = cat.id;
+        delete this.state.editingTx._activeParent;
+        this.renderTxCategoryPicker(cat.type);
+      }
+    }
+
+    // Status thông báo
+    status.style.color = '#16a34a';
+    const failHint = failures.length > 0 ? ` (${failures.length} lỗi)` : '';
+    status.textContent = `✨ Gộp ${successes.length} hoá đơn → ${fmt(totalAmount)} đ${failHint}`;
+  },
+
   // Picker đa năng: trả về mảng dataUrl. Native single (1 ảnh/lần), web hỗ trợ multi.
   async pickPhotos({ camera = false, multi = false, header } = {}) {
     if (window.Capacitor && window.Capacitor.Plugins.Camera) {
@@ -14905,7 +15025,22 @@ const App = {
 
   async addTxPhoto() {
     try {
-      const raws = await this.pickPhotos({ multi: true, header: 'Thêm ảnh minh chứng' });
+      // Hỏi user: Camera (chụp mới) hay Thư viện (chọn nhiều ảnh)
+      const choice = await QLT_UI.open({
+        title: '📷 Thêm ảnh minh chứng',
+        message: 'Bạn muốn chụp ảnh mới hay chọn từ thư viện?',
+        buttons: [
+          { label: 'Huỷ', value: null },
+          { label: '🖼️ Thư viện', value: 'gallery' },
+          { label: '📷 Chụp ảnh', variant: 'primary', value: 'camera' }
+        ]
+      });
+      if (!choice) return;
+      const raws = await this.pickPhotos({
+        camera: choice === 'camera',
+        multi: choice === 'gallery',  // camera = 1 ảnh; gallery = multi
+        header: 'Thêm ảnh minh chứng'
+      });
       if (!raws.length) return;
       const compressed = await Promise.all(raws.map(r => this.compressImage(r).catch(() => null)));
       const newPhotos = compressed.filter(Boolean);
