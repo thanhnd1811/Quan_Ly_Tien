@@ -1938,6 +1938,10 @@ const App = {
       this.bindEvents();
       $$('.qlt-amount').forEach(attachAmountFormatting);
 
+      // Dọn dữ liệu cũ: tx định kỳ bị trùng (cùng rule + date) → xoá bản dup
+      // + refund balance. Chạy TRƯỚC runRecurringRules để existingKeys sạch.
+      try { await this._cleanupRecurringDuplicates(); } catch (e) { console.warn('Dedup lỗi:', e); }
+
       // Chạy các quy tắc giao dịch định kỳ → tạo tx cho các kỳ đã qua
       try {
         const created = await this.runRecurringRules();
@@ -16710,6 +16714,47 @@ const App = {
     // Trước đây trả fromDate gây runaway loop (60 events cùng ngày).
     console.warn('[recurringNextDate] Unknown frequency:', rule.frequency, 'rule:', rule.id);
     return null;
+  },
+
+  // Dọn dữ liệu cũ: quét tx có cùng _recurringRuleId + date → giữ tx CŨ NHẤT,
+  // xoá phần còn lại (kèm refund balance). Chạy mỗi lần init() trước runRecurringRules,
+  // skip silent nếu không tìm thấy dup. Bảo vệ user khỏi dup tích luỹ trước khi
+  // fix idempotent được deploy + đề phòng dup tương lai từ edge case lạ.
+  async _cleanupRecurringDuplicates() {
+    try {
+      const allTx = await window.QLT_Store.getAll('transactions');
+      const groups = new Map();
+      for (const t of allTx) {
+        if (!t._recurringRuleId || !t.date) continue;
+        const key = t._recurringRuleId + '|' + t.date;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(t);
+      }
+      let removed = 0;
+      for (const txs of groups.values()) {
+        if (txs.length <= 1) continue;
+        // Sort by createdAt asc — giữ bản đầu tiên, xoá phần còn lại
+        txs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        for (let i = 1; i < txs.length; i++) {
+          const t = txs[i];
+          try {
+            await this.applyBalanceDelta(t, -1);
+            await window.QLT_Store.del('transactions', t.id);
+            removed++;
+          } catch (e) { console.warn('[DedupRecurring] del fail:', t.id, e); }
+        }
+      }
+      if (removed > 0) {
+        QLT_UI.toast(`🧹 Đã dọn ${removed} giao dịch định kỳ bị trùng`, {
+          type: 'success', duration: 3500
+        });
+        await this.reload();
+      }
+      return removed;
+    } catch (e) {
+      console.warn('[DedupRecurring] lỗi:', e);
+      return 0;
+    }
   },
 
   // Chạy các rule active: tạo giao dịch cho mỗi lần đáo hạn từ lastRunDate → today.
