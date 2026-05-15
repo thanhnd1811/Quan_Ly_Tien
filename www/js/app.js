@@ -12764,6 +12764,10 @@ const App = {
     // Init tags array
     if (!Array.isArray(this.state.editingTx.tags)) this.state.editingTx.tags = [];
     this.renderTxTags();
+    // Reset scan accumulator + ẩn nút 'Chụp thêm' mỗi lần mở modal
+    this.state._scanReceipts = [];
+    const scanMoreBtn = $('#txScanMore');
+    if (scanMoreBtn) scanMoreBtn.style.display = 'none';
     $('#txForm').dataset.type = tx.type;
     $$('.tx-type-pill').forEach(el => {
       el.classList.toggle('on', el.dataset.type === tx.type);
@@ -14630,6 +14634,68 @@ const App = {
     });
   },
 
+  // Recompute form (amount/date/note/category) từ accumulated state._scanReceipts.
+  // Gọi sau mỗi lần scan để merge dồn nhiều lần "Chụp thêm".
+  _applyAccumulatedReceipts() {
+    const receipts = this.state._scanReceipts || [];
+    if (receipts.length === 0) return;
+    const totalAmount = receipts.reduce((s, r) => s + (r.amount || 0), 0);
+    const dates = receipts.map(r => r.date).filter(Boolean).sort();
+    const earliestDate = dates[0] || null;
+    const merchants = [...new Set(receipts.map(r => r.merchant).filter(Boolean))];
+    const categorySlug = receipts.find(r => r.categorySlug)?.categorySlug;
+    const allItems = [];
+    receipts.forEach(r => { if (Array.isArray(r.items)) allItems.push(...r.items); });
+
+    if (totalAmount > 0) $('#txAmount').value = totalAmount.toLocaleString('vi-VN');
+    if (earliestDate) $('#txDate').value = earliestDate;
+
+    if (receipts.length === 1) {
+      // 1 hoá đơn → note đơn giản (giữ flow cũ)
+      const r = receipts[0];
+      const noteText = (r.note || r.merchant || '').trim();
+      if (noteText) $('#txNote').value = noteText;
+      if (Array.isArray(r.items) && r.items.length > 1) {
+        const existing = $('#txNote').value || '';
+        const itemList = r.items.map(it => `· ${it.name}: ${fmt(it.amount)} đ`).join('\n');
+        $('#txNote').value = (existing + (existing ? '\n\n' : '') + itemList).slice(0, 500);
+      }
+    } else {
+      // ≥ 2 hoá đơn → note detail kê từng cái
+      const noteLines = [`Gộp ${receipts.length} hoá đơn:`];
+      receipts.forEach((r, i) => {
+        noteLines.push(`${i + 1}. ${r.merchant || '?'} — ${fmt(r.amount)} đ${r.date ? ' · ' + r.date : ''}`);
+      });
+      if (allItems.length > 0) {
+        noteLines.push('');
+        noteLines.push('Chi tiết items:');
+        allItems.forEach(it => noteLines.push(`· ${it.name}: ${fmt(it.amount)} đ`));
+      }
+      $('#txNote').value = noteLines.join('\n').slice(0, 500);
+    }
+
+    // Category — chọn slug đầu tiên có gợi ý
+    if (categorySlug) {
+      const type = $('#txForm').dataset.type || 'expense';
+      const cat = this.state.categories.find(c =>
+        (c.slug === categorySlug || c.id === categorySlug) && c.type === type
+      );
+      if (cat && this.state.editingTx) {
+        this.state.editingTx.categoryId = cat.id;
+        delete this.state.editingTx._activeParent;
+        this.renderTxCategoryPicker(cat.type);
+      }
+    }
+  },
+
+  // Hiện nút 'Chụp thêm hoá đơn' sau khi scan thành công ít nhất 1 receipt.
+  _showScanMoreButton() {
+    const btn = $('#txScanMore');
+    if (!btn) return;
+    btn.style.display = 'block';
+    btn.onclick = () => this.scanReceipt();
+  },
+
   async scanReceipt() {
     try {
       // Hỏi user: Camera (1 hoá đơn) hay Thư viện (nhiều hoá đơn cùng lúc)
@@ -14782,43 +14848,26 @@ const App = {
         };
       }
 
-      // === Auto-fill form ===
-      if (result.amount) {
-        $('#txAmount').value = Number(result.amount).toLocaleString('vi-VN');
-      }
-      if (result.date) $('#txDate').value = result.date;
-      // Note: ưu tiên AI's `note` field, fallback merchant
-      const noteText = (result.note || result.merchant || '').trim();
-      if (noteText) $('#txNote').value = noteText;
+      // === Push vào accumulator + recompute form ===
+      if (result && result.amount) {
+        this.state._scanReceipts = this.state._scanReceipts || [];
+        this.state._scanReceipts.push(result);
+        this._applyAccumulatedReceipts();
+        this._showScanMoreButton();
 
-      // AI category suggestion → tìm cat tương ứng
-      if (usedAI && result.categorySlug) {
-        const cat = this.state.categories.find(c =>
-          (c.slug === result.categorySlug || c.id === result.categorySlug)
-          && c.type === ($('#txForm').dataset.type || 'expense')
-        );
-        if (cat && this.state.editingTx) {
-          this.state.editingTx.categoryId = cat.id;
-          delete this.state.editingTx._activeParent;
-          this.renderTxCategoryPicker(cat.type);
-        }
-      }
-
-      // Status thông báo cuối
-      if (usedAI && result.amount) {
+        const total = this.state._scanReceipts.reduce((s, r) => s + (r.amount || 0), 0);
+        const n = this.state._scanReceipts.length;
         const itemHint = result.items && result.items.length > 1
-          ? ` · ${result.items.length} món (xem tab Ghi chú để xem detail)`
+          ? ` · ${result.items.length} món`
           : '';
         status.style.color = '#16a34a';
-        status.textContent = `✨ AI nhận diện: ${fmt(result.amount)} đ${itemHint}`;
-        // Lưu items vào tx note nếu có
-        if (result.items && result.items.length > 1) {
-          const existing = $('#txNote').value || '';
-          const itemList = result.items.map(it => `· ${it.name}: ${fmt(it.amount)} đ`).join('\n');
-          $('#txNote').value = (existing + (existing ? '\n\n' : '') + itemList).slice(0, 500);
+        if (n === 1) {
+          status.textContent = usedAI
+            ? `✨ AI nhận diện: ${fmt(total)} đ${itemHint}`
+            : `✓ OCR: ${fmt(total)} đ`;
+        } else {
+          status.textContent = `✨ Cộng dồn ${n} hoá đơn: ${fmt(total)} đ`;
         }
-      } else if (result.amount) {
-        status.textContent = `✓ OCR: ${fmt(result.amount)} đ`;
       } else {
         status.style.color = '#cc7a4f';
         status.textContent = '⚠️ Không đọc được số tiền — vui lòng nhập tay';
@@ -14880,59 +14929,16 @@ const App = {
       return;
     }
 
-    // Gộp kết quả:
-    //   - amount: tổng tất cả
-    //   - date: lấy ngày sớm nhất (string YYYY-MM-DD compare an toàn)
-    //   - merchant: gộp distinct, join " + "
-    //   - note: list từng hoá đơn với amount riêng
-    //   - items: gộp hết items từ mọi hoá đơn
-    //   - categorySlug: ưu tiên hoá đơn đầu tiên có gợi ý
-    const totalAmount = successes.reduce((s, r) => s + (r.amount || 0), 0);
-    const dates = successes.map(r => r.date).filter(Boolean).sort();
-    const earliestDate = dates[0] || null;
-    const merchants = [...new Set(successes.map(r => r.merchant).filter(Boolean))];
-    const mergedMerchant = merchants.join(' + ');
-    const categorySlug = successes.find(r => r.categorySlug)?.categorySlug;
+    // Push tất cả successes vào accumulator + recompute form (gộp với scan trước nếu có)
+    this.state._scanReceipts = this.state._scanReceipts || [];
+    this.state._scanReceipts.push(...successes);
+    this._applyAccumulatedReceipts();
+    this._showScanMoreButton();
 
-    const noteLines = [`Gộp ${successes.length} hoá đơn:`];
-    successes.forEach((r, i) => {
-      noteLines.push(`${i + 1}. ${r.merchant || '?'} — ${fmt(r.amount)} đ${r.date ? ' · ' + r.date : ''}`);
-    });
-    const allItems = [];
-    successes.forEach(r => {
-      if (Array.isArray(r.items)) allItems.push(...r.items);
-    });
-    if (allItems.length > 0) {
-      noteLines.push('');
-      noteLines.push('Chi tiết items:');
-      allItems.forEach(it => noteLines.push(`· ${it.name}: ${fmt(it.amount)} đ`));
-    }
-    if (failures.length > 0) {
-      noteLines.push('');
-      noteLines.push(`⚠️ ${failures.length} hoá đơn AI không đọc được — kiểm tra ảnh minh chứng`);
-    }
-
-    // Auto-fill form
-    $('#txAmount').value = totalAmount.toLocaleString('vi-VN');
-    if (earliestDate) $('#txDate').value = earliestDate;
-    if (mergedMerchant) $('#txNote').value = noteLines.join('\n').slice(0, 500);
-
-    // Category suggestion
-    if (categorySlug) {
-      const cat = this.state.categories.find(c =>
-        (c.slug === categorySlug || c.id === categorySlug) && c.type === type
-      );
-      if (cat && this.state.editingTx) {
-        this.state.editingTx.categoryId = cat.id;
-        delete this.state.editingTx._activeParent;
-        this.renderTxCategoryPicker(cat.type);
-      }
-    }
-
-    // Status thông báo
+    const total = this.state._scanReceipts.reduce((s, r) => s + (r.amount || 0), 0);
     status.style.color = '#16a34a';
-    const failHint = failures.length > 0 ? ` (${failures.length} lỗi)` : '';
-    status.textContent = `✨ Gộp ${successes.length} hoá đơn → ${fmt(totalAmount)} đ${failHint}`;
+    const failHint = failures.length > 0 ? ` (${failures.length} hoá đơn lỗi)` : '';
+    status.textContent = `✨ Cộng dồn ${this.state._scanReceipts.length} hoá đơn → ${fmt(total)} đ${failHint}`;
   },
 
   // Picker đa năng: trả về mảng dataUrl. Native single (1 ảnh/lần), web hỗ trợ multi.
