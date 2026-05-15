@@ -202,6 +202,152 @@ public class NotificationReaderPlugin extends Plugin {
         }
     }
 
+    /**
+     * Mở settings tắt tối ưu pin (battery optimization) cho app này.
+     * Vital cho MIUI/EMUI/ColorOS — họ giết NotificationListenerService aggressively.
+     * Khi user tắt tối ưu, service được giữ alive lâu hơn nhiều.
+     */
+    @PluginMethod
+    public void requestBatteryWhitelist(PluginCall call) {
+        try {
+            android.content.Context ctx = getContext();
+            String pkg = ctx.getPackageName();
+            android.os.PowerManager pm = (android.os.PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+            boolean isIgnoring = pm != null && pm.isIgnoringBatteryOptimizations(pkg);
+
+            Intent intent;
+            if (isIgnoring) {
+                // Đã trong whitelist → mở list để user tự verify (không thể request lại)
+                intent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+            } else {
+                // Request trực tiếp — popup hỏi user
+                intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(android.net.Uri.parse("package:" + pkg));
+            }
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(intent);
+
+            JSObject ret = new JSObject();
+            ret.put("opened", true);
+            ret.put("alreadyWhitelisted", isIgnoring);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Không mở được battery settings: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Mở settings Autostart (cho phép tự khởi động) — chỉ MIUI/Xiaomi support intent này.
+     * Fallback: mở App info để user manually navigate.
+     */
+    @PluginMethod
+    public void openAutostartSettings(PluginCall call) {
+        android.content.Context ctx = getContext();
+        boolean opened = false;
+        String which = null;
+
+        // List intent OEM-specific để thử theo thứ tự
+        Intent[] candidates = new Intent[] {
+            // MIUI / Xiaomi
+            new Intent().setComponent(new android.content.ComponentName(
+                "com.miui.securitycenter",
+                "com.miui.permcenter.autostart.AutoStartManagementActivity")),
+            // Huawei EMUI
+            new Intent().setComponent(new android.content.ComponentName(
+                "com.huawei.systemmanager",
+                "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
+            new Intent().setComponent(new android.content.ComponentName(
+                "com.huawei.systemmanager",
+                "com.huawei.systemmanager.optimize.process.ProtectActivity")),
+            // Oppo ColorOS
+            new Intent().setComponent(new android.content.ComponentName(
+                "com.coloros.safecenter",
+                "com.coloros.safecenter.permission.startup.StartupAppListActivity")),
+            new Intent().setComponent(new android.content.ComponentName(
+                "com.oppo.safe",
+                "com.oppo.safe.permission.startup.StartupAppListActivity")),
+            // Vivo FuntouchOS
+            new Intent().setComponent(new android.content.ComponentName(
+                "com.iqoo.secure",
+                "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity")),
+            // Letv
+            new Intent().setComponent(new android.content.ComponentName(
+                "com.letv.android.letvsafe",
+                "com.letv.android.letvsafe.AutobootManageActivity")),
+            // Asus
+            new Intent().setComponent(new android.content.ComponentName(
+                "com.asus.mobilemanager",
+                "com.asus.mobilemanager.MainActivity")),
+        };
+        String[] names = {"MIUI", "EMUI(start)", "EMUI(protect)", "ColorOS", "OPPO",
+                           "Vivo", "Letv", "Asus"};
+
+        for (int i = 0; i < candidates.length; i++) {
+            try {
+                Intent intent = candidates[i];
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (ctx.getPackageManager().resolveActivity(intent, 0) != null) {
+                    ctx.startActivity(intent);
+                    opened = true;
+                    which = names[i];
+                    break;
+                }
+            } catch (Exception ignore) { /* try next */ }
+        }
+
+        if (!opened) {
+            // Fallback: mở App info để user manually toggle autostart trong Battery
+            try {
+                Intent fallback = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                fallback.setData(android.net.Uri.parse("package:" + ctx.getPackageName()));
+                fallback.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(fallback);
+                which = "AppInfo (fallback)";
+                opened = true;
+            } catch (Exception e) {
+                call.reject("Không mở được autostart settings: " + e.getMessage(), e);
+                return;
+            }
+        }
+
+        JSObject ret = new JSObject();
+        ret.put("opened", opened);
+        ret.put("which", which);
+        call.resolve(ret);
+    }
+
+    /**
+     * Force rebind NotificationListenerService — toggle component enabled state.
+     * Android sẽ disconnect rồi reconnect listener → khôi phục service nếu bị
+     * MIUI/Samsung giết. Test reliability bằng cách verify ngay sau bằng isEnabled().
+     */
+    @PluginMethod
+    public void rebindListener(PluginCall call) {
+        try {
+            android.content.Context ctx = getContext();
+            android.content.pm.PackageManager pm = ctx.getPackageManager();
+            android.content.ComponentName cn = new android.content.ComponentName(
+                ctx, NotificationReaderService.class);
+            pm.setComponentEnabledSetting(cn,
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                android.content.pm.PackageManager.DONT_KILL_APP);
+            // Đợi 100ms cho Android xử lý disconnect
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                try {
+                    pm.setComponentEnabledSetting(cn,
+                        android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                        android.content.pm.PackageManager.DONT_KILL_APP);
+                } catch (Exception ignore) {}
+            }, 100);
+
+            JSObject ret = new JSObject();
+            ret.put("rebound", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Lỗi rebind: " + e.getMessage(), e);
+        }
+    }
+
     private void postBadgeNotification(int count) {
         // Mirror logic NotificationReaderService.postSummaryNotification
         // Đơn giản hoá: chỉ post notif với count

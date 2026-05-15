@@ -11320,6 +11320,76 @@ const App = {
       debugBtn.style.display = enabled ? 'block' : 'none';
       debugBtn.onclick = async () => this._showNotifDebug();
     }
+
+    // MIUI/EMUI/ColorOS fix buttons — chỉ hiện khi đã enable permission
+    const batteryBtn = $('#setNotifBatteryWhitelist');
+    if (batteryBtn) {
+      batteryBtn.style.display = enabled ? 'block' : 'none';
+      batteryBtn.onclick = async () => {
+        if (!NR.requestBatteryWhitelist) {
+          QLT_UI.toast('APK cũ — cần rebuild để có chức năng này', { type: 'warn' });
+          return;
+        }
+        try {
+          const r = await NR.requestBatteryWhitelist();
+          if (r.alreadyWhitelisted) {
+            QLT_UI.toast('✅ App đã trong whitelist battery — kiểm tra trong danh sách', { type: 'success', duration: 3500 });
+          } else {
+            QLT_UI.alert(
+              'Android sẽ hỏi "Cho phép app này chạy nền không tối ưu pin?"\n\nChọn "Cho phép" (Allow).\n\nSau đó quay về app.',
+              { title: '🔋 Tắt tối ưu pin' }
+            );
+          }
+        } catch (e) {
+          QLT_UI.alert('Lỗi: ' + (e.message || e), { title: 'Lỗi' });
+        }
+      };
+    }
+    const autostartBtn = $('#setNotifAutostart');
+    if (autostartBtn) {
+      autostartBtn.style.display = enabled ? 'block' : 'none';
+      autostartBtn.onclick = async () => {
+        if (!NR.openAutostartSettings) {
+          QLT_UI.toast('APK cũ — cần rebuild để có chức năng này', { type: 'warn' });
+          return;
+        }
+        try {
+          const r = await NR.openAutostartSettings();
+          if (r.which && r.which.includes('fallback')) {
+            QLT_UI.alert(
+              'Không tìm thấy settings autostart riêng (chắc bạn không phải MIUI/EMUI).\n\n'
+              + 'Đã mở App Info → tìm mục "Battery" / "Pin" hoặc "Auto-launch" → bật cho QLT.',
+              { title: '🚀 Autostart' }
+            );
+          } else {
+            QLT_UI.alert(
+              `Đã mở settings ${r.which}.\n\nTìm "Quản Lý Tiền" trong list → bật toggle "Auto-start" (hoặc "Tự khởi động").\n\nSau đó quay về app.`,
+              { title: '🚀 Bật autostart' }
+            );
+          }
+        } catch (e) {
+          QLT_UI.alert('Lỗi: ' + (e.message || e), { title: 'Lỗi' });
+        }
+      };
+    }
+    const rebindBtn = $('#setNotifRebind');
+    if (rebindBtn) {
+      rebindBtn.style.display = enabled ? 'block' : 'none';
+      rebindBtn.onclick = async () => {
+        if (!NR.rebindListener) {
+          QLT_UI.toast('APK cũ — cần rebuild để có chức năng này', { type: 'warn' });
+          return;
+        }
+        try {
+          await NR.rebindListener();
+          QLT_UI.toast('🔄 Đã yêu cầu Android khởi động lại service. Thử tạo 1 GD nhỏ ở app NH để verify.', { type: 'success', duration: 5000 });
+          // Re-check sau 1.5s
+          setTimeout(() => this.renderNotifReaderSettings(), 1500);
+        } catch (e) {
+          QLT_UI.alert('Lỗi: ' + (e.message || e), { title: 'Lỗi' });
+        }
+      };
+    }
   },
 
   // Debug view: list 20 notif gần nhất đã capture (cả processed + unprocessed)

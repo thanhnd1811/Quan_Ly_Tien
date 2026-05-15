@@ -3276,11 +3276,12 @@ html[data-theme="dark"] .theme-chip-swatch{border-color:var(--surface)}
           🔒 Chỉ filter notif từ app NH — KHÔNG đọc Zalo, Messenger, hay app khác.
         </div>
         <div style="padding:10px 14px;font-size:11px;color:#f59e0b;line-height:1.6;background:rgba(245,158,11,.08);border-radius:6px;margin:0 12px 8px">
-          ⚠️ <strong>QUAN TRỌNG cho Xiaomi/MIUI</strong>: nếu service bị giết khi tắt app, cần bật:<br>
-          1. <strong>Cài đặt → Apps → Quản Lý Tiền → Battery saver → "No restrictions"</strong><br>
-          2. <strong>Apps → Permissions → Auto-start</strong> → bật cho QLT<br>
-          3. Mở app → bấm Recents → khoá thumbnail QLT (icon ổ khoá)<br>
-          4. Nếu vẫn ko work: Settings → Additional → <strong>Tắt MIUI Optimization</strong>
+          ⚠️ <strong>Service hay bị MIUI/EMUI/ColorOS giết</strong> dù đã cấp quyền. Bấm 3 nút dưới đây + khoá app trong Recents để service sống dai.
+        </div>
+        <div class="settings-group-actions" style="gap:6px">
+          <button id="setNotifBatteryWhitelist" class="btn btn-secondary btn-block" style="font-size:12px;display:none">🔋 Tắt tối ưu pin cho QLT (quan trọng)</button>
+          <button id="setNotifAutostart" class="btn btn-secondary btn-block" style="font-size:12px;display:none">🚀 Cho phép tự khởi động (MIUI/EMUI)</button>
+          <button id="setNotifRebind" class="btn btn-secondary btn-block" style="font-size:12px;display:none">🔄 Khởi động lại service (nếu cache rỗng)</button>
         </div>
 
         <!-- ========== SMS Parser (legacy, fallback) ========== -->
